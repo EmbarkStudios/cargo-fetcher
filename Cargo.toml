@@ -1,0 +1,19 @@
+[package]
+name = "cargo-cacher"
+version = "0.1.0"
+authors = ["Embark <opensource@embark-studios.com>", "Jake Shadle <jake.shadle@embark-studios.com>"]
+edition = "2018"
+
+[dependencies]
+bytes = "0.4.12"
+dirs = "2.0.1"
+env_logger = "0.6.2"
+failure = "0.1.5"
+log = "0.4.7"
+rayon = "1.1.0"
+reqwest = { version = "0.9.19", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1.0.97", features = ["derive"] }
+tame-gcs = "0.3.4"
+tame-oauth = { version = "0.2.1", features = ["gcp"] }
+toml = "0.5.1"
+structopt = "0.2.18"
