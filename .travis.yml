@@ -170,10 +170,10 @@ deploy:
   api_key:
     secure: <SEKRET>
   file:
-  - $REPO_NAME-$TRAVIS_TAG-$TARGET.tar.gz
-  - $REPO_NAME-$TRAVIS_TAG-$TARGET.tar.gz.sha256
+  - cargo-cacher-$TRAVIS_TAG-$TARGET.tar.gz
+  - cargo-cacher-$TRAVIS_TAG-$TARGET.tar.gz.sha256
   skip_cleanup: true
   on:
     condition: $DEPLOY = 1
-    repo: EmbarkStudios/$REPO_NAME
+    repo: EmbarkStudios/cargo-cacher
     tags: true
