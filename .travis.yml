@@ -120,7 +120,7 @@ matrix:
       token:
         secure: Q6VHNqt7fS1P98btlg4wWjgc1oq/dPMaa5gSYStrH/ByE7tvCMWKHGow6txvGG0thcwk4sNLcRswE30rcI3tPrDKlQWuGctkFUc/c6t95M6NueBvL440ori3jIyH6OpakL1TlYEbtXYACdM749ChPYfB9DolnRRtX63wg/5NJzdcavFK0XOMN1HdjwA1wdJ3mSRWr6Jy/lVHvcSVPE/bdHb6/WnwgZbfRXMffeGBelSJm0dV/w76D/o1zg8hWIh98xbh5WnXActZuVMlbyGvlEppXsRs2+fbXQ9kkJxmVHBXvKgvQsxmDUbUgGKoCzcEtmWk2ao5PTXxj20wp6VoVHVl7ehZ6WKyGKEcoeda6DhtYHzxhP1Es2B+DBA6e0nqng+vkDXnoxaeWKJd0BzZjQEcwKltR+uV8yIz5lZMK1dHkJXZcKivI8LVbVFmLfLbYmpJyMRgPEibwUGSjSMbs1jMmXSifBvd5aklZeRTchWo7zK0bUbyDZHLYGYCKW7dilvj9qaDtZxSakA7nSQ2WgzCIHDXT/k6fDvlkXllj3OKDHOwqZB1c3INEcVWPNhroCghdqU5LTQqtutVikQCzswVdpogUZw+R8GxTd/HgfYfb67hHmfdUtjlpG6kLew3//ofOrVjv1yzdvjFbSetUIci+XOLGE65bvzmUMZWCyw=
       on:
-        repo: EmbarkStudios/$REPO_NAME
+        repo: EmbarkStudios/cargo-fetcher
         tags: true
 
   # Keep these step if you want to publish tarballed releases to Github.
@@ -170,10 +170,10 @@ deploy:
   api_key:
     secure: dYVvn9r8pSwgSgcEsHE5OmvXFsGnBTtMlsfmp+hda401n3aD/ZDdFgd238KSR9S/fGak6RB5iKXGFdz0s5i8c5NaM2WlpdgiGEGi7AqrbEYS16p98p0xTk/Z58Z4LaQTgGix9O0Ck1Zvzal3G4L7MgdVO0Jy1Px8n3pSrdkWnHJs7K6MRvNEM/JfcBzumMyyKCC35RuTwg4WjMsfvpCjLxmi31ocl0DhiYplp+TjTwDO4ARF/OWesDmO2uXchOz26EQ2p4JNklg9Y2Pf7PgQN34f7IS7Yvhev6A2jz6q2c0gL03J/0iacC38PcYx80GvQaaUfGrMravTt7AygcHfLPyuDmupY4pX7jb7v8pER7Mn6Ct8QD6eQIEjMaYUYMHCeJgVkOvhZfBPuqatfPJhoWqUdXrWjOTylCy9XKES1O4dGK3Mkjgfovf87w70vbQxbQGL5WWl9BNDjQ8JbhncCa9uTAnoHZlnC3qCEwOKIyxdLviJdZjr/dpH8KaT8CXbotheA1iOKTF6GNm6i/cR1rd35Rqb5XzIWYid+6hWacUQAoNlK9nqQ2AO51IcIkGo2E5EMo/vU/nzJIw23HCyHzFNX3k4iBrd39XiRVUy3lzF9MUXSXygQ3HyIxkQ8JmD2osFPG+pn9P5YFQFVYNkSaIiFQmJXusX4ViW22h9FRw=
   file:
-  - cargo-cacher-$TRAVIS_TAG-$TARGET.tar.gz
-  - cargo-cacher-$TRAVIS_TAG-$TARGET.tar.gz.sha256
+  - cargo-fetcher-$TRAVIS_TAG-$TARGET.tar.gz
+  - cargo-fetcher-$TRAVIS_TAG-$TARGET.tar.gz.sha256
   skip_cleanup: true
   on:
     condition: $DEPLOY = 1
-    repo: EmbarkStudios/cargo-cacher
+    repo: EmbarkStudios/cargo-fetcher
     tags: true

@@ -5,9 +5,9 @@ authors = ["Embark <opensource@embark-studios.com>", "Jake Shadle <jake.shadle@e
 edition = "2018"
 description = "🎁 Experimental alternative to cargo fetch"
 license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/cargo-cacher"
-homepage = "https://github.com/EmbarkStudios/cargo-cacher"
-repository = "https://github.com/EmbarkStudios/cargo-cacher"
+documentation = "https://docs.rs/cargo-fetcher"
+homepage = "https://github.com/EmbarkStudios/cargo-fetcher"
+repository = "https://github.com/EmbarkStudios/cargo-fetcher"
 keywords = ["fetch", "gcs"]
 readme = "README.md"
 
