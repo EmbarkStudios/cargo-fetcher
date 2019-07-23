@@ -38,7 +38,7 @@ pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
 
         let mut res = ctx.client.execute(request)?;
 
-        let response = cargo_cacher::convert_response(&mut res)?;
+        let response = cargo_fetcher::convert_response(&mut res)?;
         let list_response = ListResponse::try_from(response)?;
 
         let name_block: Vec<_> = list_response
@@ -79,10 +79,10 @@ pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
     use rayon::prelude::*;
 
     to_mirror.par_iter().for_each(|krate| {
-        match cargo_cacher::fetch::from_crates_io(&ctx.client, krate) {
+        match cargo_fetcher::fetch::from_crates_io(&ctx.client, krate) {
             Err(e) => error!("failed to retrieve {}-{}: {}", krate.name, krate.version, e),
             Ok(buffer) => {
-                if let Err(e) = cargo_cacher::upload::to_gcs(
+                if let Err(e) = cargo_fetcher::upload::to_gcs(
                     &ctx.client,
                     buffer,
                     &ctx.gcs_bucket,

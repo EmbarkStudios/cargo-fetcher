@@ -81,7 +81,7 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
     info!("synchronizing {} missing crates...", to_sync.len());
 
     ctx.krates.par_iter().for_each(|krate| {
-        match cargo_cacher::fetch::from_gcs(&ctx.client, krate, &ctx.gcs_bucket, ctx.prefix) {
+        match cargo_fetcher::fetch::from_gcs(&ctx.client, krate, &ctx.gcs_bucket, ctx.prefix) {
             Err(e) => error!("failed to download {}-{}: {}", krate.name, krate.version, e),
             Ok(krate_data) => {
                 use std::io::Write;

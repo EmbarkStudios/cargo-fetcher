@@ -1,4 +1,4 @@
-use cargo_cacher::Krate;
+use cargo_fetcher::Krate;
 use failure::{format_err, Error, ResultExt};
 use log::{debug, error};
 use reqwest::Client;
@@ -113,7 +113,7 @@ fn acquire_token(cred_path: PathBuf) -> Result<tame_oauth::Token, Error> {
 
             let mut res = client.execute(req)?;
 
-            let response = cargo_cacher::convert_response(&mut res)?;
+            let response = cargo_fetcher::convert_response(&mut res)?;
             svc_account_access.parse_token_response(scope_hash, response)?
         }
         _ => unreachable!(),
@@ -149,7 +149,7 @@ fn real_main() -> Result<(), Error> {
 
     let token = acquire_token(cred_path)?;
 
-    let krates = cargo_cacher::gather(args.lock_file)?;
+    let krates = cargo_fetcher::gather(args.lock_file)?;
 
     let mut hm = header::HeaderMap::new();
     hm.insert(header::AUTHORIZATION, token.try_into()?);

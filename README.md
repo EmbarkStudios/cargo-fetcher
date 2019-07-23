@@ -1,8 +1,8 @@
-# 🎁 cargo-cacher
+# 🎁 cargo-fetcher
 
-[![Build Status](https://travis-ci.com/EmbarkStudios/cargo-cacher.svg?branch=master)](https://travis-ci.com/EmbarkStudios/cargo-cacher)
-[![Crates.io](https://img.shields.io/crates/v/cargo-cacher.svg)](https://crates.io/crates/cargo-cacher)
-[![Docs](https://docs.rs/cargo-cacher/badge.svg)](https://docs.rs/cargo-cacher)
+[![Build Status](https://travis-ci.com/EmbarkStudios/cargo-fetcher.svg?branch=master)](https://travis-ci.com/EmbarkStudios/cargo-fetcher)
+[![Crates.io](https://img.shields.io/crates/v/cargo-fetcher.svg)](https://crates.io/crates/cargo-fetcher)
+[![Docs](https://docs.rs/cargo-fetcher/badge.svg)](https://docs.rs/cargo-fetcher)
 [![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v1.4%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
 [![Embark](https://img.shields.io/badge/embark-open%20source-blueviolet.svg)](http://embark.games)
 

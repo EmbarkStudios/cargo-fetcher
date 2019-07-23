@@ -110,7 +110,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cargo-cacher"
+name = "cargo-fetcher"
 version = "0.1.0"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
