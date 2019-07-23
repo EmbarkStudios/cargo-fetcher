@@ -1,14 +1,12 @@
-<!--- FIXME: Pick an emoji! --->
-# 🌻 template-rust
+# 🎁 cargo-cacher
 
-<!--- FIXME: Update crate and repo names here! --->
-[![Build Status](https://travis-ci.com/EmbarkStudios/tame-oauth.svg?branch=master)](https://travis-ci.com/EmbarkStudios/tame-oauth)
-[![Crates.io](https://img.shields.io/crates/v/tame-oauth.svg)](https://crates.io/crates/tame-oauth)
-[![Docs](https://docs.rs/tame-oauth/badge.svg)](https://docs.rs/tame-oauth)
+[![Build Status](https://travis-ci.com/EmbarkStudios/cargo-cacher.svg?branch=master)](https://travis-ci.com/EmbarkStudios/cargo-cacher)
+[![Crates.io](https://img.shields.io/crates/v/cargo-cacher.svg)](https://crates.io/crates/cargo-cacher)
+[![Docs](https://docs.rs/cargo-cacher/badge.svg)](https://docs.rs/cargo-cacher)
 [![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v1.4%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
 [![Embark](https://img.shields.io/badge/embark-open%20source-blueviolet.svg)](http://embark.games)
 
-Template for creating new Rust repositories
+Experimental alternative to `cargo fetch`
 
 ## Contributing
 
