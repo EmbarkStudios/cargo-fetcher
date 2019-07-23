@@ -88,17 +88,3 @@ pub fn convert_response(
 
     Ok(builder.body(body.freeze())?)
 }
-
-#[cfg(test)]
-mod test {
-    #[test]
-    fn gather_self() {
-        let krates = super::gather("Cargo.lock").expect("gathered");
-
-        for krate in krates {
-            println!("{} @ {} - {}", krate.name, krate.version, krate.checksum);
-        }
-
-        panic!("checking!");
-    }
-}
