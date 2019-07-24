@@ -62,7 +62,7 @@ pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
     let mut to_mirror = Vec::with_capacity(names.len());
     for krate in ctx.krates {
         if names
-            .binary_search_by(|name| name[prefix_len..].cmp(&krate.checksum))
+            .binary_search_by(|name| name[prefix_len..].cmp(krate.gcs_id()))
             .is_err()
         {
             to_mirror.push(krate);

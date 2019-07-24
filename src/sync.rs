@@ -12,6 +12,7 @@ pub struct Args {
 }
 
 const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
+const GIT_DB_DIR: &str = "git/db";
 
 pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
     info!("synchronizing {} crates...", ctx.krates.len());
@@ -42,14 +43,18 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
     }
 
     let cache_dir = root_dir.join(CACHE_DIR);
+    let git_db_dir = root_dir.join(GIT_DB_DIR);
     std::fs::create_dir_all(&cache_dir)?;
+    std::fs::create_dir_all(&git_db_dir)?;
 
-    let dir_iter = std::fs::read_dir(&cache_dir)?;
+    let cache_iter = std::fs::read_dir(&cache_dir)?;
+    let db_iter = std::fs::read_dir(&git_db_dir)?;
 
     // TODO: Also check the untarred crates
     info!("checking local cache for missing crates...");
 
-    let mut cached_crates: Vec<String> = dir_iter
+    let mut cached_crates: Vec<String> = cache_iter
+        .chain(db_iter)
         .filter_map(|entry| {
             entry
                 .ok()
@@ -64,7 +69,7 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
 
     for krate in ctx.krates {
         use std::fmt::Write;
-        write!(&mut krate_name, "{}-{}.crate", krate.name, krate.version).unwrap();
+        write!(&mut krate_name, "{}", krate.local_id()).unwrap();
 
         if cached_crates.binary_search(&krate_name).is_err() {
             to_sync.push(krate);
@@ -84,24 +89,64 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
         match cargo_fetcher::fetch::from_gcs(&ctx.client, krate, &ctx.gcs_bucket, ctx.prefix) {
             Err(e) => error!("failed to download {}-{}: {}", krate.name, krate.version, e),
             Ok(krate_data) => {
+                use bytes::{Buf, IntoBuf};
+                use cargo_fetcher::Source;
                 use std::io::Write;
 
-                let packed_krate_path =
-                    cache_dir.join(format!("{}-{}.crate", krate.name, krate.version));
+                match &krate.source {
+                    Source::CratesIo(_) => {
+                        let packed_krate_path = cache_dir.join(format!("{}", krate.local_id()));
 
-                match std::fs::File::create(&packed_krate_path) {
-                    Ok(mut f) => {
-                        let _ = f.set_len(krate_data.len() as u64);
+                        match std::fs::File::create(&packed_krate_path) {
+                            Ok(mut f) => {
+                                let _ = f.set_len(krate_data.len() as u64);
 
-                        if let Err(e) = f.write_all(&krate_data) {
-                            error!(
-                                "failed to write {}-{} to disk: {}",
-                                krate.name, krate.version, e
-                            );
+                                if let Err(e) = f.write_all(&krate_data) {
+                                    error!(
+                                        "failed to write {}-{} to disk: {}",
+                                        krate.name, krate.version, e
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                error!("failed to create {}-{}: {}", krate.name, krate.version, e);
+                            }
                         }
                     }
-                    Err(e) => {
-                        error!("failed to create {}-{}: {}", krate.name, krate.version, e);
+                    Source::Git { .. } => {
+                        let buf_reader = krate_data.into_buf().reader();
+                        let zstd_decoder = match zstd::Decoder::new(buf_reader) {
+                            Ok(zd) => zd,
+                            Err(e) => {
+                                error!(
+                                    "failed to create decompressor for {}-{}: {}",
+                                    krate.name, krate.version, e
+                                );
+                                return;
+                            }
+                        };
+
+                        let mut archive_reader = tar::Archive::new(zstd_decoder);
+
+                        let db_path = git_db_dir.join(format!("{}", krate.local_id()));
+                        if let Err(e) = archive_reader.unpack(&db_path) {
+                            error!(
+                                "failed to unarchive {}-{}: {}",
+                                krate.name, krate.version, e
+                            );
+
+                            // Attempt to remove anything that may have been written so that we
+                            // _hopefully_ don't actually mess up cargo
+                            if db_path.exists() {
+                                if let Err(e) = remove_dir_all::remove_dir_all(&db_path) {
+                                    error!(
+                                        "error trying to remove contents of {}: {}",
+                                        db_path.display(),
+                                        e
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }

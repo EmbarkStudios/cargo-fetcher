@@ -174,7 +174,6 @@ fn main() {
         Ok(_) => {}
         Err(e) => {
             error!("{}", e);
-            //eprintln!("\x1B[31m{}\x1B[0m", e);
             std::process::exit(1);
         }
     }

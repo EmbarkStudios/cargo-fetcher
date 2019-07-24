@@ -1,8 +1,10 @@
 use failure::Error;
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, fmt, path::Path};
+use url::Url;
 
 pub mod fetch;
 pub mod upload;
+pub mod util;
 
 #[derive(serde::Deserialize)]
 struct Package {
@@ -17,13 +19,45 @@ struct LockContents {
     metadata: BTreeMap<String, String>,
 }
 
+pub enum Source {
+    CratesIo(String),
+    Git { url: Url, ident: String },
+}
+
 pub struct Krate {
     pub name: String,
     pub version: String,
-    pub checksum: String,
+    pub source: Source,
+}
+
+impl Krate {
+    pub fn gcs_id(&self) -> &str {
+        match &self.source {
+            Source::CratesIo(chksum) => chksum,
+            Source::Git { ident, .. } => ident,
+        }
+    }
+
+    pub fn local_id(&self) -> LocalId<'_> {
+        LocalId { inner: self }
+    }
+}
+
+pub struct LocalId<'a> {
+    inner: &'a Krate,
+}
+
+impl<'a> fmt::Display for LocalId<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.inner.source {
+            Source::CratesIo(_) => write!(f, "{}-{}.crate", self.inner.name, self.inner.version),
+            Source::Git { ident, .. } => write!(f, "{}", &ident[..ident.len() - 8]),
+        }
+    }
 }
 
 pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
+    use log::{debug, error};
     use std::fmt::Write;
 
     let mut locks: LockContents = {
@@ -35,28 +69,86 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
     let mut krates = Vec::with_capacity(locks.package.len());
 
     for p in locks.package {
-        if p.source.as_ref().map(|s| s.as_ref())
-            != Some("registry+https://github.com/rust-lang/crates.io-index")
-        {
-            continue;
-        }
+        let source = match p.source.as_ref() {
+            Some(s) => s,
+            None => {
+                debug!("skipping 'path' source {}-{}", p.name, p.version);
+                continue;
+            }
+        };
 
-        write!(
-            &mut lookup,
-            "checksum {} {} (registry+https://github.com/rust-lang/crates.io-index)",
-            p.name, p.version
-        )
-        .unwrap();
+        if source == "registry+https://github.com/rust-lang/crates.io-index" {
+            write!(
+                &mut lookup,
+                "checksum {} {} (registry+https://github.com/rust-lang/crates.io-index)",
+                p.name, p.version
+            )
+            .unwrap();
 
-        if let Some(chksum) = locks.metadata.remove(&lookup) {
+            if let Some(chksum) = locks.metadata.remove(&lookup) {
+                krates.push(Krate {
+                    name: p.name,
+                    version: p.version,
+                    source: Source::CratesIo(chksum),
+                })
+            }
+
+            lookup.clear();
+        } else {
+            // We support exactly one form of git sources, rev specififers
+            // eg. git+https://github.com/EmbarkStudios/rust-build-helper?rev=9135717#91357179ba2ce6ec7e430a2323baab80a8f7d9b3
+            let url = match Url::parse(source) {
+                Ok(u) => u,
+                Err(e) => {
+                    error!("failed to parse url for {}-{}: {}", p.name, p.version, e);
+                    continue;
+                }
+            };
+
+            let rev = match url.query_pairs().find(|(k, _)| k == "rev") {
+                Some((_, rev)) => {
+                    if rev.len() < 7 {
+                        log::error!(
+                            "skipping {}-{}: revision length was too short",
+                            p.name,
+                            p.version
+                        );
+                        continue;
+                    } else {
+                        rev
+                    }
+                }
+                None => {
+                    log::warn!("skipping {}-{}: revision not specified", p.name, p.version);
+                    continue;
+                }
+            };
+
+            // This will handle
+            // 1. 7 character short_id
+            // 2. Full 40 character sha-1
+            // 3. 7 character short_id#sha-1
+            let rev = &rev[..7];
+
+            let canonicalized = match util::canonicalize_url(&url) {
+                Ok(i) => i,
+                Err(e) => {
+                    log::warn!("skipping {}-{}: {}", p.name, p.version, e);
+                    continue;
+                }
+            };
+
+            let ident = util::ident(&canonicalized);
+
             krates.push(Krate {
                 name: p.name,
                 version: p.version,
-                checksum: chksum,
+                source: Source::Git {
+                    url: canonicalized,
+                    ident: format!("{}-{}", ident, rev),
+                },
             })
         }
-
-        lookup.clear();
     }
 
     Ok(krates)

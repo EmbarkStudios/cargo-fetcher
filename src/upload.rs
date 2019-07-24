@@ -16,7 +16,7 @@ pub fn to_gcs(
 ) -> Result<(), Error> {
     use bytes::{Buf, IntoBuf};
 
-    let object_name = format!("{}{}", prefix, krate.checksum);
+    let object_name = format!("{}{}", prefix, krate.gcs_id());
     let object_name = ObjectName::try_from(object_name.as_ref())?;
 
     let content_len = source.len() as u64;
