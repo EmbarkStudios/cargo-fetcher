@@ -1,27 +1,109 @@
 use cargo_fetcher::{fetch, upload, util, Krate};
 use failure::Error;
 use log::{error, info};
-use std::convert::TryFrom;
-use tame_gcs::objects::{ListOptional, ListResponse, Object};
+use std::{convert::TryFrom, time::Duration};
+use tame_gcs::objects::{self, ListOptional, ListResponse, Object};
+
+
+fn parse_duration(src: &str) -> Result<Duration, Error> {
+    let suffix_pos = src.find(char::is_alphabetic).unwrap_or_else(|| src.len());
+
+    let num: u64 = src[..suffix_pos].parse()?;
+    let suffix = if suffix_pos == src.len() {
+        "h"
+    } else {
+        &src[suffix_pos..]
+    };
+
+    let duration = match suffix {
+        "s" | "S" => Duration::from_secs(num),
+        "m" | "M" => Duration::from_secs(num * 60),
+        "h" | "H" => Duration::from_secs(num * 60 * 60),
+        "d" | "D" => Duration::from_secs(num * 60 * 60 * 24),
+        s => return Err(failure::format_err!("unknown duration suffix '{}'", s)),
+    };
+
+    Ok(duration)
+}
 
 #[derive(structopt::StructOpt)]
-pub struct Args {}
+pub struct Args {
+    #[structopt(
+        short,
+        long = "max-stale",
+        default_value = "1d",
+        parse(try_from_str = "parse_duration"),
+        long_help = "The duration for which the index will not be replaced after its most recent update.
 
-fn mirror_registry_index(ctx: &crate::Context<'_>) -> Result<(), Error> {
+Times may be specified with no suffix (default days), or one of:
+* (s)econds
+* (m)inutes
+* (h)ours
+* (d)ays
+
+"
+    )]
+    max_stale: Duration,
+}
+
+fn get_updated(ctx: &crate::Context<'_>, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    let obj_name = format!("{}{}", ctx.prefix, krate.gcs_id());
+    let index_obj_name = tame_gcs::ObjectName::try_from(obj_name)?;
+
+    let get_req = Object::get(&(&ctx.gcs_bucket, &index_obj_name), Some(objects::GetObjectOptional {
+        standard_params: tame_gcs::common::StandardQueryParameters {
+            fields: Some("updated"),
+            ..Default::default()
+        },
+        ..Default::default()
+    }))?;
+
+    let (parts, _) = get_req.into_parts();
+
+    let uri = parts.uri.to_string();
+    let builder = ctx.client.get(&uri);
+
+    let request = builder
+        .headers(parts.headers)
+        .build()?;
+
+    let mut response = ctx.client.execute(request)?.error_for_status()?;
+
+    let response = cargo_fetcher::convert_response(&mut response)?;
+    let get_response = objects::GetObjectResponse::try_from(response)?;
+
+    Ok(get_response.metadata.updated)
+}
+
+fn mirror_registry_index(ctx: &crate::Context<'_>, max_stale: Duration) -> Result<(), Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::canonicalize_url(&url)?;
     let ident = util::ident(&canonicalized);
-
-    let index = fetch::registry(&canonicalized)?;
 
     let krate = Krate {
         name: "crates.io-index".to_owned(),
         version: "1.0.0".to_owned(),
         source: cargo_fetcher::Source::Git {
-            url: canonicalized,
+            url: canonicalized.clone(),
             ident,
         },
     };
+
+    // Retrieve the metadata for the last updated registry entry, and update
+    // only it if it's stale
+    if let Ok(last_updated) = get_updated(ctx, &krate) {
+        if let Some(last_updated) = last_updated {
+            let now = chrono::Utc::now();
+            let max_dur = chrono::Duration::from_std(max_stale.clone())?;
+
+            if now - last_updated < max_dur {
+                info!("crates.io-index was last updated {}, skipping update as it less than {:?} old", last_updated, max_stale);
+                return Ok(());
+            }
+        }
+    }
+
+    let index = fetch::registry(&canonicalized)?;
 
     upload::to_gcs(&ctx.client, index, &ctx.gcs_bucket, ctx.prefix, &krate)
 }
@@ -114,7 +196,7 @@ fn mirror_locked_crates(ctx: &crate::Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
+pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
     rayon::join(
         || {
             if !ctx.include_index {
@@ -122,7 +204,7 @@ pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
             }
 
             info!("mirroring crates.io index");
-            match mirror_registry_index(&ctx) {
+            match mirror_registry_index(&ctx, args.max_stale) {
                 Ok(_) => info!("successfully mirrored crates.io index"),
                 Err(e) => error!("failed to mirror crates.io index: {}", e),
             }
