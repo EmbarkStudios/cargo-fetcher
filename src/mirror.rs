@@ -97,7 +97,7 @@ fn mirror_registry_index(ctx: &crate::Context<'_>, max_stale: Duration) -> Resul
     if let Ok(last_updated) = get_updated(ctx, &krate) {
         if let Some(last_updated) = last_updated {
             let now = chrono::Utc::now();
-            let max_dur = chrono::Duration::from_std(max_stale.clone())?;
+            let max_dur = chrono::Duration::from_std(max_stale)?;
 
             if now - last_updated < max_dur {
                 info!(
