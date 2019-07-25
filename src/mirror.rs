@@ -89,10 +89,7 @@ pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
                     ctx.prefix,
                     krate,
                 ) {
-                    error!(
-                        "failed to upload {} to GCS: {}",
-                        krate, e
-                    );
+                    error!("failed to upload {} to GCS: {}", krate, e);
                 }
             }
         }
