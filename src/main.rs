@@ -36,7 +36,7 @@ struct Opts {
     #[structopt(short = "g", long = "gcs")]
     gcs_url: String,
     /// Path to the lockfile used for determining what crates to operate on
-    #[structopt(short, long, parse(from_os_str))]
+    #[structopt(short, long = "lock-file", parse(from_os_str))]
     lock_file: PathBuf,
     #[structopt(
         short = "L",
@@ -56,7 +56,7 @@ Possible values:
     )]
     log_level: log::LevelFilter,
     /// A snapshot of the registry index is also included when mirroring or syncing
-    #[structopt(short, long)]
+    #[structopt(short, long = "include-index")]
     include_index: bool,
     #[structopt(subcommand)]
     cmd: Command,
