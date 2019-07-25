@@ -1,5 +1,5 @@
 use failure::Error;
-use std::{collections::BTreeMap, fmt, path::Path};
+use std::{collections::BTreeMap, fmt, io::Read, path::Path};
 use url::Url;
 
 pub mod fetch;
@@ -190,4 +190,31 @@ pub fn convert_response(
     );
 
     Ok(builder.body(body.freeze())?)
+}
+
+pub fn unpack_tar<R: Read, P: AsRef<Path>>(stream: R, dir: P) -> Result<R, (R, Error)> {
+    let mut archive_reader = tar::Archive::new(stream);
+
+    let dir = dir.as_ref();
+
+    if let Err(e) = archive_reader.unpack(dir) {
+        // Attempt to remove anything that may have been written so that we
+        // _hopefully_ don't actually mess up cargo
+        if dir.exists() {
+            if let Err(e) = remove_dir_all::remove_dir_all(dir) {
+                log::error!(
+                    "error trying to remove contents of {}: {}",
+                    dir.display(),
+                    e
+                );
+            }
+        }
+
+        return Err((
+            archive_reader.into_inner(),
+            failure::format_err!("failed to unpack: {}", e),
+        ));
+    }
+
+    Ok(archive_reader.into_inner())
 }

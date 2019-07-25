@@ -12,6 +12,7 @@ pub struct Args {
 }
 
 const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
+const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 const GIT_DB_DIR: &str = "git/db";
 
 pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
@@ -43,8 +44,10 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
     }
 
     let cache_dir = root_dir.join(CACHE_DIR);
+    let src_dir = root_dir.join(SRC_DIR);
     let git_db_dir = root_dir.join(GIT_DB_DIR);
     std::fs::create_dir_all(&cache_dir)?;
+    std::fs::create_dir_all(&src_dir)?;
     std::fs::create_dir_all(&git_db_dir)?;
 
     let cache_iter = std::fs::read_dir(&cache_dir)?;
@@ -109,6 +112,21 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
                                 error!("failed to create {}: {}", krate, e);
                             }
                         }
+
+                        // Decompress and splat the tar onto the filesystem
+                        let buf_reader = krate_data.into_buf().reader();
+                        let gz_decoder = flate2::read::GzDecoder::new(buf_reader);
+
+                        let mut src_path = src_dir.join(format!("{}", krate.local_id()));
+                        // Remove the .crate extension
+                        src_path.set_extension("");
+
+                        if !src_path.exists() {
+                            log::debug!("unpacking {} to src/", krate);
+                            if let Err((_, e)) = cargo_fetcher::unpack_tar(gz_decoder, src_path) {
+                                error!("failed to unpack dependency {}: {}", krate, e);
+                            }
+                        }
                     }
                     Source::Git { .. } => {
                         let buf_reader = krate_data.into_buf().reader();
@@ -120,26 +138,9 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
                             }
                         };
 
-                        let mut archive_reader = tar::Archive::new(zstd_decoder);
-
                         let db_path = git_db_dir.join(format!("{}", krate.local_id()));
-                        if let Err(e) = archive_reader.unpack(&db_path) {
-                            error!(
-                                "failed to unarchive {}-{}: {}",
-                                krate.name, krate.version, e
-                            );
-
-                            // Attempt to remove anything that may have been written so that we
-                            // _hopefully_ don't actually mess up cargo
-                            if db_path.exists() {
-                                if let Err(e) = remove_dir_all::remove_dir_all(&db_path) {
-                                    error!(
-                                        "error trying to remove contents of {}: {}",
-                                        db_path.display(),
-                                        e
-                                    );
-                                }
-                            }
+                        if let Err((_, e)) = cargo_fetcher::unpack_tar(zstd_decoder, db_path) {
+                            error!("failed to unpack dependency {}: {}", krate, e);
                         }
                     }
                 }
