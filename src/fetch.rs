@@ -54,7 +54,7 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
             // Create a temporary directory to clone the repo into
             let temp_dir = tempfile::tempdir()?;
 
-            debug!("cloning {}-{}", krate.name, krate.version);
+            debug!("cloning {}", krate);
             let output = std::process::Command::new("git")
                 .arg("clone")
                 .arg("--bare")
@@ -64,12 +64,7 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
 
             if !output.status.success() {
                 let err_out = String::from_utf8(output.stderr)?;
-                bail!(
-                    "failed to clone {}-{}: {}",
-                    krate.name,
-                    krate.version,
-                    err_out
-                );
+                bail!("failed to clone {}: {}", krate, err_out);
             }
 
             // Ensure that the revision required in the lockfile is actually present
@@ -89,10 +84,9 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
                     != Some("commit\n")
             {
                 bail!(
-                    "git repo {} for {}-{} does not contain revision {}",
+                    "git repo {} for {} does not contain revision {}",
                     url,
-                    krate.name,
-                    krate.version,
+                    krate,
                     rev
                 );
             }
@@ -127,15 +121,14 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
             // This is obviously super rough, but at least gives some inkling
             // of our compression ratio
             debug!(
-                "estimated compression ratio {:.2}% for {}-{}",
+                "estimated compression ratio {:.2}% for {}",
                 (out_buffer.len() as f64 / estimated_size as f64) * 100f64,
-                krate.name,
-                krate.version
+                krate
             );
 
             Ok(out_buffer.freeze())
         }
-        Source::CratesIo(_) => bail!("{}-{} is not a git source", krate.name, krate.version),
+        Source::CratesIo(_) => bail!("{} is not a git source", krate),
     }
 }
 // let mut cmd = process("git");

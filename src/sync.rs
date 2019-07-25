@@ -87,7 +87,7 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
 
     ctx.krates.par_iter().for_each(|krate| {
         match cargo_fetcher::fetch::from_gcs(&ctx.client, krate, &ctx.gcs_bucket, ctx.prefix) {
-            Err(e) => error!("failed to download {}-{}: {}", krate.name, krate.version, e),
+            Err(e) => error!("failed to download {}: {}", krate, e),
             Ok(krate_data) => {
                 use bytes::{Buf, IntoBuf};
                 use cargo_fetcher::Source;
@@ -102,14 +102,11 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
                                 let _ = f.set_len(krate_data.len() as u64);
 
                                 if let Err(e) = f.write_all(&krate_data) {
-                                    error!(
-                                        "failed to write {}-{} to disk: {}",
-                                        krate.name, krate.version, e
-                                    );
+                                    error!("failed to write {} to disk: {}", krate, e);
                                 }
                             }
                             Err(e) => {
-                                error!("failed to create {}-{}: {}", krate.name, krate.version, e);
+                                error!("failed to create {}: {}", krate, e);
                             }
                         }
                     }
@@ -118,10 +115,7 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
                         let zstd_decoder = match zstd::Decoder::new(buf_reader) {
                             Ok(zd) => zd,
                             Err(e) => {
-                                error!(
-                                    "failed to create decompressor for {}-{}: {}",
-                                    krate.name, krate.version, e
-                                );
+                                error!("failed to create decompressor for {}: {}", krate, e);
                                 return;
                             }
                         };

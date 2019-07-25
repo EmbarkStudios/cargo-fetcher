@@ -80,7 +80,7 @@ pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
 
     to_mirror.par_iter().for_each(|krate| {
         match cargo_fetcher::fetch::from_crates_io(&ctx.client, krate) {
-            Err(e) => error!("failed to retrieve {}-{}: {}", krate.name, krate.version, e),
+            Err(e) => error!("failed to retrieve {}: {}", krate, e),
             Ok(buffer) => {
                 if let Err(e) = cargo_fetcher::upload::to_gcs(
                     &ctx.client,
@@ -90,8 +90,8 @@ pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
                     krate,
                 ) {
                     error!(
-                        "failed to upload {}-{} to GCS: {}",
-                        krate.name, krate.version, e
+                        "failed to upload {} to GCS: {}",
+                        krate, e
                     );
                 }
             }

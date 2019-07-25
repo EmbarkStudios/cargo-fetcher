@@ -43,6 +43,17 @@ impl Krate {
     }
 }
 
+impl fmt::Display for Krate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let typ = match &self.source {
+            Source::CratesIo(_) => "crates.io",
+            Source::Git { .. } => "git",
+        };
+
+        write!(f, "{}-{}({})", self.name, self.version, typ)
+    }
+}
+
 pub struct LocalId<'a> {
     inner: &'a Krate,
 }
