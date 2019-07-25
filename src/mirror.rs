@@ -4,7 +4,6 @@ use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
 use tame_gcs::objects::{self, ListOptional, ListResponse, Object};
 
-
 fn parse_duration(src: &str) -> Result<Duration, Error> {
     let suffix_pos = src.find(char::is_alphabetic).unwrap_or_else(|| src.len());
 
@@ -46,26 +45,30 @@ Times may be specified with no suffix (default days), or one of:
     max_stale: Duration,
 }
 
-fn get_updated(ctx: &crate::Context<'_>, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+fn get_updated(
+    ctx: &crate::Context<'_>,
+    krate: &Krate,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
     let obj_name = format!("{}{}", ctx.prefix, krate.gcs_id());
     let index_obj_name = tame_gcs::ObjectName::try_from(obj_name)?;
 
-    let get_req = Object::get(&(&ctx.gcs_bucket, &index_obj_name), Some(objects::GetObjectOptional {
-        standard_params: tame_gcs::common::StandardQueryParameters {
-            fields: Some("updated"),
+    let get_req = Object::get(
+        &(&ctx.gcs_bucket, &index_obj_name),
+        Some(objects::GetObjectOptional {
+            standard_params: tame_gcs::common::StandardQueryParameters {
+                fields: Some("updated"),
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        ..Default::default()
-    }))?;
+        }),
+    )?;
 
     let (parts, _) = get_req.into_parts();
 
     let uri = parts.uri.to_string();
     let builder = ctx.client.get(&uri);
 
-    let request = builder
-        .headers(parts.headers)
-        .build()?;
+    let request = builder.headers(parts.headers).build()?;
 
     let mut response = ctx.client.execute(request)?.error_for_status()?;
 
@@ -97,7 +100,10 @@ fn mirror_registry_index(ctx: &crate::Context<'_>, max_stale: Duration) -> Resul
             let max_dur = chrono::Duration::from_std(max_stale.clone())?;
 
             if now - last_updated < max_dur {
-                info!("crates.io-index was last updated {}, skipping update as it less than {:?} old", last_updated, max_stale);
+                info!(
+                    "crates.io-index was last updated {}, skipping update as it less than {:?} old",
+                    last_updated, max_stale
+                );
                 return Ok(());
             }
         }
