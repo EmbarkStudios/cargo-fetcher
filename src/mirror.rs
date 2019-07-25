@@ -1,3 +1,4 @@
+use cargo_fetcher::{fetch, upload, util, Krate};
 use failure::Error;
 use log::{error, info};
 use std::convert::TryFrom;
@@ -6,7 +7,26 @@ use tame_gcs::objects::{ListOptional, ListResponse, Object};
 #[derive(structopt::StructOpt)]
 pub struct Args {}
 
-pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
+fn mirror_registry_index(ctx: &crate::Context<'_>) -> Result<(), Error> {
+    let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
+    let canonicalized = util::canonicalize_url(&url)?;
+    let ident = util::ident(&canonicalized);
+
+    let index = fetch::registry(&canonicalized)?;
+
+    let krate = Krate {
+        name: "crates.io-index".to_owned(),
+        version: "1.0.0".to_owned(),
+        source: cargo_fetcher::Source::Git {
+            url: canonicalized,
+            ident,
+        },
+    };
+
+    upload::to_gcs(&ctx.client, index, &ctx.gcs_bucket, ctx.prefix, &krate)
+}
+
+fn mirror_locked_crates(ctx: &crate::Context<'_>) -> Result<(), Error> {
     info!("mirroring {} crates", ctx.krates.len());
 
     // Get a list of all crates already present in gcs, the list
@@ -78,26 +98,42 @@ pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
 
     use rayon::prelude::*;
 
-    to_mirror.par_iter().for_each(|krate| {
-        match cargo_fetcher::fetch::from_crates_io(&ctx.client, krate) {
+    to_mirror
+        .par_iter()
+        .for_each(|krate| match fetch::from_crates_io(&ctx.client, krate) {
             Err(e) => error!("failed to retrieve {}: {}", krate, e),
             Ok(buffer) => {
-                if let Err(e) = cargo_fetcher::upload::to_gcs(
-                    &ctx.client,
-                    buffer,
-                    &ctx.gcs_bucket,
-                    ctx.prefix,
-                    krate,
-                ) {
-                    error!(
-                        "failed to upload {} to GCS: {}",
-                        krate, e
-                    );
+                if let Err(e) =
+                    upload::to_gcs(&ctx.client, buffer, &ctx.gcs_bucket, ctx.prefix, krate)
+                {
+                    error!("failed to upload {} to GCS: {}", krate, e);
                 }
             }
-        }
-    });
+        });
 
-    info!("finished uploading crates");
+    Ok(())
+}
+
+pub fn cmd(ctx: crate::Context<'_>, _args: Args) -> Result<(), Error> {
+    rayon::join(
+        || {
+            if !ctx.include_index {
+                return;
+            }
+
+            info!("mirroring crates.io index");
+            match mirror_registry_index(&ctx) {
+                Ok(_) => info!("successfully mirrored crates.io index"),
+                Err(e) => error!("failed to mirror crates.io index: {}", e),
+            }
+        },
+        || match mirror_locked_crates(&ctx) {
+            Ok(_) => {
+                info!("finished uploading crates");
+            }
+            Err(e) => error!("failed to mirror crates: {}", e),
+        },
+    );
+
     Ok(())
 }

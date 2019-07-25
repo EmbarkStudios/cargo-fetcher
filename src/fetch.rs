@@ -1,9 +1,9 @@
 use crate::{Krate, Source};
 use bytes::{BufMut, Bytes, BytesMut};
-use failure::Error;
+use failure::{bail, Error, ResultExt};
 use log::debug;
 use reqwest::Client;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, process::Command};
 use tame_gcs::{objects::Object, BucketName, ObjectName};
 
 // We just treat versions as opaque strings
@@ -47,15 +47,13 @@ pub fn from_gcs(
 }
 
 pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
-    use failure::bail;
-
     match &krate.source {
         Source::Git { url, ident } => {
             // Create a temporary directory to clone the repo into
             let temp_dir = tempfile::tempdir()?;
 
             debug!("cloning {}", krate);
-            let output = std::process::Command::new("git")
+            let output = Command::new("git")
                 .arg("clone")
                 .arg("--bare")
                 .arg(url.as_str())
@@ -69,7 +67,7 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
 
             // Ensure that the revision required in the lockfile is actually present
             let rev = &ident[ident.len() - 7..];
-            let has_revision = std::process::Command::new("git")
+            let has_revision = Command::new("git")
                 .arg("cat-file")
                 .arg("-t")
                 .arg(rev)
@@ -91,62 +89,84 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
                 );
             }
 
-            // If we don't allocate adequate space in our output buffer, things
-            // go very poorly for everyone involved
-            let mut estimated_size = 0;
-            const TAR_HEADER_SIZE: u64 = 512;
-            for entry in walkdir::WalkDir::new(&temp_dir)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
-                estimated_size += TAR_HEADER_SIZE;
-                if let Ok(md) = entry.metadata() {
-                    estimated_size += md.len();
-                }
-            }
-
-            let out_buffer = BytesMut::with_capacity(estimated_size as usize);
-            let buf_writer = out_buffer.writer();
-
-            let zstd_encoder = zstd::Encoder::new(buf_writer, 9)?;
-
-            let mut archiver = tar::Builder::new(zstd_encoder);
-            archiver.append_dir_all(".", temp_dir.path())?;
-            archiver.finish()?;
-
-            let zstd_encoder = archiver.into_inner()?;
-            let buf_writer = zstd_encoder.finish()?;
-            let out_buffer = buf_writer.into_inner();
-
-            // This is obviously super rough, but at least gives some inkling
-            // of our compression ratio
-            debug!(
-                "estimated compression ratio {:.2}% for {}",
-                (out_buffer.len() as f64 / estimated_size as f64) * 100f64,
-                krate
-            );
-
-            Ok(out_buffer.freeze())
+            tarball(temp_dir.path())
         }
         Source::CratesIo(_) => bail!("{} is not a git source", krate),
     }
 }
-// let mut cmd = process("git");
-//     cmd.arg("fetch")
-//         .arg("--tags") // fetch all tags
-//         .arg("--force") // handle force pushes
-//         .arg("--update-head-ok") // see discussion in #2078
-//         .arg(url.to_string())
-//         .arg(refspec)
-//         // If cargo is run by git (for example, the `exec` command in `git
-//         // rebase`), the GIT_DIR is set by git and will point to the wrong
-//         // location (this takes precedence over the cwd). Make sure this is
-//         // unset so git will look at cwd for the repo.
-//         .env_remove("GIT_DIR")
-//         // The reset of these may not be necessary, but I'm including them
-//         // just to be extra paranoid and avoid any issues.
-//         .env_remove("GIT_WORK_TREE")
-//         .env_remove("GIT_INDEX_FILE")
-//         .env_remove("GIT_OBJECT_DIRECTORY")
-//         .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-//         .cwd(repo.path());
+
+pub fn registry(url: &url::Url) -> Result<Bytes, Error> {
+    // See https://github.com/rust-lang/cargo/blob/0e38712d4d7b346747bf91fb26cce8df6934e178/src/cargo/sources/registry/remote.rs#L61
+    // for why we go through the whole repo init process + fetch instead of just a bare clone
+    let temp_dir = tempfile::tempdir()?;
+
+    let output = Command::new("git")
+        .arg("init")
+        .arg("--template=''") // Ensure we don't get any templates
+        .current_dir(&temp_dir)
+        .output()
+        .context("git-init")?;
+
+    if !output.status.success() {
+        bail!("failed to initialize registry index repo");
+    }
+
+    debug!("fetching crates.io index");
+    let output = Command::new("git")
+        .arg("fetch")
+        .arg(url.as_str())
+        .arg("refs/heads/master:refs/remotes/origin/master")
+        .current_dir(temp_dir.path())
+        .output()
+        .context("git-fetch")?;
+
+    if !output.status.success() {
+        bail!("failed to fetch registry index");
+    }
+
+    // We also write a `.last-updated` file just like cargo so that cargo knows
+    // the timestamp of the fetch
+    std::fs::File::create(temp_dir.path().join(".last-updated"))
+        .context("failed to create .last-updated")?;
+
+    tarball(temp_dir.path())
+}
+
+fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
+    // If we don't allocate adequate space in our output buffer, things
+    // go very poorly for everyone involved
+    let mut estimated_size = 0;
+    const TAR_HEADER_SIZE: u64 = 512;
+    for entry in walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        estimated_size += TAR_HEADER_SIZE;
+        if let Ok(md) = entry.metadata() {
+            estimated_size += md.len();
+        }
+    }
+
+    let out_buffer = BytesMut::with_capacity(estimated_size as usize);
+    let buf_writer = out_buffer.writer();
+
+    let zstd_encoder = zstd::Encoder::new(buf_writer, 9)?;
+
+    let mut archiver = tar::Builder::new(zstd_encoder);
+    archiver.append_dir_all(".", path)?;
+    archiver.finish()?;
+
+    let zstd_encoder = archiver.into_inner()?;
+    let buf_writer = zstd_encoder.finish()?;
+    let out_buffer = buf_writer.into_inner();
+
+    // This is obviously super rough, but at least gives some inkling
+    // of our compression ratio
+    // debug!(
+    //     "estimated compression ratio {:.2}% for {}",
+    //     (out_buffer.len() as f64 / estimated_size as f64) * 100f64,
+    //     krate
+    // );
+
+    Ok(out_buffer.freeze())
+}

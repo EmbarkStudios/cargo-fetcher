@@ -55,6 +55,9 @@ Possible values:
 * trace"
     )]
     log_level: log::LevelFilter,
+    /// A snapshot of the registry index is also included when mirroring or syncing
+    #[structopt(short, long)]
+    include_index: bool,
     #[structopt(subcommand)]
     cmd: Command,
 }
@@ -127,6 +130,7 @@ pub struct Context<'a> {
     gcs_bucket: BucketName<'a>,
     prefix: &'a str,
     krates: &'a [Krate],
+    include_index: bool,
 }
 
 fn real_main() -> Result<(), Error> {
@@ -161,6 +165,7 @@ fn real_main() -> Result<(), Error> {
         gcs_bucket: bucket,
         prefix,
         krates: &krates[..],
+        include_index: args.include_index,
     };
 
     match args.cmd {

@@ -1,7 +1,12 @@
+use bytes::{Buf, IntoBuf};
+use cargo_fetcher::{fetch, util, Krate, Source};
 use failure::{format_err, Error};
 use log::{error, info};
 use rayon::prelude::*;
-use std::path::PathBuf;
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 #[derive(structopt::StructOpt)]
 pub struct Args {
@@ -11,37 +16,49 @@ pub struct Args {
     cache: Option<PathBuf>,
 }
 
+const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
 const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
 const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 const GIT_DB_DIR: &str = "git/db";
 
-pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
-    info!("synchronizing {} crates...", ctx.krates.len());
+fn sync_registry_index(ctx: &crate::Context<'_>, root_dir: &Path) -> Result<(), Error> {
+    let index_path = root_dir.join(INDEX_DIR);
 
-    let root_dir = args
-        .cache
-        .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
-        .or_else(dirs::home_dir);
+    // Just skip the index if the git directory already exists,
+    // as a patch on top of an existing repo via git fetch is
+    // presumably faster
+    if index_path.join(".git").exists() {
+        info!("skippipng crates.io-index download, index repository already present");
+        return Ok(());
+    }
 
-    let root_dir = root_dir.ok_or_else(|| format_err!("unable to determine cargo root"))?;
+    let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
+    let canonicalized = util::canonicalize_url(&url)?;
+    let ident = util::ident(&canonicalized);
 
-    // There should always be a bin/cargo(.exe) relative to the root directory, at a minimum
-    let cargo_path = {
-        let mut cpath = root_dir.join("bin/cargo");
-
-        if cfg!(target_os = "windows") {
-            cpath.set_extension("exe");
-        }
-
-        cpath
+    let krate = Krate {
+        name: "crates.io-index".to_owned(),
+        version: "1.0.0".to_owned(),
+        source: cargo_fetcher::Source::Git {
+            url: canonicalized,
+            ident,
+        },
     };
 
-    if !cargo_path.exists() {
-        return Err(format_err!(
-            "cargo root {} does not seem to contain the cargo binary",
-            root_dir.display()
-        ));
+    let index_data = fetch::from_gcs(&ctx.client, &krate, &ctx.gcs_bucket, ctx.prefix)?;
+
+    let buf_reader = index_data.into_buf().reader();
+    let zstd_decoder = zstd::Decoder::new(buf_reader)?;
+
+    if let Err((_, e)) = cargo_fetcher::unpack_tar(zstd_decoder, index_path) {
+        error!("failed to unpack crates.io-index: {}", e);
     }
+
+    Ok(())
+}
+
+fn sync_locked_crates(ctx: &crate::Context<'_>, root_dir: &Path) -> Result<(), Error> {
+    info!("synchronizing {} crates...", ctx.krates.len());
 
     let cache_dir = root_dir.join(CACHE_DIR);
     let src_dir = root_dir.join(SRC_DIR);
@@ -89,13 +106,9 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
     info!("synchronizing {} missing crates...", to_sync.len());
 
     ctx.krates.par_iter().for_each(|krate| {
-        match cargo_fetcher::fetch::from_gcs(&ctx.client, krate, &ctx.gcs_bucket, ctx.prefix) {
+        match fetch::from_gcs(&ctx.client, krate, &ctx.gcs_bucket, ctx.prefix) {
             Err(e) => error!("failed to download {}: {}", krate, e),
             Ok(krate_data) => {
-                use bytes::{Buf, IntoBuf};
-                use cargo_fetcher::Source;
-                use std::io::Write;
-
                 match &krate.source {
                     Source::CratesIo(_) => {
                         let packed_krate_path = cache_dir.join(format!("{}", krate.local_id()));
@@ -147,6 +160,58 @@ pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
             }
         }
     });
+
+    Ok(())
+}
+
+pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
+    let root_dir = args
+        .cache
+        .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
+        .or_else(|| dirs::home_dir().map(|hd| hd.join(".cargo")));
+
+    let root_dir = root_dir.ok_or_else(|| format_err!("unable to determine cargo root"))?;
+
+    // There should always be a bin/cargo(.exe) relative to the root directory, at a minimum
+    let cargo_path = {
+        let mut cpath = root_dir.join("bin/cargo");
+
+        if cfg!(target_os = "windows") {
+            cpath.set_extension("exe");
+        }
+
+        cpath
+    };
+
+    if !cargo_path.exists() {
+        return Err(format_err!(
+            "cargo root {} does not seem to contain the cargo binary",
+            root_dir.display()
+        ));
+    }
+
+    // Create the registry directory as it is the root of multiple other ones
+    std::fs::create_dir_all(root_dir.join("registry"))?;
+
+    rayon::join(
+        || {
+            if !ctx.include_index {
+                return;
+            }
+
+            info!("syncing crates.io index");
+            match sync_registry_index(&ctx, &root_dir) {
+                Ok(_) => info!("successfully synced crates.io index"),
+                Err(e) => error!("failed to sync crates.io index: {}", e),
+            }
+        },
+        || match sync_locked_crates(&ctx, &root_dir) {
+            Ok(_) => {
+                info!("finished syncing crates");
+            }
+            Err(e) => error!("failed to sync crates: {}", e),
+        },
+    );
 
     Ok(())
 }
