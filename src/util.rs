@@ -267,6 +267,12 @@ mod test {
         let ident = canonicalized.ident();
         
         assert_eq!(ident, "genmesh-401fe503e87439cc");
+
+        let url = Url::parse("git+https://github.com/EmbarkStudios/cpal?rev=d59b4de#d59b4decf72a96932a1482cc27fe4c0b50c40d32").unwrap();
+        let canonicalized = Canonicalized::try_from(&url).unwrap();
+        let ident = canonicalized.ident();
+
+        assert_eq!(ident, "cpal-a7ffd7cabefac714");
     }
 
     #[test]
