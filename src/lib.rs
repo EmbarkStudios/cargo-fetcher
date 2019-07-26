@@ -157,7 +157,7 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
             // 3. 7 character short_id#sha-1
             let rev = &rev[..7];
 
-            let canonicalized = match util::canonicalize_url(&url) {
+            let canonicalized = match util::Canonicalized::try_from(&url) {
                 Ok(i) => i,
                 Err(e) => {
                     log::warn!("skipping {}-{}: {}", p.name, p.version, e);
@@ -165,13 +165,13 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
                 }
             };
 
-            let ident = util::ident(&canonicalized);
+            let ident = canonicalized.ident();
 
             krates.push(Krate {
                 name: p.name,
                 version: p.version,
                 source: Source::Git {
-                    url: canonicalized,
+                    url: canonicalized.into(),
                     ident: format!("{}-{}", ident, rev),
                 },
             })

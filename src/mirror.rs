@@ -39,8 +39,8 @@ fn get_updated(
 
 pub fn registry_index(ctx: &Context<'_>, max_stale: Duration) -> Result<(), Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
-    let canonicalized = util::canonicalize_url(&url)?;
-    let ident = util::ident(&canonicalized);
+    let canonicalized = util::Canonicalized::try_from(&url)?;
+    let ident = canonicalized.ident();
 
     // Create a fake krate for the index, we don't have to worry about clashing
     // since we use a `.` which is not an allowed character in crate names
@@ -48,7 +48,7 @@ pub fn registry_index(ctx: &Context<'_>, max_stale: Duration) -> Result<(), Erro
         name: "crates.io-index".to_owned(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: canonicalized.clone(),
+            url: canonicalized.as_ref().clone(),
             ident,
         },
     };
@@ -70,7 +70,7 @@ pub fn registry_index(ctx: &Context<'_>, max_stale: Duration) -> Result<(), Erro
         }
     }
 
-    let index = fetch::registry(&canonicalized)?;
+    let index = fetch::registry(canonicalized.as_ref())?;
 
     upload::to_gcs(&ctx, index, &krate)
 }

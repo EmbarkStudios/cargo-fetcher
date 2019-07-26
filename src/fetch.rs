@@ -8,7 +8,7 @@ use tame_gcs::objects::Object;
 
 pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
-        Source::CratesIo(_) => {
+        Source::CratesIo(chksum) => {
             let url = format!(
                 "https://static.crates.io/crates/{}/{}-{}.crate",
                 krate.name, krate.name, krate.version
@@ -16,7 +16,11 @@ pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
 
             let mut response = client.get(&url).send()?.error_for_status()?;
             let res = util::convert_response(&mut response)?;
-            Ok(res.into_body())
+            let content = res.into_body();
+
+            util::validate_checksum(&content, &chksum)?;
+
+            Ok(content)
         }
         Source::Git { .. } => via_git(&krate),
     }
@@ -34,7 +38,13 @@ pub fn from_gcs(ctx: &Context<'_>, krate: &Krate) -> Result<Bytes, Error> {
 
     let mut response = ctx.client.execute(request)?.error_for_status()?;
     let res = util::convert_response(&mut response)?;
-    Ok(res.into_body())
+    let content = res.into_body();
+
+    if let Source::CratesIo(ref chksum) = krate.source {
+        util::validate_checksum(&content, &chksum)?;
+    }
+
+    Ok(content)
 }
 
 pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {

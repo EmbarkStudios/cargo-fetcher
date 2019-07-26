@@ -3,7 +3,7 @@ use bytes::{Buf, IntoBuf};
 use failure::Error;
 use log::{error, info};
 use rayon::prelude::*;
-use std::{io::Write, path::Path};
+use std::{convert::TryFrom, io::Write, path::Path};
 
 const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
 const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
@@ -22,14 +22,14 @@ pub fn registry_index(ctx: &crate::Context<'_>, root_dir: &Path) -> Result<(), E
     }
 
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
-    let canonicalized = util::canonicalize_url(&url)?;
-    let ident = util::ident(&canonicalized);
+    let canonicalized = util::Canonicalized::try_from(&url)?;
+    let ident = canonicalized.ident();
 
     let krate = Krate {
         name: "crates.io-index".to_owned(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: canonicalized,
+            url: canonicalized.into(),
             ident,
         },
     };
