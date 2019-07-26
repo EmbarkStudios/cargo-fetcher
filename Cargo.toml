@@ -1,6 +1,6 @@
 [package]
 name = "cargo-fetcher"
-version = "0.1.1"
+version = "0.5.0"
 authors = ["Embark <opensource@embark-studios.com>", "Jake Shadle <jake.shadle@embark-studios.com>"]
 edition = "2018"
 description = "🎁 Experimental alternative to cargo fetch"
@@ -13,14 +13,23 @@ readme = "README.md"
 
 [dependencies]
 bytes = "0.4.12"
+chrono = "0.4.7"
 dirs = "2.0.1"
 env_logger = "0.6.2"
+flate2 = { version = "1.0.9", default-features = false, features = ["rust_backend"] }
 failure = "0.1.5"
 log = "0.4.7"
 rayon = "1.1.0"
+remove_dir_all = "0.5.2"
 reqwest = { version = "0.9.19", default-features = false, features = ["rustls-tls"] }
+ring = "0.14.6"
 serde = { version = "1.0.97", features = ["derive"] }
+structopt = "0.2.18"
 tame-gcs = "0.3.4"
 tame-oauth = { version = "0.2.1", features = ["gcp"] }
+tar = "0.4.26"
+tempfile = "3.1.0"
 toml = "0.5.1"
-structopt = "0.2.18"
+url = "2.0.0"
+walkdir = "2.2.9"
+zstd = "0.4.26+zstd.1.4.1"
