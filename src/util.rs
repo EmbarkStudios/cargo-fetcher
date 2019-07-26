@@ -231,18 +231,18 @@ pub(crate) fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Err
         let mut cur;
 
         match exp[0] {
-            b'A'...b'F' => cur = exp[0] - b'A' + 10,
-            b'a'...b'f' => cur = exp[0] - b'a' + 10,
-            b'0'...b'9' => cur = exp[0] - b'0',
+            b'A'..=b'F' => cur = exp[0] - b'A' + 10,
+            b'a'..=b'f' => cur = exp[0] - b'a' + 10,
+            b'0'..=b'9' => cur = exp[0] - b'0',
             c => bail!("invalid byte in expected checksum string {}", c),
         }
 
         cur <<= 4;
 
         match exp[1] {
-            b'A'...b'F' => cur |= exp[1] - b'A' + 10,
-            b'a'...b'f' => cur |= exp[1] - b'a' + 10,
-            b'0'...b'9' => cur |= exp[1] - b'0',
+            b'A'..=b'F' => cur |= exp[1] - b'A' + 10,
+            b'a'..=b'f' => cur |= exp[1] - b'a' + 10,
+            b'0'..=b'9' => cur |= exp[1] - b'0',
             c => bail!("invalid byte in expected checksum string {}", c),
         }
 
