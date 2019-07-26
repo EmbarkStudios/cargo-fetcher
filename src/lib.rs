@@ -1,9 +1,11 @@
 use failure::Error;
-use std::{collections::BTreeMap, fmt, io::Read, path::Path};
+use std::{collections::BTreeMap, convert::TryFrom, fmt, path::Path};
 use url::Url;
 
-pub mod fetch;
-pub mod upload;
+mod fetch;
+pub mod mirror;
+pub mod sync;
+mod upload;
 pub mod util;
 
 #[derive(serde::Deserialize)]
@@ -26,7 +28,7 @@ pub enum Source {
 
 pub struct Krate {
     pub name: String,
-    pub version: String,
+    pub version: String, // We just treat versions as opaque strings
     pub source: Source,
 }
 
@@ -64,6 +66,20 @@ impl<'a> fmt::Display for LocalId<'a> {
             Source::CratesIo(_) => write!(f, "{}-{}.crate", self.inner.name, self.inner.version),
             Source::Git { ident, .. } => write!(f, "{}", &ident[..ident.len() - 8]),
         }
+    }
+}
+
+pub struct Context<'a> {
+    pub client: reqwest::Client,
+    pub gcs_bucket: tame_gcs::BucketName<'a>,
+    pub prefix: &'a str,
+    pub krates: &'a [Krate],
+}
+
+impl<'a> Context<'a> {
+    fn object_name(&self, krate: &Krate) -> Result<tame_gcs::ObjectName<'a>, Error> {
+        let obj_name = format!("{}{}", self.prefix, krate.gcs_id());
+        Ok(tame_gcs::ObjectName::try_from(obj_name)?)
     }
 }
 
@@ -163,58 +179,4 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
     }
 
     Ok(krates)
-}
-
-pub fn convert_response(
-    res: &mut reqwest::Response,
-) -> Result<tame_gcs::http::Response<bytes::Bytes>, Error> {
-    use bytes::BufMut;
-
-    let body = bytes::BytesMut::with_capacity(res.content_length().unwrap_or(4 * 1024) as usize);
-    let mut writer = body.writer();
-    res.copy_to(&mut writer)?;
-    let body = writer.into_inner();
-
-    let mut builder = tame_gcs::http::Response::builder();
-
-    builder.status(res.status()).version(res.version());
-
-    let headers = builder
-        .headers_mut()
-        .ok_or_else(|| failure::format_err!("failed to convert response headers"))?;
-
-    headers.extend(
-        res.headers()
-            .into_iter()
-            .map(|(k, v)| (k.clone(), v.clone())),
-    );
-
-    Ok(builder.body(body.freeze())?)
-}
-
-pub fn unpack_tar<R: Read, P: AsRef<Path>>(stream: R, dir: P) -> Result<R, (R, Error)> {
-    let mut archive_reader = tar::Archive::new(stream);
-
-    let dir = dir.as_ref();
-
-    if let Err(e) = archive_reader.unpack(dir) {
-        // Attempt to remove anything that may have been written so that we
-        // _hopefully_ don't actually mess up cargo
-        if dir.exists() {
-            if let Err(e) = remove_dir_all::remove_dir_all(dir) {
-                log::error!(
-                    "error trying to remove contents of {}: {}",
-                    dir.display(),
-                    e
-                );
-            }
-        }
-
-        return Err((
-            archive_reader.into_inner(),
-            failure::format_err!("failed to unpack: {}", e),
-        ));
-    }
-
-    Ok(archive_reader.into_inner())
 }

@@ -1,4 +1,4 @@
-use cargo_fetcher::Krate;
+extern crate cargo_fetcher as cf;
 use failure::{format_err, Error, ResultExt};
 use log::{debug, error};
 use reqwest::Client;
@@ -6,15 +6,18 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 use tame_gcs::BucketName;
 
-mod mirror;
-mod sync;
+mod cmds;
+
+use cmds::{mirror, sync};
 
 #[derive(StructOpt)]
 enum Command {
     /// Uploads any crates in the lockfile that aren't already present
+    /// in the cloud storage location
     #[structopt(name = "mirror")]
     Mirror(mirror::Args),
-    /// Downloads missing crates to the local cargo cache
+    /// Downloads missing crates to the local cargo locations and unpacks
+    /// them
     #[structopt(name = "sync")]
     Sync(sync::Args),
 }
@@ -36,7 +39,12 @@ struct Opts {
     #[structopt(short = "g", long = "gcs")]
     gcs_url: String,
     /// Path to the lockfile used for determining what crates to operate on
-    #[structopt(short, long = "lock-file", parse(from_os_str))]
+    #[structopt(
+        short,
+        long = "lock-file",
+        default_value = "Cargo.lock",
+        parse(from_os_str)
+    )]
     lock_file: PathBuf,
     #[structopt(
         short = "L",
@@ -116,21 +124,13 @@ fn acquire_token(cred_path: PathBuf) -> Result<tame_oauth::Token, Error> {
 
             let mut res = client.execute(req)?;
 
-            let response = cargo_fetcher::convert_response(&mut res)?;
+            let response = cf::util::convert_response(&mut res)?;
             svc_account_access.parse_token_response(scope_hash, response)?
         }
         _ => unreachable!(),
     };
 
     Ok(token)
-}
-
-pub struct Context<'a> {
-    client: Client,
-    gcs_bucket: BucketName<'a>,
-    prefix: &'a str,
-    krates: &'a [Krate],
-    include_index: bool,
 }
 
 fn real_main() -> Result<(), Error> {
@@ -160,17 +160,16 @@ fn real_main() -> Result<(), Error> {
 
     let client = Client::builder().default_headers(hm).gzip(false).build()?;
 
-    let ctx = Context {
+    let ctx = cf::Context {
         client,
         gcs_bucket: bucket,
         prefix,
         krates: &krates[..],
-        include_index: args.include_index,
     };
 
     match args.cmd {
-        Command::Mirror(args) => mirror::cmd(ctx, args),
-        Command::Sync(args) => sync::cmd(ctx, args),
+        Command::Mirror(margs) => mirror::cmd(ctx, args.include_index, margs),
+        Command::Sync(sargs) => sync::cmd(ctx, args.include_index, sargs),
     }
 }
 

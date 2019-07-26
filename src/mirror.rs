@@ -1,49 +1,8 @@
-use cargo_fetcher::{fetch, upload, util, Krate};
+use crate::{fetch, upload, util, Context, Krate, Source};
 use failure::Error;
 use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
 use tame_gcs::objects::{self, ListOptional, ListResponse, Object};
-
-fn parse_duration(src: &str) -> Result<Duration, Error> {
-    let suffix_pos = src.find(char::is_alphabetic).unwrap_or_else(|| src.len());
-
-    let num: u64 = src[..suffix_pos].parse()?;
-    let suffix = if suffix_pos == src.len() {
-        "h"
-    } else {
-        &src[suffix_pos..]
-    };
-
-    let duration = match suffix {
-        "s" | "S" => Duration::from_secs(num),
-        "m" | "M" => Duration::from_secs(num * 60),
-        "h" | "H" => Duration::from_secs(num * 60 * 60),
-        "d" | "D" => Duration::from_secs(num * 60 * 60 * 24),
-        s => return Err(failure::format_err!("unknown duration suffix '{}'", s)),
-    };
-
-    Ok(duration)
-}
-
-#[derive(structopt::StructOpt)]
-pub struct Args {
-    #[structopt(
-        short,
-        long = "max-stale",
-        default_value = "1d",
-        parse(try_from_str = "parse_duration"),
-        long_help = "The duration for which the index will not be replaced after its most recent update.
-
-Times may be specified with no suffix (default days), or one of:
-* (s)econds
-* (m)inutes
-* (h)ours
-* (d)ays
-
-"
-    )]
-    max_stale: Duration,
-}
 
 fn get_updated(
     ctx: &crate::Context<'_>,
@@ -72,21 +31,23 @@ fn get_updated(
 
     let mut response = ctx.client.execute(request)?.error_for_status()?;
 
-    let response = cargo_fetcher::convert_response(&mut response)?;
+    let response = util::convert_response(&mut response)?;
     let get_response = objects::GetObjectResponse::try_from(response)?;
 
     Ok(get_response.metadata.updated)
 }
 
-fn mirror_registry_index(ctx: &crate::Context<'_>, max_stale: Duration) -> Result<(), Error> {
+pub fn registry_index(ctx: &Context<'_>, max_stale: Duration) -> Result<(), Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::canonicalize_url(&url)?;
     let ident = util::ident(&canonicalized);
 
+    // Create a fake krate for the index, we don't have to worry about clashing
+    // since we use a `.` which is not an allowed character in crate names
     let krate = Krate {
         name: "crates.io-index".to_owned(),
         version: "1.0.0".to_owned(),
-        source: cargo_fetcher::Source::Git {
+        source: Source::Git {
             url: canonicalized.clone(),
             ident,
         },
@@ -111,10 +72,10 @@ fn mirror_registry_index(ctx: &crate::Context<'_>, max_stale: Duration) -> Resul
 
     let index = fetch::registry(&canonicalized)?;
 
-    upload::to_gcs(&ctx.client, index, &ctx.gcs_bucket, ctx.prefix, &krate)
+    upload::to_gcs(&ctx, index, &krate)
 }
 
-fn mirror_locked_crates(ctx: &crate::Context<'_>) -> Result<(), Error> {
+pub fn locked_crates(ctx: &Context<'_>) -> Result<(), Error> {
     info!("mirroring {} crates", ctx.krates.len());
 
     // Get a list of all crates already present in gcs, the list
@@ -146,7 +107,7 @@ fn mirror_locked_crates(ctx: &crate::Context<'_>) -> Result<(), Error> {
 
         let mut res = ctx.client.execute(request)?;
 
-        let response = cargo_fetcher::convert_response(&mut res)?;
+        let response = util::convert_response(&mut res)?;
         let list_response = ListResponse::try_from(response)?;
 
         let name_block: Vec<_> = list_response
@@ -191,37 +152,11 @@ fn mirror_locked_crates(ctx: &crate::Context<'_>) -> Result<(), Error> {
         .for_each(|krate| match fetch::from_crates_io(&ctx.client, krate) {
             Err(e) => error!("failed to retrieve {}: {}", krate, e),
             Ok(buffer) => {
-                if let Err(e) =
-                    upload::to_gcs(&ctx.client, buffer, &ctx.gcs_bucket, ctx.prefix, krate)
-                {
+                if let Err(e) = upload::to_gcs(&ctx, buffer, krate) {
                     error!("failed to upload {} to GCS: {}", krate, e);
                 }
             }
         });
-
-    Ok(())
-}
-
-pub fn cmd(ctx: crate::Context<'_>, args: Args) -> Result<(), Error> {
-    rayon::join(
-        || {
-            if !ctx.include_index {
-                return;
-            }
-
-            info!("mirroring crates.io index");
-            match mirror_registry_index(&ctx, args.max_stale) {
-                Ok(_) => info!("successfully mirrored crates.io index"),
-                Err(e) => error!("failed to mirror crates.io index: {}", e),
-            }
-        },
-        || match mirror_locked_crates(&ctx) {
-            Ok(_) => {
-                info!("finished uploading crates");
-            }
-            Err(e) => error!("failed to mirror crates: {}", e),
-        },
-    );
 
     Ok(())
 }
