@@ -21,15 +21,29 @@ struct LockContents {
     metadata: BTreeMap<String, String>,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub enum Source {
     CratesIo(String),
     Git { url: Url, ident: String },
 }
 
+#[derive(Ord, Eq)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
     pub source: Source,
+}
+
+impl PartialOrd for Krate {
+    fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
+        self.source.partial_cmp(&b.source)
+    }
+}
+
+impl PartialEq for Krate {
+    fn eq(&self, b: &Self) -> bool {
+        self.source.eq(&b.source)
+    }
 }
 
 impl Krate {

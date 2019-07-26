@@ -138,6 +138,10 @@ pub fn locked_crates(ctx: &Context<'_>) -> Result<(), Error> {
         }
     }
 
+    // Remove duplicates, eg. when 2 crates are sourced from the same git repository
+    to_mirror.sort();
+    to_mirror.dedup();
+
     if to_mirror.is_empty() {
         info!("all crates already uploaded");
         return Ok(());

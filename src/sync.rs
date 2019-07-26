@@ -88,6 +88,10 @@ pub fn locked_crates(ctx: &crate::Context<'_>, root_dir: &Path) -> Result<(), Er
         krate_name.clear();
     }
 
+    // Remove duplicates, eg. when 2 crates are sourced from the same git repository
+    to_sync.sort();
+    to_sync.dedup();
+
     if to_sync.is_empty() {
         info!("all crates already available on local disk");
         return Ok(());
