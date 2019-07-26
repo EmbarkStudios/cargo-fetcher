@@ -6,7 +6,23 @@
 [![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v1.4%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
 [![Embark](https://img.shields.io/badge/embark-open%20source-blueviolet.svg)](http://embark.games)
 
-Experimental alternative to `cargo fetch`
+Alternative to `cargo fetch` for use in CI or other "clean" environments that you want to quickly bootstrap
+with the necessary crates to compile/test etc your project(s).
+
+## Why?
+
+* You run CI jobs inside of [GCP](https://cloud.google.com/) and want faster crate.io and git downloads.
+
+## Why not?
+
+* You don't run CI inside of GCP. Currently `cargo-fetcher` only supports storing crates/git snapshots
+inside of [GCS](https://cloud.google.com/storage/) which means they can be located closer to the compute resources your CI is running on. PRs are of course welcome for adding additional storage backends though!
+* `cargo-fetcher` should not be used in a typical user environment as it completely disregards various
+safety mechanisms that are built into cargo, such as file-based locking.
+* You project doesn't have a Cargo.lock file. `cargo-fetcher` only works with Cargo.lock files, so if you have a 
+library project that doesn't have a checked in Cargo.lock, `cargo-fetcher` is not for you.
+
+## Examples
 
 ## Contributing
 

@@ -50,7 +50,8 @@ pub struct Canonicalized(Url);
 impl Canonicalized {
     pub(crate) fn ident(&self) -> String {
         // This is the same identity function used by cargo
-        let ident = self.0
+        let ident = self
+            .0
             .path_segments()
             .and_then(|mut s| s.next_back())
             .unwrap_or("");
@@ -184,7 +185,10 @@ pub fn convert_response(
     Ok(builder.body(body.freeze())?)
 }
 
-pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(stream: R, dir: P) -> Result<R, (R, Error)> {
+pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
+    stream: R,
+    dir: P,
+) -> Result<R, (R, Error)> {
     let mut archive_reader = tar::Archive::new(stream);
 
     let dir = dir.as_ref();
@@ -214,7 +218,10 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(stream: R, dir: P) ->
 // All of cargo's checksums are currently SHA256
 pub(crate) fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Error> {
     if expected.len() != 64 {
-        bail!("hex checksum length is {} instead of expected 64", expected.len());
+        bail!(
+            "hex checksum length is {} instead of expected 64",
+            expected.len()
+        );
     }
 
     let content_digest = ring::digest::digest(&ring::digest::SHA256, buffer);
@@ -257,7 +264,10 @@ mod test {
         let url = Url::parse("git+https://github.com/EmbarkStudios/cpal.git?rev=d59b4de#d59b4decf72a96932a1482cc27fe4c0b50c40d32").unwrap();
         let canonicalized = Canonicalized::try_from(&url).unwrap();
 
-        assert_eq!("https://github.com/embarkstudios/cpal", canonicalized.as_ref().as_str());
+        assert_eq!(
+            "https://github.com/embarkstudios/cpal",
+            canonicalized.as_ref().as_str()
+        );
     }
 
     #[test]
@@ -265,7 +275,7 @@ mod test {
         let url = Url::parse("git+https://github.com/gfx-rs/genmesh?rev=71abe4d").unwrap();
         let canonicalized = Canonicalized::try_from(&url).unwrap();
         let ident = canonicalized.ident();
-        
+
         assert_eq!(ident, "genmesh-401fe503e87439cc");
 
         let url = Url::parse("git+https://github.com/EmbarkStudios/cpal?rev=d59b4de#d59b4decf72a96932a1482cc27fe4c0b50c40d32").unwrap();
