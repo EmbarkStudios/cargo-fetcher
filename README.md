@@ -49,7 +49,7 @@ All 3 build jobs take around **1m2s** each to do `cargo fetch --target x86_64-un
 
 ### After
 
-All 3 build jobs take **2-3s** each to do `cargo-fetcher --include-index mirror` followed by **6s** to
+All 3 build jobs take **2-3s** each to do `cargo fetcher --include-index mirror` followed by **6s** to
 do `cargo fetch --target x86_64-unknown-linux-gnu`. The **6s** can probably be [further reduced](https://github.com/EmbarkStudios/cargo-fetcher/issues/1).
 
 ## Contributing
