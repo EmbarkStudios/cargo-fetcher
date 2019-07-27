@@ -137,7 +137,15 @@ fn real_main() -> Result<(), Error> {
     use reqwest::header;
     use std::convert::TryInto;
 
-    let args = Opts::from_args();
+    let args = Opts::from_iter({
+        std::env::args().enumerate().filter_map(|(i, a)| {
+            if i == 1 && a == "fetcher" {
+                None
+            } else {
+                Some(a)
+            }
+        })
+    });
 
     env_logger::builder().filter_level(args.log_level).init();
 
