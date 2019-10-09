@@ -9,7 +9,7 @@ pub struct Args {
         short,
         long = "max-stale",
         default_value = "1d",
-        parse(try_from_str = "parse_duration"),
+        parse(try_from_str = parse_duration),
         long_help = "The duration for which the index will not be replaced after its most recent update.
 
 Times may be specified with no suffix (default days), or one of:
