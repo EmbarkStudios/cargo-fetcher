@@ -1,6 +1,6 @@
 use crate::{fetch, util, Krate, Source};
+use anyhow::Error;
 use bytes::{Buf, IntoBuf};
-use failure::Error;
 use log::{error, info};
 use rayon::prelude::*;
 use std::{convert::TryFrom, io::Write, path::Path};
@@ -10,7 +10,7 @@ const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
 const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 const GIT_DB_DIR: &str = "git/db";
 
-pub fn registry_index(ctx: &crate::Context<'_>, root_dir: &Path) -> Result<(), Error> {
+pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error> {
     let index_path = root_dir.join(INDEX_DIR);
 
     // Just skip the index if the git directory already exists,
@@ -46,7 +46,7 @@ pub fn registry_index(ctx: &crate::Context<'_>, root_dir: &Path) -> Result<(), E
     Ok(())
 }
 
-pub fn locked_crates(ctx: &crate::Context<'_>, root_dir: &Path) -> Result<(), Error> {
+pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error> {
     info!("synchronizing {} crates...", ctx.krates.len());
 
     let cache_dir = root_dir.join(CACHE_DIR);

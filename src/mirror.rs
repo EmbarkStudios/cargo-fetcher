@@ -1,11 +1,11 @@
-use crate::{fetch, upload, util, Context, Krate, Source};
-use failure::Error;
+use crate::{fetch, upload, util, Ctx, Krate, Source};
+use anyhow::Error;
 use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
 use tame_gcs::objects::{self, ListOptional, ListResponse, Object};
 
 fn get_updated(
-    ctx: &crate::Context<'_>,
+    ctx: &crate::Ctx<'_>,
     krate: &Krate,
 ) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
     let obj_name = format!("{}{}", ctx.prefix, krate.gcs_id());
@@ -37,7 +37,7 @@ fn get_updated(
     Ok(get_response.metadata.updated)
 }
 
-pub fn registry_index(ctx: &Context<'_>, max_stale: Duration) -> Result<(), Error> {
+pub fn registry_index(ctx: &Ctx<'_>, max_stale: Duration) -> Result<(), Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::Canonicalized::try_from(&url)?;
     let ident = canonicalized.ident();
@@ -75,7 +75,7 @@ pub fn registry_index(ctx: &Context<'_>, max_stale: Duration) -> Result<(), Erro
     upload::to_gcs(&ctx, index, &krate)
 }
 
-pub fn locked_crates(ctx: &Context<'_>) -> Result<(), Error> {
+pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
     info!("mirroring {} crates", ctx.krates.len());
 
     // Get a list of all crates already present in gcs, the list

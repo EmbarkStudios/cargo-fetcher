@@ -1,8 +1,8 @@
-use crate::{Context, Krate};
-use failure::Error;
+use crate::{Ctx, Krate};
+use anyhow::Error;
 use tame_gcs::objects::{InsertObjectOptional, Object};
 
-pub fn to_gcs(ctx: &Context<'_>, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
+pub fn to_gcs(ctx: &Ctx<'_>, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
     use bytes::{Buf, IntoBuf};
 
     let content_len = source.len() as u64;

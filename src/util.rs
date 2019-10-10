@@ -1,4 +1,4 @@
-use failure::{bail, format_err, Error};
+use anyhow::{anyhow, bail, Error};
 #[allow(deprecated)]
 use std::{
     hash::{Hash, Hasher, SipHasher},
@@ -87,7 +87,7 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
         // cannot-be-a-base-urls (e.g., `github.com:rust-lang-nursery/rustfmt.git`)
         // are not supported.
         if url.cannot_be_a_base() {
-            failure::bail!(
+            bail!(
                 "invalid url `{}`: cannot-be-a-base-URLs are not supported",
                 url
             )
@@ -131,9 +131,13 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
 pub fn determine_cargo_root(explicit: Option<PathBuf>) -> Result<PathBuf, Error> {
     let root_dir = explicit
         .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
-        .or_else(|| dirs::home_dir().map(|hd| hd.join(".cargo")));
+        .or_else(|| {
+            app_dirs2::data_root(app_dirs2::AppDataType::UserConfig)
+                .map(|hd| hd.join(".cargo"))
+                .ok()
+        });
 
-    let root_dir = root_dir.ok_or_else(|| format_err!("unable to determine cargo root"))?;
+    let root_dir = root_dir.ok_or_else(|| anyhow!("unable to determine cargo root"))?;
 
     // There should always be a bin/cargo(.exe) relative to the root directory, at a minimum
     // there are probably ways to have setups where this doesn't hold true, but this is simple
@@ -149,7 +153,7 @@ pub fn determine_cargo_root(explicit: Option<PathBuf>) -> Result<PathBuf, Error>
     };
 
     if !cargo_path.exists() {
-        return Err(format_err!(
+        return Err(anyhow!(
             "cargo root {} does not seem to contain the cargo binary",
             root_dir.display()
         ));
@@ -174,7 +178,7 @@ pub fn convert_response(
 
     let headers = builder
         .headers_mut()
-        .ok_or_else(|| format_err!("failed to convert response headers"))?;
+        .ok_or_else(|| anyhow!("failed to convert response headers"))?;
 
     headers.extend(
         res.headers()
@@ -208,7 +212,7 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
 
         return Err((
             archive_reader.into_inner(),
-            format_err!("failed to unpack: {}", e),
+            anyhow!("failed to unpack: {}", e),
         ));
     }
 
