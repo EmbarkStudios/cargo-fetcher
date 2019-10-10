@@ -131,7 +131,11 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
 pub fn determine_cargo_root(explicit: Option<PathBuf>) -> Result<PathBuf, Error> {
     let root_dir = explicit
         .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
-        .or_else(|| dirs::home_dir().map(|hd| hd.join(".cargo")));
+        .or_else(|| {
+            app_dirs2::data_root(app_dirs2::AppDataType::UserConfig)
+                .map(|hd| hd.join(".cargo"))
+                .ok()
+        });
 
     let root_dir = root_dir.ok_or_else(|| anyhow!("unable to determine cargo root"))?;
 
