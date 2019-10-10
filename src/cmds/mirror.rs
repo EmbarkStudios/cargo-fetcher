@@ -1,5 +1,5 @@
-use cf::{mirror, Context};
-use failure::Error;
+use anyhow::Error;
+use cf::{mirror, Ctx};
 use log::{error, info};
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ Times may be specified with no suffix (default days), or one of:
     max_stale: Duration,
 }
 
-pub fn cmd(ctx: Context<'_>, include_index: bool, args: Args) -> Result<(), Error> {
+pub fn cmd(ctx: Ctx<'_>, include_index: bool, args: Args) -> Result<(), Error> {
     rayon::join(
         || {
             if !include_index {
@@ -62,7 +62,7 @@ fn parse_duration(src: &str) -> Result<Duration, Error> {
         "m" | "M" => Duration::from_secs(num * 60),
         "h" | "H" => Duration::from_secs(num * 60 * 60),
         "d" | "D" => Duration::from_secs(num * 60 * 60 * 24),
-        s => return Err(failure::format_err!("unknown duration suffix '{}'", s)),
+        s => return Err(anyhow::anyhow!("unknown duration suffix '{}'", s)),
     };
 
     Ok(duration)

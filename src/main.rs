@@ -1,5 +1,5 @@
 extern crate cargo_fetcher as cf;
-use failure::{format_err, Error, ResultExt};
+use anyhow::{anyhow, Context, Error};
 use log::{debug, error};
 use reqwest::Client;
 use std::path::PathBuf;
@@ -24,7 +24,7 @@ enum Command {
 
 fn parse_level(s: &str) -> Result<log::LevelFilter, Error> {
     s.parse::<log::LevelFilter>()
-        .map_err(|_| format_err!("failed to parse level '{}'", s))
+        .map_err(|_| anyhow!("failed to parse level '{}'", s))
 }
 
 #[derive(StructOpt)]
@@ -76,9 +76,7 @@ fn gs_url_to_bucket_and_prefix(url: &str) -> Result<(BucketName<'_>, &str), Erro
     let no_scheme = url.trim_start_matches("gs://");
 
     let mut split = no_scheme.splitn(2, '/');
-    let bucket = split
-        .next()
-        .ok_or_else(|| failure::err_msg("unknown bucket"))?;
+    let bucket = split.next().ok_or_else(|| anyhow!("unknown bucket"))?;
     let bucket = BucketName::try_from(bucket)?;
 
     let prefix = split.next().unwrap_or_default();
@@ -155,7 +153,7 @@ fn real_main() -> Result<(), Error> {
     let cred_path = args
         .credentials
         .or_else(|| std::env::var_os("GOOGLE_APPLICATION_CREDENTIALS").map(PathBuf::from))
-        .ok_or_else(|| format_err!("credentials not specified"))?;
+        .ok_or_else(|| anyhow!("credentials not specified"))?;
 
     debug!("using credentials in {}", cred_path.display());
 
@@ -168,7 +166,7 @@ fn real_main() -> Result<(), Error> {
 
     let client = Client::builder().default_headers(hm).gzip(false).build()?;
 
-    let ctx = cf::Context {
+    let ctx = cf::Ctx {
         client,
         gcs_bucket: bucket,
         prefix,

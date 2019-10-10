@@ -12,12 +12,12 @@ keywords = ["fetch", "gcs"]
 readme = "README.md"
 
 [dependencies]
+anyhow = "1.0.11"
 bytes = "0.4.12"
 chrono = "0.4.9"
 dirs = "2.0.2"
 env_logger = "0.7.0"
 flate2 = { version = "1.0.12", default-features = false, features = ["rust_backend"] }
-failure = "0.1.5"
 log = "0.4.8"
 rayon = "1.2.0"
 remove_dir_all = "0.5.2"

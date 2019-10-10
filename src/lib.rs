@@ -1,4 +1,7 @@
-use failure::Error;
+#![warn(clippy::all)]
+#![warn(rust_2018_idioms)]
+
+use anyhow::Error;
 use std::{collections::BTreeMap, convert::TryFrom, fmt, path::Path};
 use url::Url;
 
@@ -83,14 +86,14 @@ impl<'a> fmt::Display for LocalId<'a> {
     }
 }
 
-pub struct Context<'a> {
+pub struct Ctx<'a> {
     pub client: reqwest::Client,
     pub gcs_bucket: tame_gcs::BucketName<'a>,
     pub prefix: &'a str,
     pub krates: &'a [Krate],
 }
 
-impl<'a> Context<'a> {
+impl<'a> Ctx<'a> {
     fn object_name(&self, krate: &Krate) -> Result<tame_gcs::ObjectName<'a>, Error> {
         let obj_name = format!("{}{}", self.prefix, krate.gcs_id());
         Ok(tame_gcs::ObjectName::try_from(obj_name)?)

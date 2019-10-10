@@ -1,6 +1,6 @@
-use crate::{util, Context, Krate, Source};
+use crate::{util, Ctx, Krate, Source};
+use anyhow::{bail, Context, Error};
 use bytes::{BufMut, Bytes, BytesMut};
-use failure::{bail, Error, ResultExt};
 use log::debug;
 use reqwest::Client;
 use std::process::Command;
@@ -26,7 +26,7 @@ pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     }
 }
 
-pub fn from_gcs(ctx: &Context<'_>, krate: &Krate) -> Result<Bytes, Error> {
+pub fn from_gcs(ctx: &Ctx<'_>, krate: &Krate) -> Result<Bytes, Error> {
     let dl_req = Object::download(&(&ctx.gcs_bucket, &ctx.object_name(&krate)?), None)?;
 
     let (parts, _) = dl_req.into_parts();

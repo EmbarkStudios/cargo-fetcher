@@ -1,5 +1,5 @@
-use cf::{sync, Context};
-use failure::Error;
+use anyhow::Error;
+use cf::{sync, Ctx};
 use log::{error, info};
 use std::path::PathBuf;
 
@@ -11,7 +11,7 @@ pub struct Args {
     cargo_root: Option<PathBuf>,
 }
 
-pub fn cmd(ctx: Context<'_>, include_index: bool, args: Args) -> Result<(), Error> {
+pub fn cmd(ctx: Ctx<'_>, include_index: bool, args: Args) -> Result<(), Error> {
     let root_dir = cf::util::determine_cargo_root(args.cargo_root)?;
 
     // Create the registry directory as it is the root of multiple other ones
