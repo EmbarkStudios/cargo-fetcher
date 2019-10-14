@@ -22,6 +22,14 @@ inside of [GCS](https://cloud.google.com/storage/) which means they can be locat
 safety mechanisms that are built into cargo, such as file-based locking.
 * You project doesn't have a `Cargo.lock` file. `cargo-fetcher` only works with `Cargo.lock` files (due to how `cargo fetch` works), so library crates without checked in lock files won't be able to use `cargo-fetcher`.
 
+## Features
+### `gcs`
+
+The `gcs` feature enables the use of [Google Cloud Storage](https://cloud.google.com/storage/) as a backend.
+
+* Must provide a `gs://` url to the `-u | --url` parameter
+* Must provide [GCP service account](https://cloud.google.com/iam/docs/service-accounts) credentials either with `--credentials` or via the `GOOGLE_APPLICATION_CREDENTIALS` environment variable
+
 ## Examples
 
 This is an example from our CI for an internal project.

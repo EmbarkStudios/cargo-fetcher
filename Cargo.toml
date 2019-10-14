@@ -18,6 +18,7 @@ chrono = "0.4.9"
 app_dirs2 = "2.0.4"
 env_logger = "0.7.0"
 flate2 = { version = "1.0.12", default-features = false, features = ["rust_backend"] }
+http = "0.1.18"
 log = "0.4.8"
 rayon = "1.2.0"
 remove_dir_all = "0.5.2"
@@ -25,11 +26,15 @@ reqwest = { version = "0.9.21", default-features = false, features = ["rustls-tl
 ring = "0.16.9"
 serde = { version = "1.0.101", features = ["derive"] }
 structopt = "0.3.2"
-tame-gcs = "0.5.0"
-tame-oauth = { version = "0.3.0", features = ["gcp"] }
+tame-gcs = { version = "0.5.0", optional = true }
+tame-oauth = { version = "0.3.0", features = ["gcp"], optional = true }
 tar = "0.4.26"
 tempfile = "3.1.0"
 toml = "0.5.3"
 url = "2.1.0"
 walkdir = "2.2.9"
 zstd = "0.4.28+zstd.1.4.3"
+
+[features]
+default = []
+gcs = ["tame-gcs", "tame-oauth"]

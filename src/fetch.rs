@@ -4,7 +4,6 @@ use bytes::{BufMut, Bytes, BytesMut};
 use log::debug;
 use reqwest::Client;
 use std::process::Command;
-use tame_gcs::objects::Object;
 
 pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
@@ -26,8 +25,28 @@ pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     }
 }
 
-pub fn from_gcs(ctx: &Ctx<'_>, krate: &Krate) -> Result<Bytes, Error> {
-    let dl_req = Object::download(&(&ctx.gcs_bucket, &ctx.object_name(&krate)?), None)?;
+pub fn from_cloud(ctx: &Ctx<'_>, krate: &Krate) -> Result<Bytes, Error> {
+    match &ctx.location {
+        #[cfg(feature = "gcs")]
+        crate::CloudLocation::Gcs(loc) => from_gcs(ctx, &loc.bucket, krate),
+    }
+}
+
+#[cfg(feature = "gcs")]
+fn from_gcs(
+    ctx: &Ctx<'_>,
+    bucket: &tame_gcs::BucketName<'_>,
+    krate: &Krate,
+) -> Result<Bytes, Error> {
+    use std::convert::TryFrom;
+
+    let dl_req = tame_gcs::objects::Object::download(
+        &(
+            bucket,
+            &tame_gcs::ObjectName::try_from(ctx.location.path(&krate))?,
+        ),
+        None,
+    )?;
 
     let (parts, _) = dl_req.into_parts();
 

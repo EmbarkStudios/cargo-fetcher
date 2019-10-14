@@ -4,7 +4,7 @@ use log::{debug, error};
 use reqwest::Client;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use tame_gcs::BucketName;
+use url::Url;
 
 mod cmds;
 
@@ -34,10 +34,10 @@ struct Opts {
     /// environment variable.
     #[structopt(short, long, parse(from_os_str))]
     credentials: Option<PathBuf>,
-    /// A gs:// url to the bucket and prefix path where crates
-    /// will be/are stored
-    #[structopt(short = "g", long = "gcs")]
-    gcs_url: String,
+    /// A url to a cloud storage bucket and prefix path at which to store
+    /// or retrieve archives
+    #[structopt(short = "u", long = "url")]
+    url: Url,
     /// Path to the lockfile used for determining what crates to operate on
     #[structopt(
         short,
@@ -70,24 +70,42 @@ Possible values:
     cmd: Command,
 }
 
-fn gs_url_to_bucket_and_prefix(url: &str) -> Result<(BucketName<'_>, &str), Error> {
+#[cfg(feature = "gcs")]
+fn parse_gs_url(url: &Url) -> Result<cf::CloudLocation, Error> {
     use std::convert::TryFrom;
 
-    let no_scheme = url.trim_start_matches("gs://");
+    let bucket = url.domain().context("url doesn't contain a bucket")?;
+    // Remove the leading slash that url gives us
+    let path = if !url.path().is_empty() {
+        &url.path()[1..]
+    } else {
+        url.path()
+    };
 
-    let mut split = no_scheme.splitn(2, '/');
-    let bucket = split.next().ok_or_else(|| anyhow!("unknown bucket"))?;
-    let bucket = BucketName::try_from(bucket)?;
+    let loc = cf::GcsLocation {
+        bucket: tame_gcs::BucketName::try_from(bucket)?,
+        prefix: path,
+    };
 
-    let prefix = split.next().unwrap_or_default();
-
-    Ok((bucket, prefix))
+    Ok(cf::CloudLocation::Gcs(loc))
 }
 
-// If we're not completing whatever task in under an hour then
-// have more problems than the token expiring
-fn acquire_token(cred_path: PathBuf) -> Result<tame_oauth::Token, Error> {
-    use tame_gcs::http;
+#[cfg(not(feature = "gcs"))]
+fn parse_gs_url(url: &Url) -> Result<cf::CloudLocation, Error> {
+    bail!("GCS support was not enabled, you must compile with the 'gcs' feature")
+}
+
+fn parse_cloud_location(url: &Url) -> Result<cf::CloudLocation, Error> {
+    match url.scheme() {
+        "gs" => parse_gs_url(url),
+        scheme => anyhow::bail!("the scheme '{}' is not supported", scheme),
+    }
+}
+
+#[cfg(feature = "gcs")]
+fn acquire_gcs_token(cred_path: PathBuf) -> Result<tame_oauth::Token, Error> {
+    // If we're not completing whatever task in under an hour then
+    // have more problems than the token expiring
     use tame_oauth::gcp;
 
     let svc_account_info =
@@ -131,10 +149,39 @@ fn acquire_token(cred_path: PathBuf) -> Result<tame_oauth::Token, Error> {
     Ok(token)
 }
 
-fn real_main() -> Result<(), Error> {
+fn init_client(loc: &cf::CloudLocation<'_>, credentials: Option<PathBuf>) -> Result<Client, Error> {
     use reqwest::header;
     use std::convert::TryInto;
 
+    let cred_path = credentials
+        .or_else(|| {
+            let var = match loc {
+                #[cfg(feature = "gcs")]
+                cf::CloudLocation::Gcs(_) => "GOOGLE_APPLICATION_CREDENTIALS",
+            };
+
+            std::env::var_os(var).map(PathBuf::from)
+        })
+        .context("credentials not specified")?;
+
+    debug!("using credentials in {}", cred_path.display());
+
+    let client = match loc {
+        #[cfg(feature = "gcs")]
+        cf::CloudLocation::Gcs(_) => {
+            let token = acquire_gcs_token(cred_path)?;
+
+            let mut hm = header::HeaderMap::new();
+            hm.insert(header::AUTHORIZATION, token.try_into()?);
+
+            Client::builder().default_headers(hm).gzip(false).build()?
+        }
+    };
+
+    Ok(client)
+}
+
+fn real_main() -> Result<(), Error> {
     let args = Opts::from_iter({
         std::env::args().enumerate().filter_map(|(i, a)| {
             if i == 1 && a == "fetcher" {
@@ -147,29 +194,14 @@ fn real_main() -> Result<(), Error> {
 
     env_logger::builder().filter_level(args.log_level).init();
 
-    let (bucket, prefix) =
-        gs_url_to_bucket_and_prefix(&args.gcs_url).context("gs:// url is invalid")?;
-
-    let cred_path = args
-        .credentials
-        .or_else(|| std::env::var_os("GOOGLE_APPLICATION_CREDENTIALS").map(PathBuf::from))
-        .ok_or_else(|| anyhow!("credentials not specified"))?;
-
-    debug!("using credentials in {}", cred_path.display());
-
-    let token = acquire_token(cred_path)?;
+    let location = parse_cloud_location(&args.url)?;
+    let client = init_client(&location, args.credentials)?;
 
     let krates = cargo_fetcher::gather(args.lock_file)?;
 
-    let mut hm = header::HeaderMap::new();
-    hm.insert(header::AUTHORIZATION, token.try_into()?);
-
-    let client = Client::builder().default_headers(hm).gzip(false).build()?;
-
     let ctx = cf::Ctx {
         client,
-        gcs_bucket: bucket,
-        prefix,
+        location,
         krates: &krates[..],
     };
 

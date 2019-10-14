@@ -50,7 +50,7 @@ impl PartialEq for Krate {
 }
 
 impl Krate {
-    pub fn gcs_id(&self) -> &str {
+    pub fn cloud_id(&self) -> &str {
         match &self.source {
             Source::CratesIo(chksum) => chksum,
             Source::Git { ident, .. } => ident,
@@ -86,18 +86,30 @@ impl<'a> fmt::Display for LocalId<'a> {
     }
 }
 
-pub struct Ctx<'a> {
-    pub client: reqwest::Client,
-    pub gcs_bucket: tame_gcs::BucketName<'a>,
+#[cfg(feature = "gcs")]
+pub struct GcsLocation<'a> {
+    pub bucket: tame_gcs::BucketName<'a>,
     pub prefix: &'a str,
-    pub krates: &'a [Krate],
 }
 
-impl<'a> Ctx<'a> {
-    fn object_name(&self, krate: &Krate) -> Result<tame_gcs::ObjectName<'a>, Error> {
-        let obj_name = format!("{}{}", self.prefix, krate.gcs_id());
-        Ok(tame_gcs::ObjectName::try_from(obj_name)?)
+pub enum CloudLocation<'a> {
+    #[cfg(feature = "gcs")]
+    Gcs(GcsLocation<'a>),
+}
+
+impl<'a> CloudLocation<'a> {
+    fn path(&self, krate: &Krate) -> String {
+        match self {
+            #[cfg(feature = "gcs")]
+            Self::Gcs(loc) => format!("{}{}", loc.prefix, krate.cloud_id()),
+        }
     }
+}
+
+pub struct Ctx<'a> {
+    pub client: reqwest::Client,
+    pub location: CloudLocation<'a>,
+    pub krates: &'a [Krate],
 }
 
 pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {

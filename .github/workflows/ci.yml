@@ -29,7 +29,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --lib --tests -- -D warnings
+          args: --lib --tests --features=gcs -- -D warnings
 
   test:
     name: Test
@@ -51,11 +51,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --tests
+          args: --tests --features=gcs
       - name: cargo test
         uses: actions-rs/cargo@v1
         with:
           command: test
+          args: --features=gcs
 
   deny-check:
     name: cargo-deny check
@@ -95,7 +96,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: publish
-        args: --dry-run
+        args: --dry-run --all-features
 
   publish:
     name: Publish
@@ -118,6 +119,7 @@ jobs:
         CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
       with:
         command: publish
+        args: --all-features
 
   release:
     name: Release
@@ -163,7 +165,7 @@ jobs:
         if: matrix.os != 'ubuntu-latest'
         with:
           command: build
-          args: --release --target ${{ matrix.target }}
+          args: --release --target ${{ matrix.target }} --all-features
       - name: Package
         shell: bash
         run: |

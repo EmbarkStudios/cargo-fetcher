@@ -2,17 +2,23 @@ use crate::{fetch, upload, util, Ctx, Krate, Source};
 use anyhow::Error;
 use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
-use tame_gcs::objects::{self, ListOptional, ListResponse, Object};
 
-fn get_updated(
-    ctx: &crate::Ctx<'_>,
+#[cfg(feature = "gcs")]
+fn get_updated_gcs(
+    ctx: &Ctx<'_>,
+    loc: &crate::GcsLocation<'_>,
     krate: &Krate,
 ) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
-    let obj_name = format!("{}{}", ctx.prefix, krate.gcs_id());
-    let index_obj_name = tame_gcs::ObjectName::try_from(obj_name)?;
+    use tame_gcs::{
+        objects::{self, Object},
+        ObjectName,
+    };
+
+    let obj_name = ctx.location.path(krate);
+    let index_obj_name = ObjectName::try_from(obj_name)?;
 
     let get_req = Object::get(
-        &(&ctx.gcs_bucket, &index_obj_name),
+        &(&loc.bucket, &index_obj_name),
         Some(objects::GetObjectOptional {
             standard_params: tame_gcs::common::StandardQueryParameters {
                 fields: Some("updated"),
@@ -35,6 +41,16 @@ fn get_updated(
     let get_response = objects::GetObjectResponse::try_from(response)?;
 
     Ok(get_response.metadata.updated)
+}
+
+fn get_updated(
+    ctx: &Ctx<'_>,
+    krate: &Krate,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    match &ctx.location {
+        #[cfg(feature = "gcs")]
+        crate::CloudLocation::Gcs(loc) => get_updated_gcs(ctx, loc, krate),
+    }
 }
 
 pub fn registry_index(ctx: &Ctx<'_>, max_stale: Duration) -> Result<(), Error> {
@@ -72,11 +88,12 @@ pub fn registry_index(ctx: &Ctx<'_>, max_stale: Duration) -> Result<(), Error> {
 
     let index = fetch::registry(canonicalized.as_ref())?;
 
-    upload::to_gcs(&ctx, index, &krate)
+    upload::to_cloud(&ctx, index, &krate)
 }
 
-pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
-    info!("mirroring {} crates", ctx.krates.len());
+#[cfg(feature = "gcs")]
+fn list_gcs_crates(ctx: &Ctx<'_>, loc: &crate::GcsLocation<'_>) -> Result<Vec<String>, Error> {
+    use tame_gcs::objects::{ListOptional, ListResponse, Object};
 
     // Get a list of all crates already present in gcs, the list
     // operation can return a maximum of 1000 entries per request,
@@ -85,14 +102,13 @@ pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
     let mut names = Vec::new();
     let mut page_token: Option<String> = None;
 
-    info!("checking existing stored crates...");
     loop {
         let ls_req = Object::list(
-            &ctx.gcs_bucket,
+            &loc.bucket,
             Some(ListOptional {
                 // We only care about a single directory
                 delimiter: Some("/"),
-                prefix: Some(ctx.prefix),
+                prefix: Some(loc.prefix),
                 page_token: page_token.as_ref().map(|s| s.as_ref()),
                 ..Default::default()
             }),
@@ -124,14 +140,29 @@ pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
         }
     }
 
-    let mut names: Vec<_> = names.into_iter().flat_map(|v| v.into_iter()).collect();
+    let len = loc.prefix.len();
+
+    Ok(names
+        .into_iter()
+        .flat_map(|v| v.into_iter().map(|p| p[len..].to_owned()))
+        .collect())
+}
+
+pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
+    info!("mirroring {} crates", ctx.krates.len());
+
+    info!("checking existing stored crates...");
+    let mut names: Vec<String> = match &ctx.location {
+        #[cfg(feature = "gcs")]
+        crate::CloudLocation::Gcs(loc) => list_gcs_crates(ctx, loc)?,
+    };
+
     names.sort();
 
-    let prefix_len = ctx.prefix.len();
     let mut to_mirror = Vec::with_capacity(names.len());
     for krate in ctx.krates {
         if names
-            .binary_search_by(|name| name[prefix_len..].cmp(krate.gcs_id()))
+            .binary_search_by(|name| name.as_str().cmp(krate.cloud_id()))
             .is_err()
         {
             to_mirror.push(krate);
@@ -156,7 +187,7 @@ pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
         .for_each(|krate| match fetch::from_crates_io(&ctx.client, krate) {
             Err(e) => error!("failed to retrieve {}: {}", krate, e),
             Ok(buffer) => {
-                if let Err(e) = upload::to_gcs(&ctx, buffer, krate) {
+                if let Err(e) = upload::to_cloud(&ctx, buffer, krate) {
                     error!("failed to upload {} to GCS: {}", krate, e);
                 }
             }
