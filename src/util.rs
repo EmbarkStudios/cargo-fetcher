@@ -164,7 +164,7 @@ pub fn determine_cargo_root(explicit: Option<PathBuf>) -> Result<PathBuf, Error>
 
 pub fn convert_response(
     res: &mut reqwest::Response,
-) -> Result<tame_gcs::http::Response<bytes::Bytes>, Error> {
+) -> Result<http::Response<bytes::Bytes>, Error> {
     use bytes::BufMut;
 
     let body = bytes::BytesMut::with_capacity(res.content_length().unwrap_or(4 * 1024) as usize);
@@ -172,7 +172,7 @@ pub fn convert_response(
     res.copy_to(&mut writer)?;
     let body = writer.into_inner();
 
-    let mut builder = tame_gcs::http::Response::builder();
+    let mut builder = http::Response::builder();
 
     builder.status(res.status()).version(res.version());
 

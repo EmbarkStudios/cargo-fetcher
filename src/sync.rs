@@ -34,7 +34,7 @@ pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error
         },
     };
 
-    let index_data = fetch::from_gcs(&ctx, &krate)?;
+    let index_data = fetch::from_cloud(&ctx, &krate)?;
 
     let buf_reader = index_data.into_buf().reader();
     let zstd_decoder = zstd::Decoder::new(buf_reader)?;
@@ -100,7 +100,7 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
     info!("synchronizing {} missing crates...", to_sync.len());
 
     ctx.krates.par_iter().for_each(|krate| {
-        match fetch::from_gcs(&ctx, krate) {
+        match fetch::from_cloud(&ctx, krate) {
             Err(e) => error!("failed to download {}: {}", krate, e),
             Ok(krate_data) => {
                 match &krate.source {
