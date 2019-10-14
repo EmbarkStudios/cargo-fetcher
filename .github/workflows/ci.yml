@@ -29,7 +29,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --lib --tests --features=\"gcs\" -- -D warnings
+          args: --lib --tests --features=gcs -- -D warnings
 
   test:
     name: Test
@@ -51,12 +51,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --tests --features=\"gcs\"
+          args: --tests --features=gcs
       - name: cargo test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features=\"gcs\"
+          args: --features=gcs
 
   deny-check:
     name: cargo-deny check
