@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Changed
 - Updated dependencies
+- Place all GCS specific code/dependencies behind a `gcs` feature
 
 ### Fixed
 - Replaced `failure` with `anyhow`
