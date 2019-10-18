@@ -43,6 +43,41 @@ fn get_updated_gcs(
     Ok(get_response.metadata.updated)
 }
 
+#[cfg(feature = "s3")]
+fn get_updated_s3(
+    ctx: &Ctx<'_>,
+    loc: &crate::S3Location<'_>,
+    krate: &Krate,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    let region = rusoto_core::Region::Custom {
+        name: loc.region.to_owned(),
+        endpoint: loc.host.to_owned(),
+    };
+
+    let s3_client = rusoto_s3::S3Client::new(region);
+
+    let obj_name = ctx.location.path(krate);
+
+    let get_request = rusoto_s3::GetObjectRequest {
+        bucket: loc.bucket.to_owned(),
+        key: obj_name.to_owned(),
+        ..Default::default()
+    };
+
+    use rusoto_s3::S3;
+    let get_output = s3_client
+        .get_object(get_request)
+        .sync()
+        .expect("Failed to get object");
+
+    let last_modified =
+        chrono::DateTime::parse_from_rfc3339(get_output.last_modified.unwrap().as_str())
+            .expect("Error in date string")
+            .with_timezone(&chrono::Utc);
+
+    Ok(Some(last_modified))
+}
+
 fn get_updated(
     ctx: &Ctx<'_>,
     krate: &Krate,
@@ -50,6 +85,8 @@ fn get_updated(
     match &ctx.location {
         #[cfg(feature = "gcs")]
         crate::CloudLocation::Gcs(loc) => get_updated_gcs(ctx, loc, krate),
+        #[cfg(feature = "s3")]
+        crate::CloudLocation::S3(loc) => get_updated_s3(ctx, loc, krate),
     }
 }
 
@@ -148,6 +185,34 @@ fn list_gcs_crates(ctx: &Ctx<'_>, loc: &crate::GcsLocation<'_>) -> Result<Vec<St
         .collect())
 }
 
+#[cfg(feature = "s3")]
+fn list_s3_crates(ctx: &Ctx<'_>, loc: &crate::S3Location<'_>) -> Result<Vec<String>, Error> {
+    let region = rusoto_core::Region::Custom {
+        name: loc.region.to_owned(),
+        endpoint: loc.host.to_owned(),
+    };
+
+    let s3_client = rusoto_s3::S3Client::new(region);
+
+    let list_request = rusoto_s3::ListObjectsV2Request {
+        bucket: loc.bucket.to_owned(),
+        ..Default::default()
+    };
+
+    use rusoto_s3::S3;
+    let list_objects_response = s3_client
+        .list_objects_v2(list_request)
+        .sync()
+        .expect("Failed to list objects");
+
+    let objects = list_objects_response.contents.unwrap();
+
+    Ok(objects
+        .into_iter()
+        .map(|object| object.key.unwrap())
+        .collect())
+}
+
 pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
     info!("mirroring {} crates", ctx.krates.len());
 
@@ -155,6 +220,8 @@ pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
     let mut names: Vec<String> = match &ctx.location {
         #[cfg(feature = "gcs")]
         crate::CloudLocation::Gcs(loc) => list_gcs_crates(ctx, loc)?,
+        #[cfg(feature = "s3")]
+        crate::CloudLocation::S3(loc) => list_s3_crates(ctx, loc)?,
     };
 
     names.sort();

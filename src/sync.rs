@@ -81,9 +81,9 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
         use std::fmt::Write;
         write!(&mut krate_name, "{}", krate.local_id()).unwrap();
 
-        if cached_crates.binary_search(&krate_name).is_err() {
-            to_sync.push(krate);
-        }
+        //        if cached_crates.binary_search(&krate_name).is_err() {
+        to_sync.push(krate);
+        //        }
 
         krate_name.clear();
     }
@@ -94,7 +94,7 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
 
     if to_sync.is_empty() {
         info!("all crates already available on local disk");
-        return Ok(());
+        //        return Ok(());
     }
 
     info!("synchronizing {} missing crates...", to_sync.len());

@@ -29,6 +29,8 @@ pub fn from_cloud(ctx: &Ctx<'_>, krate: &Krate) -> Result<Bytes, Error> {
     match &ctx.location {
         #[cfg(feature = "gcs")]
         crate::CloudLocation::Gcs(loc) => from_gcs(ctx, &loc.bucket, krate),
+        #[cfg(feature = "s3")]
+        crate::CloudLocation::S3(loc) => from_s3(ctx, &loc.host, &loc.region, &loc.bucket, krate),
     }
 }
 
@@ -64,6 +66,41 @@ fn from_gcs(
     }
 
     Ok(content)
+}
+
+#[cfg(feature = "s3")]
+pub fn from_s3(
+    ctx: &Ctx<'_>,
+    host: &str,
+    region: &str,
+    bucket: &str,
+    krate: &Krate,
+) -> Result<Bytes, Error> {
+    let region = rusoto_core::Region::Custom {
+        name: region.to_owned(),
+        endpoint: host.to_owned(),
+    };
+
+    let s3_client = rusoto_s3::S3Client::new(region);
+
+    let object_name = ctx.location.path(krate);
+
+    let get_request = rusoto_s3::GetObjectRequest {
+        bucket: bucket.to_owned(),
+        key: object_name.to_owned(),
+        ..Default::default()
+    };
+
+    use rusoto_s3::S3;
+    let get_output = s3_client
+        .get_object(get_request)
+        .sync()
+        .expect("Failed to get object");
+
+    let stream = get_output.body.unwrap();
+
+    use futures::{Future, Stream};
+    Ok(stream.concat2().wait().unwrap())
 }
 
 pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {

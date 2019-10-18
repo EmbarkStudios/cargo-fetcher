@@ -92,9 +92,19 @@ pub struct GcsLocation<'a> {
     pub prefix: &'a str,
 }
 
+#[cfg(feature = "s3")]
+pub struct S3Location<'a> {
+    pub bucket: &'a str,
+    pub region: &'a str,
+    pub host: &'a str,
+    pub prefix: &'a str,
+}
+
 pub enum CloudLocation<'a> {
     #[cfg(feature = "gcs")]
     Gcs(GcsLocation<'a>),
+    #[cfg(feature = "s3")]
+    S3(S3Location<'a>),
 }
 
 impl<'a> CloudLocation<'a> {
@@ -102,6 +112,8 @@ impl<'a> CloudLocation<'a> {
         match self {
             #[cfg(feature = "gcs")]
             Self::Gcs(loc) => format!("{}{}", loc.prefix, krate.cloud_id()),
+            #[cfg(feature = "s3")]
+            Self::S3(_) => format!("{}", krate.cloud_id()),
         }
     }
 }
