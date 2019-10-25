@@ -5,6 +5,10 @@ pub fn to_cloud(ctx: &Ctx<'_>, source: bytes::Bytes, krate: &Krate) -> Result<()
     match &ctx.location {
         #[cfg(feature = "gcs")]
         crate::CloudLocation::Gcs(loc) => to_gcs(ctx, &loc.bucket, source, krate),
+        #[cfg(feature = "s3")]
+        crate::CloudLocation::S3(loc) => {
+            to_s3(ctx, &loc.host, &loc.region, &loc.bucket, source, krate)
+        }
     }
 }
 
@@ -45,5 +49,38 @@ fn to_gcs(
         .build()?;
 
     ctx.client.execute(request)?.error_for_status()?;
+    Ok(())
+}
+
+#[cfg(feature = "s3")]
+pub fn to_s3(
+    ctx: &Ctx<'_>,
+    host: &str,
+    region: &str,
+    bucket: &str,
+    source: bytes::Bytes,
+    krate: &Krate,
+) -> Result<(), Error> {
+    let region = rusoto_core::Region::Custom {
+        name: region.to_owned(),
+        endpoint: host.to_owned(),
+    };
+
+    let s3_client = rusoto_s3::S3Client::new(region);
+
+    let object_name = ctx.location.path(krate);
+
+    let put_request = rusoto_s3::PutObjectRequest {
+        bucket: bucket.to_owned(),
+        key: object_name.to_owned(),
+        body: Some(source.to_vec().into()),
+        ..Default::default()
+    };
+
+    use rusoto_s3::S3;
+    s3_client
+        .put_object(put_request)
+        .sync()
+        .expect("Failed to put object");
     Ok(())
 }

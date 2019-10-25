@@ -70,6 +70,60 @@ Possible values:
     cmd: Command,
 }
 
+#[cfg(feature = "s3")]
+fn parse_s3_url(url: &Url) -> Result<cf::CloudLocation, Error> {
+    let mut url_splits: Vec<&str> = url.as_str().split("http://").collect();
+    let mut host_url = url_splits.pop().unwrap();
+    host_url = host_url.trim_end_matches("/");
+
+    if host_url.contains('/') {
+        let mut url_and_bucket: Vec<&str> = host_url.split('/').collect();
+
+        let s3_bucket = url_and_bucket.pop().unwrap();
+
+        let s3_host_str = url_and_bucket.pop().unwrap();
+
+        let mut s3_host_parts: Vec<&str> = s3_host_str.split('.').collect();
+        s3_host_parts.pop();
+        s3_host_parts.pop();
+        let mut s3_region_part: Vec<&str> = s3_host_parts.pop().unwrap().split("s3-").collect();
+        let s3_region = s3_region_part.pop().unwrap();
+
+        let loc = cf::S3Location {
+            bucket: s3_bucket,
+            region: s3_region,
+            host: s3_host_str,
+            prefix: "s3://",
+        };
+
+        Ok(cf::CloudLocation::S3(loc))
+    } else {
+        let mut url_and_bucket: Vec<&str> = host_url.split('.').collect();
+
+        url_and_bucket.pop().unwrap();
+        url_and_bucket.pop().unwrap();
+        let s3_host_parts4 = url_and_bucket.pop().unwrap();
+
+        let mut s3_host_split: Vec<&str> = host_url.splitn(2, '.').collect();
+        let s3_host = s3_host_split.pop().unwrap();
+
+        let s3_bucket = url_and_bucket.pop().unwrap();
+
+        let mut s3_host_parts: Vec<&str> = s3_host_parts4.split('.').collect();
+        let mut s3_region_part: Vec<&str> = s3_host_parts.pop().unwrap().split("s3-").collect();
+        let s3_region = s3_region_part.pop().unwrap();
+
+        let loc = cf::S3Location {
+            bucket: s3_bucket,
+            region: s3_region,
+            host: s3_host,
+            prefix: "s3://",
+        };
+
+        Ok(cf::CloudLocation::S3(loc))
+    }
+}
+
 #[cfg(feature = "gcs")]
 fn parse_gs_url(url: &Url) -> Result<cf::CloudLocation, Error> {
     use std::convert::TryFrom;
@@ -92,12 +146,18 @@ fn parse_gs_url(url: &Url) -> Result<cf::CloudLocation, Error> {
 
 #[cfg(not(feature = "gcs"))]
 fn parse_gs_url(url: &Url) -> Result<cf::CloudLocation, Error> {
-    bail!("GCS support was not enabled, you must compile with the 'gcs' feature")
+    anyhow::bail!("GCS support was not enabled, you must compile with the 'gcs' feature")
+}
+
+#[cfg(not(feature = "s3"))]
+fn parse_s3_url(_url: &Url) -> Result<cf::CloudLocation, Error> {
+    anyhow::bail!("S3 support was not enabled, you must compile with the 's3' feature")
 }
 
 fn parse_cloud_location(url: &Url) -> Result<cf::CloudLocation, Error> {
     match url.scheme() {
         "gs" => parse_gs_url(url),
+        "http" => parse_s3_url(url),
         scheme => anyhow::bail!("the scheme '{}' is not supported", scheme),
     }
 }
@@ -153,17 +213,21 @@ fn init_client(loc: &cf::CloudLocation<'_>, credentials: Option<PathBuf>) -> Res
     use reqwest::header;
     use std::convert::TryInto;
 
+    #[cfg(feature = "gcs")]
     let cred_path = credentials
         .or_else(|| {
             let var = match loc {
                 #[cfg(feature = "gcs")]
                 cf::CloudLocation::Gcs(_) => "GOOGLE_APPLICATION_CREDENTIALS",
+                #[cfg(feature = "s3")]
+                cf::CloudLocation::S3(_) => "",
             };
 
             std::env::var_os(var).map(PathBuf::from)
         })
         .context("credentials not specified")?;
 
+    #[cfg(feature = "gcs")]
     debug!("using credentials in {}", cred_path.display());
 
     let client = match loc {
@@ -174,6 +238,11 @@ fn init_client(loc: &cf::CloudLocation<'_>, credentials: Option<PathBuf>) -> Res
             let mut hm = header::HeaderMap::new();
             hm.insert(header::AUTHORIZATION, token.try_into()?);
 
+            Client::builder().default_headers(hm).gzip(false).build()?
+        }
+        #[cfg(feature = "s3")]
+        cf::CloudLocation::S3(_) => {
+            let hm = header::HeaderMap::new();
             Client::builder().default_headers(hm).gzip(false).build()?
         }
     };

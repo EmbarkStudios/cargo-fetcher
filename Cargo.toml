@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 documentation = "https://docs.rs/cargo-fetcher"
 homepage = "https://github.com/EmbarkStudios/cargo-fetcher"
 repository = "https://github.com/EmbarkStudios/cargo-fetcher"
-keywords = ["fetch", "gcs"]
+keywords = ["fetch", "gcs", "s3"]
 readme = "README.md"
 
 [dependencies]
@@ -18,12 +18,15 @@ chrono = "0.4.9"
 app_dirs2 = "2.0.4"
 env_logger = "0.7.0"
 flate2 = { version = "1.0.12", default-features = false, features = ["rust_backend"] }
+futures = { version = "0.1.26", optional = true}
 http = "0.1.18"
 log = "0.4.8"
 rayon = "1.2.0"
 remove_dir_all = "0.5.2"
 reqwest = { version = "0.9.21", default-features = false, features = ["rustls-tls"] }
 ring = "0.16.9"
+rusoto_core = { version = "0.40.0", optional = true }
+rusoto_s3 = { version = "0.40.0", optional = true }
 serde = { version = "1.0.101", features = ["derive"] }
 structopt = "0.3.2"
 tame-gcs = { version = "0.5.0", optional = true }
@@ -38,3 +41,4 @@ zstd = "0.4.28+zstd.1.4.3"
 [features]
 default = []
 gcs = ["tame-gcs", "tame-oauth"]
+s3 = ["futures", "rusoto_core", "rusoto_s3"]
