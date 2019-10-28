@@ -272,19 +272,43 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
     // mybucket.s3-us-west-2.amazonaws.com
     // https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/
     if host_dns.contains("s3") {
-        let mut pieces = host_dns.splitn(3, '.');
-        let bucket = pieces.next().context("bucket not specified")?;
-        let region = pieces.next().context("region no specified")?;
+        let mut bucket = None;
+        let mut region = None;
+        let mut host = None;
 
-        let region = if region == "s3" {
-            ""
-        } else if region.starts_with("s3-") {
-            &region[3..]
-        } else {
-            anyhow::bail!("malformed region detected")
-        };
+        for part in host_dns.split('.') {
+            if part.is_empty() {
+                anyhow::bail!("malformed host name detected");
+            }
 
-        let host = pieces.next().context("host not specified")?;
+            if bucket.is_none() {
+                bucket = Some(part);
+                continue;
+            }
+
+            if part.starts_with("s3") && region.is_none() {
+                let rgn = &part[2..];
+
+                if rgn.starts_with('-') {
+                    region = Some((&rgn[1..], part.len()));
+                } else {
+                    region = Some(("us-east-1", part.len()));
+                }
+            } else if region.is_none() {
+                bucket = Some(&host_dns[..bucket.as_ref().unwrap().len() + 1 + part.len()]);
+            } else if host.is_none() {
+                host = Some(
+                    &host_dns[2 // for the 2 dots
+                        + bucket.as_ref().unwrap().len()
+                        + region.as_ref().unwrap().1..],
+                );
+                break;
+            }
+        }
+
+        let bucket = bucket.context("bucket not specified")?;
+        let region = region.context("region not specified")?.0;
+        let host = host.context("host not specified")?;
 
         let loc = crate::S3Location {
             bucket,
@@ -326,7 +350,7 @@ pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error
         "gs" => {
             anyhow::bail!("GCS support was not enabled, you must compile with the 'gcs' feature")
         }
-        "http" => {
+        "http" | "https" => {
             let s3 = parse_s3_url(url).context("failed to parse s3 url")?;
 
             if cfg!(feature = "s3") {
@@ -378,14 +402,38 @@ mod test {
     }
 
     #[test]
-    fn parses_s3_host_style() {
-        // Host-Style Naming: http://mybucket.s3-us-west-2.amazonaws.com
+    fn parses_s3_virtual_hosted_style() {
+        let url = Url::parse("http://johnsmith.net.s3.amazonaws.com/homepage.html").unwrap();
+        let loc = parse_s3_url(&url).unwrap();
+
+        assert_eq!(loc.bucket, "johnsmith.net");
+        assert_eq!(loc.region, "us-east-1");
+        assert_eq!(loc.host, "amazonaws.com");
+        assert_eq!(loc.prefix, "homepage.html");
+
+        let url =
+            Url::parse("http://johnsmith.eu.s3-eu-west-1.amazonaws.com/homepage.html").unwrap();
+        let loc = parse_s3_url(&url).unwrap();
+
+        assert_eq!(loc.bucket, "johnsmith.eu");
+        assert_eq!(loc.region, "eu-west-1");
+        assert_eq!(loc.host, "amazonaws.com");
+        assert_eq!(loc.prefix, "homepage.html");
 
         let url = Url::parse("http://mybucket.s3-us-west-2.amazonaws.com/some_prefix/").unwrap();
         let loc = parse_s3_url(&url).unwrap();
 
         assert_eq!(loc.bucket, "mybucket");
         assert_eq!(loc.region, "us-west-2");
+        assert_eq!(loc.host, "amazonaws.com");
+        assert_eq!(loc.prefix, "some_prefix/");
+
+        let url = Url::parse("http://mybucket.with.many.dots.in.it.s3.amazonaws.com/some_prefix/")
+            .unwrap();
+        let loc = parse_s3_url(&url).unwrap();
+
+        assert_eq!(loc.bucket, "mybucket.with.many.dots.in.it");
+        assert_eq!(loc.region, "us-east-1");
         assert_eq!(loc.host, "amazonaws.com");
         assert_eq!(loc.prefix, "some_prefix/");
     }
