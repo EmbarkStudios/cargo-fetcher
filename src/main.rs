@@ -1,6 +1,6 @@
 extern crate cargo_fetcher as cf;
 use anyhow::{anyhow, Context, Error};
-use log::{debug, error};
+use log::error;
 use reqwest::Client;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -32,7 +32,12 @@ struct Opts {
     /// Path to a service account credentials file used to obtain
     /// oauth2 tokens. By default uses GOOGLE_APPLICATION_CREDENTIALS
     /// environment variable.
-    #[structopt(short, long, parse(from_os_str))]
+    #[structopt(
+        short,
+        long,
+        env = "GOOGLE_APPLICATION_CREDENTIALS",
+        parse(from_os_str)
+    )]
     credentials: Option<PathBuf>,
     /// A url to a cloud storage bucket and prefix path at which to store
     /// or retrieve archives
@@ -70,184 +75,28 @@ Possible values:
     cmd: Command,
 }
 
-#[cfg(feature = "s3")]
-fn parse_s3_url(url: &Url) -> Result<cf::CloudLocation, Error> {
-    let mut url_splits: Vec<&str> = url.as_str().split("http://").collect();
-    let mut host_url = url_splits.pop().unwrap();
-    host_url = host_url.trim_end_matches("/");
-
-    if host_url.contains('/') {
-        let mut url_and_bucket: Vec<&str> = host_url.split('/').collect();
-
-        let s3_bucket = url_and_bucket.pop().unwrap();
-
-        let s3_host_str = url_and_bucket.pop().unwrap();
-
-        let mut s3_host_parts: Vec<&str> = s3_host_str.split('.').collect();
-        s3_host_parts.pop();
-        s3_host_parts.pop();
-        let mut s3_region_part: Vec<&str> = s3_host_parts.pop().unwrap().split("s3-").collect();
-        let s3_region = s3_region_part.pop().unwrap();
-
-        let loc = cf::S3Location {
-            bucket: s3_bucket,
-            region: s3_region,
-            host: s3_host_str,
-            prefix: "s3://",
-        };
-
-        Ok(cf::CloudLocation::S3(loc))
-    } else {
-        let mut url_and_bucket: Vec<&str> = host_url.split('.').collect();
-
-        url_and_bucket.pop().unwrap();
-        url_and_bucket.pop().unwrap();
-        let s3_host_parts4 = url_and_bucket.pop().unwrap();
-
-        let mut s3_host_split: Vec<&str> = host_url.splitn(2, '.').collect();
-        let s3_host = s3_host_split.pop().unwrap();
-
-        let s3_bucket = url_and_bucket.pop().unwrap();
-
-        let mut s3_host_parts: Vec<&str> = s3_host_parts4.split('.').collect();
-        let mut s3_region_part: Vec<&str> = s3_host_parts.pop().unwrap().split("s3-").collect();
-        let s3_region = s3_region_part.pop().unwrap();
-
-        let loc = cf::S3Location {
-            bucket: s3_bucket,
-            region: s3_region,
-            host: s3_host,
-            prefix: "s3://",
-        };
-
-        Ok(cf::CloudLocation::S3(loc))
-    }
-}
-
-#[cfg(feature = "gcs")]
-fn parse_gs_url(url: &Url) -> Result<cf::CloudLocation, Error> {
-    use std::convert::TryFrom;
-
-    let bucket = url.domain().context("url doesn't contain a bucket")?;
-    // Remove the leading slash that url gives us
-    let path = if !url.path().is_empty() {
-        &url.path()[1..]
-    } else {
-        url.path()
-    };
-
-    let loc = cf::GcsLocation {
-        bucket: tame_gcs::BucketName::try_from(bucket)?,
-        prefix: path,
-    };
-
-    Ok(cf::CloudLocation::Gcs(loc))
-}
-
-#[cfg(not(feature = "gcs"))]
-fn parse_gs_url(url: &Url) -> Result<cf::CloudLocation, Error> {
-    anyhow::bail!("GCS support was not enabled, you must compile with the 'gcs' feature")
-}
-
-#[cfg(not(feature = "s3"))]
-fn parse_s3_url(_url: &Url) -> Result<cf::CloudLocation, Error> {
-    anyhow::bail!("S3 support was not enabled, you must compile with the 's3' feature")
-}
-
-fn parse_cloud_location(url: &Url) -> Result<cf::CloudLocation, Error> {
-    match url.scheme() {
-        "gs" => parse_gs_url(url),
-        "http" => parse_s3_url(url),
-        scheme => anyhow::bail!("the scheme '{}' is not supported", scheme),
-    }
-}
-
-#[cfg(feature = "gcs")]
-fn acquire_gcs_token(cred_path: PathBuf) -> Result<tame_oauth::Token, Error> {
-    // If we're not completing whatever task in under an hour then
-    // have more problems than the token expiring
-    use tame_oauth::gcp;
-
-    let svc_account_info =
-        gcp::ServiceAccountInfo::deserialize(std::fs::read_to_string(&cred_path)?)
-            .context("failed to deserilize service account")?;
-    let svc_account_access = gcp::ServiceAccountAccess::new(svc_account_info)?;
-
-    let token = match svc_account_access.get_token(&[tame_gcs::Scopes::ReadWrite])? {
-        gcp::TokenOrRequest::Request {
-            request,
-            scope_hash,
-            ..
-        } => {
-            let (parts, body) = request.into_parts();
-
-            let client = reqwest::Client::new();
-
-            let uri = parts.uri.to_string();
-
-            let builder = match parts.method {
-                http::Method::GET => client.get(&uri),
-                http::Method::POST => client.post(&uri),
-                http::Method::DELETE => client.delete(&uri),
-                http::Method::PUT => client.put(&uri),
-                method => unimplemented!("{} not implemented", method),
-            };
-
-            let req = builder
-                .headers(parts.headers)
-                .body(reqwest::Body::new(std::io::Cursor::new(body)))
-                .build()?;
-
-            let mut res = client.execute(req)?;
-
-            let response = cf::util::convert_response(&mut res)?;
-            svc_account_access.parse_token_response(scope_hash, response)?
-        }
-        _ => unreachable!(),
-    };
-
-    Ok(token)
-}
-
-fn init_client(loc: &cf::CloudLocation<'_>, credentials: Option<PathBuf>) -> Result<Client, Error> {
-    use reqwest::header;
-    use std::convert::TryInto;
-
-    #[cfg(feature = "gcs")]
-    let cred_path = credentials
-        .or_else(|| {
-            let var = match loc {
-                #[cfg(feature = "gcs")]
-                cf::CloudLocation::Gcs(_) => "GOOGLE_APPLICATION_CREDENTIALS",
-                #[cfg(feature = "s3")]
-                cf::CloudLocation::S3(_) => "",
-            };
-
-            std::env::var_os(var).map(PathBuf::from)
-        })
-        .context("credentials not specified")?;
-
-    #[cfg(feature = "gcs")]
-    debug!("using credentials in {}", cred_path.display());
-
-    let client = match loc {
+fn init_backend(
+    loc: cf::CloudLocation<'_>,
+    _credentials: Option<PathBuf>,
+) -> Result<Box<dyn cf::Backend + Sync>, Error> {
+    match loc {
         #[cfg(feature = "gcs")]
-        cf::CloudLocation::Gcs(_) => {
-            let token = acquire_gcs_token(cred_path)?;
+        cf::CloudLocation::Gcs(gcs) => {
+            let cred_path = _credentials.context("GCS credentials not specified")?;
 
-            let mut hm = header::HeaderMap::new();
-            hm.insert(header::AUTHORIZATION, token.try_into()?);
-
-            Client::builder().default_headers(hm).gzip(false).build()?
+            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path)?;
+            Ok(Box::new(gcs))
         }
+        #[cfg(not(feature = "gcs"))]
+        cf::CloudLocation::Gcs(_) => anyhow::bail!("GCS backend not enabled"),
         #[cfg(feature = "s3")]
-        cf::CloudLocation::S3(_) => {
-            let hm = header::HeaderMap::new();
-            Client::builder().default_headers(hm).gzip(false).build()?
+        cf::CloudLocation::S3(s3) => {
+            let s3 = cf::backends::s3::S3Backend::new(s3)?;
+            Ok(Box::new(s3))
         }
-    };
-
-    Ok(client)
+        #[cfg(not(feature = "s3"))]
+        cf::CloudLocation::S3(_) => anyhow::bail!("S3 backend not enabled"),
+    }
 }
 
 fn real_main() -> Result<(), Error> {
@@ -263,14 +112,14 @@ fn real_main() -> Result<(), Error> {
 
     env_logger::builder().filter_level(args.log_level).init();
 
-    let location = parse_cloud_location(&args.url)?;
-    let client = init_client(&location, args.credentials)?;
+    let location = cf::util::parse_cloud_location(&args.url)?;
+    let backend = init_backend(location, args.credentials)?;
 
-    let krates = cargo_fetcher::gather(args.lock_file)?;
+    let krates = cf::gather(args.lock_file).context("failed to get crates from lock file")?;
 
     let ctx = cf::Ctx {
-        client,
-        location,
+        client: Client::builder().gzip(false).build()?,
+        backend,
         krates: &krates[..],
     };
 

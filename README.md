@@ -27,8 +27,15 @@ safety mechanisms that are built into cargo, such as file-based locking.
 
 The `gcs` feature enables the use of [Google Cloud Storage](https://cloud.google.com/storage/) as a backend.
 
-* Must provide a `gs://` url to the `-u | --url` parameter
+* Must provide a url to the `-u | --url` parameter with the [gsutil](https://cloud.google.com/storage/docs/gsutil#syntax) syntax `gs://<bucket_name>(/<prefix>)?`
 * Must provide [GCP service account](https://cloud.google.com/iam/docs/service-accounts) credentials either with `--credentials` or via the `GOOGLE_APPLICATION_CREDENTIALS` environment variable
+
+### `s3`
+
+The `s3` feature enables the use of [Amazon S3](https://aws.amazon.com/s3/) as a backend.
+
+* Must provide a url to the `-u | --url` parameter, it must of the form `http(s)?://<bucket>.s3(-<region>).<host>(/<prefix>)?`
+* Must provide AWS credentials by the default mechanism(s) described [here](https://github.com/rusoto/rusoto/blob/master/AWS-CREDENTIALS.md)
 
 ## Examples
 

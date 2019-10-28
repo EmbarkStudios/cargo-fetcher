@@ -1,4 +1,4 @@
-use crate::{util, Ctx, Krate, Source};
+use crate::{util, Krate, Source};
 use anyhow::{bail, Context, Error};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::debug;
@@ -23,84 +23,6 @@ pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
         }
         Source::Git { .. } => via_git(&krate),
     }
-}
-
-pub fn from_cloud(ctx: &Ctx<'_>, krate: &Krate) -> Result<Bytes, Error> {
-    match &ctx.location {
-        #[cfg(feature = "gcs")]
-        crate::CloudLocation::Gcs(loc) => from_gcs(ctx, &loc.bucket, krate),
-        #[cfg(feature = "s3")]
-        crate::CloudLocation::S3(loc) => from_s3(ctx, &loc.host, &loc.region, &loc.bucket, krate),
-    }
-}
-
-#[cfg(feature = "gcs")]
-fn from_gcs(
-    ctx: &Ctx<'_>,
-    bucket: &tame_gcs::BucketName<'_>,
-    krate: &Krate,
-) -> Result<Bytes, Error> {
-    use std::convert::TryFrom;
-
-    let dl_req = tame_gcs::objects::Object::download(
-        &(
-            bucket,
-            &tame_gcs::ObjectName::try_from(ctx.location.path(&krate))?,
-        ),
-        None,
-    )?;
-
-    let (parts, _) = dl_req.into_parts();
-
-    let uri = parts.uri.to_string();
-    let builder = ctx.client.get(&uri);
-
-    let request = builder.headers(parts.headers).build()?;
-
-    let mut response = ctx.client.execute(request)?.error_for_status()?;
-    let res = util::convert_response(&mut response)?;
-    let content = res.into_body();
-
-    if let Source::CratesIo(ref chksum) = krate.source {
-        util::validate_checksum(&content, &chksum)?;
-    }
-
-    Ok(content)
-}
-
-#[cfg(feature = "s3")]
-pub fn from_s3(
-    ctx: &Ctx<'_>,
-    host: &str,
-    region: &str,
-    bucket: &str,
-    krate: &Krate,
-) -> Result<Bytes, Error> {
-    let region = rusoto_core::Region::Custom {
-        name: region.to_owned(),
-        endpoint: host.to_owned(),
-    };
-
-    let s3_client = rusoto_s3::S3Client::new(region);
-
-    let object_name = ctx.location.path(krate);
-
-    let get_request = rusoto_s3::GetObjectRequest {
-        bucket: bucket.to_owned(),
-        key: object_name.to_owned(),
-        ..Default::default()
-    };
-
-    use rusoto_s3::S3;
-    let get_output = s3_client
-        .get_object(get_request)
-        .sync()
-        .expect("Failed to get object");
-
-    let stream = get_output.body.unwrap();
-
-    use futures::{Future, Stream};
-    Ok(stream.concat2().wait().unwrap())
 }
 
 pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
