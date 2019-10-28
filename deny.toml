@@ -13,13 +13,12 @@ skip = [
     # reqwest <= 0.19.21 doesn't feature gate cookies, which ends up
     # bringing in a metric fuckton of duplicates
     { name = "idna", version = "=0.1.5" },
-    { name = "quote", version = "=0.6.13" },
     { name = "percent-encoding", version = "=1.0.1" },
-    { name = "proc-macro2", version = "=0.4.30" },
     { name = "serde_urlencoded", version = "=0.5.5" },
-    { name = "syn", version = "=0.15.44" },
-    { name = "unicode-xid", version = "=0.1.0" },
     { name = "url", version = "=1.7.2" },
+
+    # mio-named-pipes brings in 2 versions of miow
+    { name = "miow", version = "=0.2.1" },
 
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },

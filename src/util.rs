@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Error};
+use anyhow::{anyhow, bail, Context, Error};
 #[allow(deprecated)]
 use std::{
     hash::{Hash, Hasher, SipHasher},
@@ -258,6 +258,87 @@ pub(crate) fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Err
     Ok(())
 }
 
+fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
+    let host = url.host().context("url has no host")?;
+
+    let host_dns = match host {
+        url::Host::Domain(h) => h,
+        _ => anyhow::bail!("host name is an IP"),
+    };
+
+    // TODO: Support localhost without bucket and region, for testing
+
+    // We only support virtual-hosted-style references as path style is being deprecated
+    // mybucket.s3-us-west-2.amazonaws.com
+    // https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/
+    if host_dns.contains("s3") {
+        let mut pieces = host_dns.splitn(3, '.');
+        let bucket = pieces.next().context("bucket not specified")?;
+        let region = pieces.next().context("region no specified")?;
+
+        let region = if region == "s3" {
+            ""
+        } else if region.starts_with("s3-") {
+            &region[3..]
+        } else {
+            anyhow::bail!("malformed region detected")
+        };
+
+        let host = pieces.next().context("host not specified")?;
+
+        let loc = crate::S3Location {
+            bucket,
+            region,
+            host,
+            prefix: if !url.path().is_empty() {
+                &url.path()[1..]
+            } else {
+                url.path()
+            },
+        };
+
+        Ok(loc)
+    } else {
+        anyhow::bail!("not an s3 url");
+    }
+}
+
+pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error> {
+    match url.scheme() {
+        #[cfg(feature = "gcs")]
+        "gs" => {
+            let bucket = url.domain().context("url doesn't contain a bucket")?;
+            // Remove the leading slash that url gives us
+            let path = if !url.path().is_empty() {
+                &url.path()[1..]
+            } else {
+                url.path()
+            };
+
+            let loc = crate::GcsLocation {
+                bucket,
+                prefix: path,
+            };
+
+            Ok(crate::CloudLocation::Gcs(loc))
+        }
+        #[cfg(not(feature = "gcs"))]
+        "gs" => {
+            anyhow::bail!("GCS support was not enabled, you must compile with the 'gcs' feature")
+        }
+        "http" => {
+            let s3 = parse_s3_url(url).context("failed to parse s3 url")?;
+
+            if cfg!(feature = "s3") {
+                Ok(crate::CloudLocation::S3(s3))
+            } else {
+                anyhow::bail!("S3 support was not enabled, you must compile with the 's3' feature")
+            }
+        }
+        scheme => anyhow::bail!("the scheme '{}' is not supported", scheme),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -294,5 +375,18 @@ mod test {
         let expected = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
 
         validate_checksum(b"hello world", expected).unwrap();
+    }
+
+    #[test]
+    fn parses_s3_host_style() {
+        // Host-Style Naming: http://mybucket.s3-us-west-2.amazonaws.com
+
+        let url = Url::parse("http://mybucket.s3-us-west-2.amazonaws.com/some_prefix/").unwrap();
+        let loc = parse_s3_url(&url).unwrap();
+
+        assert_eq!(loc.bucket, "mybucket");
+        assert_eq!(loc.region, "us-west-2");
+        assert_eq!(loc.host, "amazonaws.com");
+        assert_eq!(loc.prefix, "some_prefix/");
     }
 }

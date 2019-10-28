@@ -5,10 +5,10 @@ use anyhow::Error;
 use std::{collections::BTreeMap, convert::TryFrom, fmt, path::Path};
 use url::Url;
 
+pub mod backends;
 mod fetch;
 pub mod mirror;
 pub mod sync;
-mod upload;
 pub mod util;
 
 #[derive(serde::Deserialize)]
@@ -86,13 +86,13 @@ impl<'a> fmt::Display for LocalId<'a> {
     }
 }
 
-#[cfg(feature = "gcs")]
+#[allow(dead_code)]
 pub struct GcsLocation<'a> {
-    pub bucket: tame_gcs::BucketName<'a>,
-    pub prefix: &'a str,
+    bucket: &'a str,
+    prefix: &'a str,
 }
 
-#[cfg(feature = "s3")]
+#[allow(dead_code)]
 pub struct S3Location<'a> {
     pub bucket: &'a str,
     pub region: &'a str,
@@ -101,27 +101,21 @@ pub struct S3Location<'a> {
 }
 
 pub enum CloudLocation<'a> {
-    #[cfg(feature = "gcs")]
     Gcs(GcsLocation<'a>),
-    #[cfg(feature = "s3")]
     S3(S3Location<'a>),
-}
-
-impl<'a> CloudLocation<'a> {
-    fn path(&self, krate: &Krate) -> String {
-        match self {
-            #[cfg(feature = "gcs")]
-            Self::Gcs(loc) => format!("{}{}", loc.prefix, krate.cloud_id()),
-            #[cfg(feature = "s3")]
-            Self::S3(_) => format!("{}", krate.cloud_id()),
-        }
-    }
 }
 
 pub struct Ctx<'a> {
     pub client: reqwest::Client,
-    pub location: CloudLocation<'a>,
+    pub backend: Box<dyn Backend + Sync>,
     pub krates: &'a [Krate],
+}
+
+pub trait Backend {
+    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
+    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error>;
+    fn list(&self) -> Result<Vec<String>, Error>;
+    fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
 }
 
 pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {

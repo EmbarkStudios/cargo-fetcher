@@ -1,4 +1,4 @@
-use crate::{fetch, util, Krate, Source};
+use crate::{util, Krate, Source};
 use anyhow::Error;
 use bytes::{Buf, IntoBuf};
 use log::{error, info};
@@ -17,7 +17,7 @@ pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error
     // as a patch on top of an existing repo via git fetch is
     // presumably faster
     if index_path.join(".git").exists() {
-        info!("skippipng crates.io-index download, index repository already present");
+        info!("skipping crates.io-index download, index repository already present");
         return Ok(());
     }
 
@@ -34,7 +34,7 @@ pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error
         },
     };
 
-    let index_data = fetch::from_cloud(&ctx, &krate)?;
+    let index_data = ctx.backend.fetch(&krate)?;
 
     let buf_reader = index_data.into_buf().reader();
     let zstd_decoder = zstd::Decoder::new(buf_reader)?;
@@ -81,9 +81,9 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
         use std::fmt::Write;
         write!(&mut krate_name, "{}", krate.local_id()).unwrap();
 
-        //        if cached_crates.binary_search(&krate_name).is_err() {
-        to_sync.push(krate);
-        //        }
+        if cached_crates.binary_search(&krate_name).is_err() {
+            to_sync.push(krate);
+        }
 
         krate_name.clear();
     }
@@ -94,17 +94,22 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
 
     if to_sync.is_empty() {
         info!("all crates already available on local disk");
-        //        return Ok(());
+        return Ok(());
     }
 
     info!("synchronizing {} missing crates...", to_sync.len());
 
     ctx.krates.par_iter().for_each(|krate| {
-        match fetch::from_cloud(&ctx, krate) {
+        match ctx.backend.fetch(krate) {
             Err(e) => error!("failed to download {}: {}", krate, e),
             Ok(krate_data) => {
                 match &krate.source {
-                    Source::CratesIo(_) => {
+                    Source::CratesIo(ref chksum) => {
+                        if let Err(e) = util::validate_checksum(&krate_data, &chksum) {
+                            error!("failed to validate checksum for {}: {}", krate, e);
+                            return;
+                        }
+
                         let packed_krate_path = cache_dir.join(format!("{}", krate.local_id()));
 
                         match std::fs::File::create(&packed_krate_path) {
