@@ -42,3 +42,6 @@ zstd = "0.5.0+zstd.1.4.3"
 default = []
 gcs = ["tame-gcs", "tame-oauth"]
 s3 = ["futures", "rusoto_core", "rusoto_s3"]
+
+[patch.crates-io]
+tar = { git = "https://github.com/EmbarkStudios/tar-rs.git", rev = "890b55e" }
