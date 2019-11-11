@@ -27,7 +27,7 @@ pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
 
 pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
-        Source::Git { url, ident, .. } => {
+        Source::Git { url, rev, .. } => {
             // Create a temporary directory to clone the repo into
             let temp_dir = tempfile::tempdir()?;
 
@@ -45,7 +45,6 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
             }
 
             // Ensure that the revision required in the lockfile is actually present
-            let rev = &ident[ident.len() - 7..];
             let has_revision = Command::new("git")
                 .arg("cat-file")
                 .arg("-t")

@@ -59,11 +59,8 @@ impl PartialEq for Krate {
 }
 
 impl Krate {
-    pub fn cloud_id(&self) -> &str {
-        match &self.source {
-            Source::CratesIo(chksum) => chksum,
-            Source::Git { ident, .. } => ident,
-        }
+    pub fn cloud_id(&self) -> CloudId<'_> {
+        CloudId { inner: self }
     }
 
     pub fn local_id(&self) -> LocalId<'_> {
@@ -90,7 +87,20 @@ impl<'a> fmt::Display for LocalId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
             Source::CratesIo(_) => write!(f, "{}-{}.crate", self.inner.name, self.inner.version),
-            Source::Git { ident, .. } => write!(f, "{}", &ident[..ident.len() - 8]),
+            Source::Git { ident, .. } => write!(f, "{}", &ident),
+        }
+    }
+}
+
+pub struct CloudId<'a> {
+    inner: &'a Krate,
+}
+
+impl<'a> fmt::Display for CloudId<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.inner.source {
+            Source::CratesIo(chksum) => write!(f, "{}", chksum),
+            Source::Git { ident, rev, .. } => write!(f, "{}-{}", ident, rev),
         }
     }
 }
@@ -216,7 +226,7 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
                 version: p.version,
                 source: Source::Git {
                     url: canonicalized.into(),
-                    ident: format!("{}-{}", ident, rev),
+                    ident,
                     rev: rev.to_owned(),
                 },
             })

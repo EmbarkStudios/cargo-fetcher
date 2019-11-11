@@ -52,8 +52,9 @@ pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
 
     let mut to_mirror = Vec::with_capacity(names.len());
     for krate in ctx.krates {
+        let cid = format!("{}", krate.cloud_id());
         if names
-            .binary_search_by(|name| name.as_str().cmp(krate.cloud_id()))
+            .binary_search_by(|name| name.as_str().cmp(&cid))
             .is_err()
         {
             to_mirror.push(krate);

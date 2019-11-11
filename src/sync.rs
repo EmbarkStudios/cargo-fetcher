@@ -114,7 +114,7 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
 
     info!("synchronizing {} missing crates...", to_sync.len());
 
-    ctx.krates.par_iter().for_each(|krate| {
+    to_sync.par_iter().for_each(|krate| {
         match ctx.backend.fetch(krate) {
             Err(e) => error!("failed to download {}: {}", krate, e),
             Ok(krate_data) => {
