@@ -27,7 +27,7 @@ pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
 
 pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
-        Source::Git { url, ident } => {
+        Source::Git { url, ident, .. } => {
             // Create a temporary directory to clone the repo into
             let temp_dir = tempfile::tempdir()?;
 

@@ -364,6 +364,21 @@ pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error
     }
 }
 
+pub(crate) fn checkout(src: &Path, target: &Path) -> Result<(), Error> {
+    let output = std::process::Command::new("git")
+        .arg("clone")
+        .arg(src)
+        .arg(target)
+        .output()?;
+
+    if !output.status.success() {
+        let err_out = String::from_utf8(output.stderr)?;
+        bail!("failed to checkout {}: {}", src.display(), err_out);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

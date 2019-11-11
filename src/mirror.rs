@@ -16,6 +16,7 @@ pub fn registry_index(ctx: &Ctx<'_>, max_stale: Duration) -> Result<(), Error> {
         source: Source::Git {
             url: canonicalized.as_ref().clone(),
             ident,
+            rev: String::new(),
         },
     };
 

@@ -9,6 +9,7 @@ const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
 const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
 const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 const GIT_DB_DIR: &str = "git/db";
+const GIT_CO_DIR: &str = "git/checkouts";
 
 pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error> {
     let index_path = root_dir.join(INDEX_DIR);
@@ -31,6 +32,7 @@ pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error
         source: Source::Git {
             url: canonicalized.into(),
             ident,
+            rev: String::new(),
         },
     };
 
@@ -52,19 +54,19 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
     let cache_dir = root_dir.join(CACHE_DIR);
     let src_dir = root_dir.join(SRC_DIR);
     let git_db_dir = root_dir.join(GIT_DB_DIR);
+    let git_co_dir = root_dir.join(GIT_CO_DIR);
 
     std::fs::create_dir_all(&cache_dir)?;
     std::fs::create_dir_all(&src_dir)?;
     std::fs::create_dir_all(&git_db_dir)?;
+    std::fs::create_dir_all(&git_co_dir)?;
 
     let cache_iter = std::fs::read_dir(&cache_dir)?;
-    let db_iter = std::fs::read_dir(&git_db_dir)?;
 
     // TODO: Also check the untarred crates
     info!("checking local cache for missing crates...");
 
     let mut cached_crates: Vec<String> = cache_iter
-        .chain(db_iter)
         .filter_map(|entry| {
             entry
                 .ok()
@@ -77,7 +79,7 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
     let mut to_sync = Vec::with_capacity(ctx.krates.len());
     let mut krate_name = String::with_capacity(128);
 
-    for krate in ctx.krates {
+    for krate in ctx.krates.iter().filter(|k| !k.source.is_git()) {
         use std::fmt::Write;
         write!(&mut krate_name, "{}", krate.local_id()).unwrap();
 
@@ -86,6 +88,19 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
         }
 
         krate_name.clear();
+    }
+
+    for krate in ctx.krates.iter().filter(|k| k.source.is_git()) {
+        match &krate.source {
+            Source::Git { rev, ident, .. } => {
+                let path = git_co_dir.join(format!("{}/{}/.cargo-ok", ident, rev));
+
+                if !path.exists() {
+                    to_sync.push(krate);
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 
     // Remove duplicates, eg. when 2 crates are sourced from the same git repository
@@ -140,7 +155,7 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
                             }
                         }
                     }
-                    Source::Git { .. } => {
+                    Source::Git { rev, .. } => {
                         let buf_reader = krate_data.into_buf().reader();
                         let zstd_decoder = match zstd::Decoder::new(buf_reader) {
                             Ok(zd) => zd,
@@ -151,8 +166,18 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
                         };
 
                         let db_path = git_db_dir.join(format!("{}", krate.local_id()));
-                        if let Err((_, e)) = util::unpack_tar(zstd_decoder, db_path) {
+                        if let Err((_, e)) = util::unpack_tar(zstd_decoder, &db_path) {
                             error!("failed to unpack dependency {}: {}", krate, e);
+                        }
+
+                        let co_path = git_co_dir.join(format!("{}/{}", krate.local_id(), rev));
+
+                        // Do a checkout of the bare clone
+                        if util::checkout(&db_path, &co_path).is_ok() {
+                            // Tell cargo it totally checked this out itself
+                            if let Err(e) = std::fs::File::create(co_path.join(".cargo-ok")) {
+                                error!("failed to write .cargo-ok: {}", e);
+                            }
                         }
                     }
                 }

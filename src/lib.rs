@@ -27,7 +27,16 @@ struct LockContents {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub enum Source {
     CratesIo(String),
-    Git { url: Url, ident: String },
+    Git { url: Url, rev: String, ident: String },
+}
+
+impl Source {
+    pub(crate) fn is_git(&self) -> bool {
+        match self {
+            Source::CratesIo(_) => false,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Ord, Eq)]
@@ -208,6 +217,7 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
                 source: Source::Git {
                     url: canonicalized.into(),
                     ident: format!("{}-{}", ident, rev),
+                    rev: rev.to_owned(),
                 },
             })
         }
