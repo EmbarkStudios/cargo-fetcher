@@ -123,6 +123,14 @@ fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
         estimated_size += TAR_HEADER_SIZE;
         if let Ok(md) = entry.metadata() {
             estimated_size += md.len();
+
+            // Add write permissions to all files, this is to
+            // get around an issue where unpacking tar files on
+            // Windows will result in errors if there are read-only
+            // directories
+            let mut perms = md.permissions();
+            perms.set_readonly(false);
+            std::fs::set_permissions(entry.path(), perms)?;
         }
     }
 
