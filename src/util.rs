@@ -387,7 +387,7 @@ pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error
     if !output.status.success() {
         let err_out = String::from_utf8(output.stderr)?;
         bail!(
-            "failed to checkoug {} @ {}: {}",
+            "failed to checkout {} @ {}: {}",
             src.display(),
             rev,
             err_out

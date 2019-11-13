@@ -18,8 +18,23 @@ pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error
     // as a patch on top of an existing repo via git fetch is
     // presumably faster
     if index_path.join(".git").exists() {
-        info!("skipping crates.io-index download, index repository already present");
-        return Ok(());
+        info!("registry index already exists, pulling instead");
+
+        let output = std::process::Command::new("git")
+            .arg("pull")
+            .current_dir(&index_path)
+            .output()?;
+
+        if !output.status.success() {
+            let err_out = String::from_utf8(output.stderr)?;
+            error!(
+                "failed to pull registry index, removing it and updating manually: {}",
+                err_out
+            );
+            remove_dir_all::remove_dir_all(&index_path)?;
+        } else {
+            return Ok(());
+        }
     }
 
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
