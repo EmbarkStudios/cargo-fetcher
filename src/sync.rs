@@ -1,7 +1,7 @@
 use crate::{util, Krate, Source};
 use anyhow::Error;
 use bytes::{Buf, IntoBuf};
-use log::{error, info};
+use log::{debug, error, info};
 use rayon::prelude::*;
 use std::{convert::TryFrom, io::Write, path::Path};
 
@@ -166,14 +166,35 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
                         };
 
                         let db_path = git_db_dir.join(format!("{}", krate.local_id()));
-                        if let Err((_, e)) = util::unpack_tar(zstd_decoder, &db_path) {
+
+                        // The path may already exist, so in that case just do a fetch
+                        if db_path.exists() {
+                            debug!("fetching bare repo for {}", krate);
+                            if let Err(e) = crate::fetch::update_bare(krate, &db_path) {
+                                error!("failed to fetch crate {}: {}", krate, e);
+                                return;
+                            }
+                        } else if let Err((_, e)) = util::unpack_tar(zstd_decoder, &db_path) {
                             error!("failed to unpack dependency {}: {}", krate, e);
+                            return;
                         }
 
                         let co_path = git_co_dir.join(format!("{}/{}", krate.local_id(), rev));
 
+                        // If we get here, it means there wasn't a .cargo-ok in the dir, even if the
+                        // rest of it is checked out and ready, so blow it away just in case as we are
+                        // doing a clone/checkout from a local bare repository rather than a remote one
+                        if co_path.exists() {
+                            debug!("removing checkout dir {} for {}", co_path.display(), krate);
+                            if let Err(e) = remove_dir_all::remove_dir_all(&co_path) {
+                                error!("failed to remove {}: {}", co_path.display(), e);
+                                return;
+                            }
+                        }
+
                         // Do a checkout of the bare clone
-                        if util::checkout(&db_path, &co_path).is_ok() {
+                        debug!("checking out {} to {}", krate, co_path.display());
+                        if util::checkout(&db_path, &co_path, rev).is_ok() {
                             // Tell cargo it totally checked this out itself
                             if let Err(e) = std::fs::File::create(co_path.join(".cargo-ok")) {
                                 error!("failed to write .cargo-ok: {}", e);

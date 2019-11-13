@@ -27,7 +27,11 @@ struct LockContents {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub enum Source {
     CratesIo(String),
-    Git { url: Url, rev: String, ident: String },
+    Git {
+        url: Url,
+        rev: String,
+        ident: String,
+    },
 }
 
 impl Source {

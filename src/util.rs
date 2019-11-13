@@ -364,8 +364,10 @@ pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error
     }
 }
 
-pub(crate) fn checkout(src: &Path, target: &Path) -> Result<(), Error> {
-    let output = std::process::Command::new("git")
+pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error> {
+    use std::process::Command;
+
+    let output = Command::new("git")
         .arg("clone")
         .arg(src)
         .arg(target)
@@ -373,7 +375,23 @@ pub(crate) fn checkout(src: &Path, target: &Path) -> Result<(), Error> {
 
     if !output.status.success() {
         let err_out = String::from_utf8(output.stderr)?;
-        bail!("failed to checkout {}: {}", src.display(), err_out);
+        bail!("failed to clone {}: {}", src.display(), err_out);
+    }
+
+    let output = Command::new("git")
+        .arg("checkout")
+        .arg(rev)
+        .current_dir(target)
+        .output()?;
+
+    if !output.status.success() {
+        let err_out = String::from_utf8(output.stderr)?;
+        bail!(
+            "failed to checkoug {} @ {}: {}",
+            src.display(),
+            rev,
+            err_out
+        );
     }
 
     Ok(())
