@@ -14,8 +14,9 @@ pub struct Args {
 pub fn cmd(ctx: Ctx<'_>, include_index: bool, args: Args) -> Result<(), Error> {
     let root_dir = cf::util::determine_cargo_root(args.cargo_root)?;
 
-    // Create the registry directory as it is the root of multiple other ones
+    // Create the registry and git directories as they are the root of multiple other ones
     std::fs::create_dir_all(root_dir.join("registry"))?;
+    std::fs::create_dir_all(root_dir.join("git"))?;
 
     rayon::join(
         || {

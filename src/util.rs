@@ -194,7 +194,6 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
     dir: P,
 ) -> Result<R, (R, Error)> {
     let mut archive_reader = tar::Archive::new(stream);
-    archive_reader.set_preserve_permissions(false);
 
     let dir = dir.as_ref();
 

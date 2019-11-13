@@ -1,5 +1,5 @@
 use crate::{util, Krate, Source};
-use anyhow::Error;
+use anyhow::{Context, Error};
 use bytes::{Buf, IntoBuf};
 use log::{debug, error, info};
 use rayon::prelude::*;
@@ -13,6 +13,7 @@ const GIT_CO_DIR: &str = "git/checkouts";
 
 pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error> {
     let index_path = root_dir.join(INDEX_DIR);
+    std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
 
     // Just skip the index if the git directory already exists,
     // as a patch on top of an existing repo via git fetch is
@@ -33,6 +34,9 @@ pub fn registry_index(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error
             );
             remove_dir_all::remove_dir_all(&index_path)?;
         } else {
+            // Write a file to the directory to let cargo know when it was updated
+            std::fs::File::create(index_path.join(".last-updated"))
+                .context("failed to crate .last-updated")?;
             return Ok(());
         }
     }
@@ -71,10 +75,10 @@ pub fn locked_crates(ctx: &crate::Ctx<'_>, root_dir: &Path) -> Result<(), Error>
     let git_db_dir = root_dir.join(GIT_DB_DIR);
     let git_co_dir = root_dir.join(GIT_CO_DIR);
 
-    std::fs::create_dir_all(&cache_dir)?;
-    std::fs::create_dir_all(&src_dir)?;
-    std::fs::create_dir_all(&git_db_dir)?;
-    std::fs::create_dir_all(&git_co_dir)?;
+    std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache/")?;
+    std::fs::create_dir_all(&src_dir).context("failed to create registry/src/")?;
+    std::fs::create_dir_all(&git_db_dir).context("failed to create git/db/")?;
+    std::fs::create_dir_all(&git_co_dir).context("failed to create git/checkouts/")?;
 
     let cache_iter = std::fs::read_dir(&cache_dir)?;
 
