@@ -35,6 +35,36 @@ pub enum Source {
 }
 
 impl Source {
+    pub fn from_git_url(url: &Url) -> Result<Self, Error> {
+        let rev = match url.query_pairs().find(|(k, _)| k == "rev") {
+            Some((_, rev)) => {
+                if rev.len() < 7 {
+                    anyhow::bail!("revision specififer {} is too short", rev);
+                } else {
+                    rev
+                }
+            }
+            None => {
+                anyhow::bail!("url doesn't contain a revision specifier");
+            }
+        };
+
+        // This will handle
+        // 1. 7 character short_id
+        // 2. Full 40 character sha-1
+        // 3. 7 character short_id#sha-1
+        let rev = &rev[..7];
+
+        let canonicalized = util::Canonicalized::try_from(url)?;
+        let ident = canonicalized.ident();
+
+        Ok(Source::Git {
+            url: canonicalized.into(),
+            ident,
+            rev: rev.to_owned(),
+        })
+    }
+
     pub(crate) fn is_git(&self) -> bool {
         match self {
             Source::CratesIo(_) => false,
@@ -190,50 +220,24 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
                 }
             };
 
-            let rev = match url.query_pairs().find(|(k, _)| k == "rev") {
-                Some((_, rev)) => {
-                    if rev.len() < 7 {
-                        log::error!(
-                            "skipping {}-{}: revision length was too short",
-                            p.name,
-                            p.version
-                        );
-                        continue;
-                    } else {
-                        rev
-                    }
+            match Source::from_git_url(&url) {
+                Ok(src) => {
+                    krates.push(Krate {
+                        name: p.name,
+                        version: p.version,
+                        source: src,
+                    });
                 }
-                None => {
-                    log::warn!("skipping {}-{}: revision not specified", p.name, p.version);
-                    continue;
-                }
-            };
-
-            // This will handle
-            // 1. 7 character short_id
-            // 2. Full 40 character sha-1
-            // 3. 7 character short_id#sha-1
-            let rev = &rev[..7];
-
-            let canonicalized = match util::Canonicalized::try_from(&url) {
-                Ok(i) => i,
                 Err(e) => {
-                    log::warn!("skipping {}-{}: {}", p.name, p.version, e);
-                    continue;
+                    log::error!(
+                        "unable to use git url {} for {}-{}: {}",
+                        url,
+                        p.name,
+                        p.version,
+                        e
+                    );
                 }
-            };
-
-            let ident = canonicalized.ident();
-
-            krates.push(Krate {
-                name: p.name,
-                version: p.version,
-                source: Source::Git {
-                    url: canonicalized.into(),
-                    ident,
-                    rev: rev.to_owned(),
-                },
-            })
+            }
         }
     }
 
