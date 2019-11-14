@@ -1,14 +1,12 @@
 extern crate cargo_fetcher as cf;
 use anyhow::{anyhow, Context, Error};
 use log::error;
-use reqwest::Client;
 use std::path::PathBuf;
 use structopt::StructOpt;
 use url::Url;
 
-mod cmds;
-
-use cmds::{mirror, sync};
+mod mirror;
+mod sync;
 
 #[derive(StructOpt)]
 enum Command {
@@ -117,15 +115,17 @@ fn real_main() -> Result<(), Error> {
 
     let krates = cf::gather(args.lock_file).context("failed to get crates from lock file")?;
 
-    let ctx = cf::Ctx {
-        client: Client::builder().gzip(false).build()?,
-        backend,
-        krates: &krates[..],
-    };
-
     match args.cmd {
-        Command::Mirror(margs) => mirror::cmd(ctx, args.include_index, margs),
-        Command::Sync(sargs) => sync::cmd(ctx, args.include_index, sargs),
+        Command::Mirror(margs) => {
+            let ctx = cf::Ctx::new(None, backend, krates).context("failed to create context")?;
+            mirror::cmd(ctx, args.include_index, margs)
+        }
+        Command::Sync(sargs) => {
+            let root_dir = cf::util::determine_cargo_root(sargs.cargo_root.as_ref())?;
+            let ctx = cf::Ctx::new(Some(root_dir), backend, krates)
+                .context("failed to create context")?;
+            sync::cmd(ctx, args.include_index, sargs)
+        }
     }
 }
 

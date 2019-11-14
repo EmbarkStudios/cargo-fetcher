@@ -23,7 +23,7 @@ Times may be specified with no suffix (default days), or one of:
     max_stale: Duration,
 }
 
-pub fn cmd(ctx: Ctx<'_>, include_index: bool, args: Args) -> Result<(), Error> {
+pub fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
     rayon::join(
         || {
             if !include_index {

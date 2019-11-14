@@ -2,8 +2,12 @@
 #![warn(rust_2018_idioms)]
 
 use anyhow::Error;
-use std::{collections::BTreeMap, convert::TryFrom, fmt, path::Path};
-use url::Url;
+use std::{
+    collections::BTreeMap,
+    convert::TryFrom,
+    fmt,
+    path::{Path, PathBuf},
+};
 
 pub mod backends;
 mod fetch;
@@ -158,10 +162,34 @@ pub enum CloudLocation<'a> {
     S3(S3Location<'a>),
 }
 
-pub struct Ctx<'a> {
+pub struct Ctx {
     pub client: reqwest::Client,
     pub backend: Box<dyn Backend + Sync>,
-    pub krates: &'a [Krate],
+    pub krates: Vec<Krate>,
+    pub root_dir: PathBuf,
+}
+
+impl Ctx {
+    pub fn new(
+        root_dir: Option<PathBuf>,
+        backend: Box<dyn Backend + Sync>,
+        krates: Vec<Krate>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            client: reqwest::Client::builder().gzip(false).build()?,
+            backend,
+            krates,
+            root_dir: root_dir.unwrap_or_else(|| PathBuf::from(".")),
+        })
+    }
+
+    pub fn prep_sync_dirs(&self) -> Result<(), Error> {
+        // Create the registry and git directories as they are the root of multiple other ones
+        std::fs::create_dir_all(self.root_dir.join("registry"))?;
+        std::fs::create_dir_all(self.root_dir.join("git"))?;
+
+        Ok(())
+    }
 }
 
 pub trait Backend {
