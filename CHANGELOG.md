@@ -5,12 +5,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Added support for S3 storage behind the `s3` feature
+- Integration tests using s3 via minio are now run in CI
+- Git dependencies are now checked out to the git/checkouts folder
+- Git dependencies now also recursively download submodules
+
 ### Changed
 - Updated dependencies
 - Place all GCS specific code/dependencies behind a `gcs` feature
+- The url for the storage location is now supplied via `-u | --url`
 
 ### Fixed
 - Replaced `failure` with `anyhow`
+- Fixed issue where **all** crates were synced every time due to pruning and 
+removing duplicates only to then completely ignore them and use the original crate list :facepalm:
+- Fixed issue where crates.io packages were being unpacked with an extra parent directory
 
 ## [0.5.1] - 2019-10-27
 ### Fixed
@@ -27,10 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add support for only updating the registry index after it hasn't been updated
 for a user specified amount of time, rather than always
-
-## [0.4.0] - 2019-10-25
-### Added
-- Add support for retrieving and uploading the crates.io index
 
 ## [0.4.0] - 2019-10-25
 ### Added
