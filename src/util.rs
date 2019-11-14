@@ -110,8 +110,7 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
         }
 
         // Repos can generally be accessed with or without `.git` extension.
-        let needs_chopping = url.path().ends_with(".git");
-        if needs_chopping {
+        if url.path().ends_with(".git") {
             let last = {
                 let last = url.path_segments().unwrap().next_back().unwrap();
                 last[..last.len() - 4].to_owned()
@@ -128,8 +127,9 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
     }
 }
 
-pub fn determine_cargo_root(explicit: Option<PathBuf>) -> Result<PathBuf, Error> {
+pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error> {
     let root_dir = explicit
+        .cloned()
         .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
         .or_else(|| {
             app_dirs2::data_root(app_dirs2::AppDataType::UserConfig)
@@ -212,7 +212,7 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
 
         return Err((
             archive_reader.into_inner(),
-            anyhow!("failed to unpack: {}", e),
+            anyhow!("failed to unpack: {:#?}", e),
         ));
     }
 
@@ -220,7 +220,7 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
 }
 
 // All of cargo's checksums are currently SHA256
-pub(crate) fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Error> {
+pub fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Error> {
     if expected.len() != 64 {
         bail!(
             "hex checksum length is {} instead of expected 64",
@@ -361,6 +361,40 @@ pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error
         }
         scheme => anyhow::bail!("the scheme '{}' is not supported", scheme),
     }
+}
+
+pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error> {
+    use std::process::Command;
+
+    let output = Command::new("git")
+        .arg("clone")
+        .arg("--recurse-submodules")
+        .arg(src)
+        .arg(target)
+        .output()?;
+
+    if !output.status.success() {
+        let err_out = String::from_utf8(output.stderr)?;
+        bail!("failed to clone {}: {}", src.display(), err_out);
+    }
+
+    let output = Command::new("git")
+        .arg("checkout")
+        .arg(rev)
+        .current_dir(target)
+        .output()?;
+
+    if !output.status.success() {
+        let err_out = String::from_utf8(output.stderr)?;
+        bail!(
+            "failed to checkout {} @ {}: {}",
+            src.display(),
+            rev,
+            err_out
+        );
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

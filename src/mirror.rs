@@ -3,7 +3,7 @@ use anyhow::Error;
 use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
 
-pub fn registry_index(ctx: &Ctx<'_>, max_stale: Duration) -> Result<(), Error> {
+pub fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::Canonicalized::try_from(&url)?;
     let ident = canonicalized.ident();
@@ -16,6 +16,7 @@ pub fn registry_index(ctx: &Ctx<'_>, max_stale: Duration) -> Result<(), Error> {
         source: Source::Git {
             url: canonicalized.as_ref().clone(),
             ident,
+            rev: String::new(),
         },
     };
 
@@ -41,7 +42,7 @@ pub fn registry_index(ctx: &Ctx<'_>, max_stale: Duration) -> Result<(), Error> {
     ctx.backend.upload(index, &krate)
 }
 
-pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
+pub fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
     info!("mirroring {} crates", ctx.krates.len());
 
     info!("checking existing stored crates...");
@@ -50,9 +51,10 @@ pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
     names.sort();
 
     let mut to_mirror = Vec::with_capacity(names.len());
-    for krate in ctx.krates {
+    for krate in &ctx.krates {
+        let cid = format!("{}", krate.cloud_id());
         if names
-            .binary_search_by(|name| name.as_str().cmp(krate.cloud_id()))
+            .binary_search_by(|name| name.as_str().cmp(&cid))
             .is_err()
         {
             to_mirror.push(krate);
@@ -78,7 +80,7 @@ pub fn locked_crates(ctx: &Ctx<'_>) -> Result<(), Error> {
             Err(e) => error!("failed to retrieve {}: {}", krate, e),
             Ok(buffer) => {
                 if let Err(e) = ctx.backend.upload(buffer, krate) {
-                    error!("failed to upload {} to GCS: {}", krate, e);
+                    error!("failed to upload {}: {}", krate, e);
                 }
             }
         });

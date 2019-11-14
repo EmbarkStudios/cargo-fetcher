@@ -2,8 +2,13 @@
 #![warn(rust_2018_idioms)]
 
 use anyhow::Error;
-use std::{collections::BTreeMap, convert::TryFrom, fmt, path::Path};
-use url::Url;
+use std::{
+    collections::BTreeMap,
+    convert::TryFrom,
+    fmt,
+    path::{Path, PathBuf},
+};
+pub use url::Url;
 
 pub mod backends;
 mod fetch;
@@ -24,13 +29,56 @@ struct LockContents {
     metadata: BTreeMap<String, String>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Source {
     CratesIo(String),
-    Git { url: Url, ident: String },
+    Git {
+        url: Url,
+        rev: String,
+        ident: String,
+    },
 }
 
-#[derive(Ord, Eq)]
+impl Source {
+    pub fn from_git_url(url: &Url) -> Result<Self, Error> {
+        let rev = match url.query_pairs().find(|(k, _)| k == "rev") {
+            Some((_, rev)) => {
+                if rev.len() < 7 {
+                    anyhow::bail!("revision specififer {} is too short", rev);
+                } else {
+                    rev
+                }
+            }
+            None => {
+                anyhow::bail!("url doesn't contain a revision specifier");
+            }
+        };
+
+        // This will handle
+        // 1. 7 character short_id
+        // 2. Full 40 character sha-1
+        // 3. 7 character short_id#sha-1
+        let rev = &rev[..7];
+
+        let canonicalized = util::Canonicalized::try_from(url)?;
+        let ident = canonicalized.ident();
+
+        Ok(Source::Git {
+            url: canonicalized.into(),
+            ident,
+            rev: rev.to_owned(),
+        })
+    }
+
+    pub(crate) fn is_git(&self) -> bool {
+        match self {
+            Source::CratesIo(_) => false,
+            _ => true,
+        }
+    }
+}
+
+#[derive(Ord, Eq, Clone)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
@@ -50,11 +98,8 @@ impl PartialEq for Krate {
 }
 
 impl Krate {
-    pub fn cloud_id(&self) -> &str {
-        match &self.source {
-            Source::CratesIo(chksum) => chksum,
-            Source::Git { ident, .. } => ident,
-        }
+    pub fn cloud_id(&self) -> CloudId<'_> {
+        CloudId { inner: self }
     }
 
     pub fn local_id(&self) -> LocalId<'_> {
@@ -81,7 +126,20 @@ impl<'a> fmt::Display for LocalId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
             Source::CratesIo(_) => write!(f, "{}-{}.crate", self.inner.name, self.inner.version),
-            Source::Git { ident, .. } => write!(f, "{}", &ident[..ident.len() - 8]),
+            Source::Git { ident, .. } => write!(f, "{}", &ident),
+        }
+    }
+}
+
+pub struct CloudId<'a> {
+    inner: &'a Krate,
+}
+
+impl<'a> fmt::Display for CloudId<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.inner.source {
+            Source::CratesIo(chksum) => write!(f, "{}", chksum),
+            Source::Git { ident, rev, .. } => write!(f, "{}-{}", ident, rev),
         }
     }
 }
@@ -105,10 +163,34 @@ pub enum CloudLocation<'a> {
     S3(S3Location<'a>),
 }
 
-pub struct Ctx<'a> {
+pub struct Ctx {
     pub client: reqwest::Client,
     pub backend: Box<dyn Backend + Sync>,
-    pub krates: &'a [Krate],
+    pub krates: Vec<Krate>,
+    pub root_dir: PathBuf,
+}
+
+impl Ctx {
+    pub fn new(
+        root_dir: Option<PathBuf>,
+        backend: Box<dyn Backend + Sync>,
+        krates: Vec<Krate>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            client: reqwest::Client::builder().gzip(false).build()?,
+            backend,
+            krates,
+            root_dir: root_dir.unwrap_or_else(|| PathBuf::from(".")),
+        })
+    }
+
+    pub fn prep_sync_dirs(&self) -> Result<(), Error> {
+        // Create the registry and git directories as they are the root of multiple other ones
+        std::fs::create_dir_all(self.root_dir.join("registry"))?;
+        std::fs::create_dir_all(self.root_dir.join("git"))?;
+
+        Ok(())
+    }
 }
 
 pub trait Backend {
@@ -116,6 +198,7 @@ pub trait Backend {
     fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error>;
     fn list(&self) -> Result<Vec<String>, Error>;
     fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
+    fn set_prefix(&mut self, prefix: &str);
 }
 
 pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
@@ -167,49 +250,24 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
                 }
             };
 
-            let rev = match url.query_pairs().find(|(k, _)| k == "rev") {
-                Some((_, rev)) => {
-                    if rev.len() < 7 {
-                        log::error!(
-                            "skipping {}-{}: revision length was too short",
-                            p.name,
-                            p.version
-                        );
-                        continue;
-                    } else {
-                        rev
-                    }
+            match Source::from_git_url(&url) {
+                Ok(src) => {
+                    krates.push(Krate {
+                        name: p.name,
+                        version: p.version,
+                        source: src,
+                    });
                 }
-                None => {
-                    log::warn!("skipping {}-{}: revision not specified", p.name, p.version);
-                    continue;
-                }
-            };
-
-            // This will handle
-            // 1. 7 character short_id
-            // 2. Full 40 character sha-1
-            // 3. 7 character short_id#sha-1
-            let rev = &rev[..7];
-
-            let canonicalized = match util::Canonicalized::try_from(&url) {
-                Ok(i) => i,
                 Err(e) => {
-                    log::warn!("skipping {}-{}: {}", p.name, p.version, e);
-                    continue;
+                    log::error!(
+                        "unable to use git url {} for {}-{}: {}",
+                        url,
+                        p.name,
+                        p.version,
+                        e
+                    );
                 }
-            };
-
-            let ident = canonicalized.ident();
-
-            krates.push(Krate {
-                name: p.name,
-                version: p.version,
-                source: Source::Git {
-                    url: canonicalized.into(),
-                    ident: format!("{}-{}", ident, rev),
-                },
-            })
+            }
         }
     }
 

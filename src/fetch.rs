@@ -3,7 +3,7 @@ use anyhow::{bail, Context, Error};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::debug;
 use reqwest::Client;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
@@ -27,7 +27,7 @@ pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
 
 pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
-        Source::Git { url, ident } => {
+        Source::Git { url, rev, .. } => {
             // Create a temporary directory to clone the repo into
             let temp_dir = tempfile::tempdir()?;
 
@@ -45,7 +45,6 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
             }
 
             // Ensure that the revision required in the lockfile is actually present
-            let rev = &ident[ident.len() - 7..];
             let has_revision = Command::new("git")
                 .arg("cat-file")
                 .arg("-t")
@@ -72,6 +71,56 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
         }
         Source::CratesIo(_) => bail!("{} is not a git source", krate),
     }
+}
+
+pub fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
+    let rev = match &krate.source {
+        Source::Git { rev, .. } => rev,
+        _ => bail!("not a git source"),
+    };
+
+    // Check if we already have the required revision and can skip the fetch
+    // altogether
+    let has_revision = Command::new("git")
+        .arg("cat-file")
+        .arg("-t")
+        .arg(rev)
+        .current_dir(&path)
+        .output()?;
+
+    if has_revision.status.success() {
+        return Ok(());
+    }
+
+    let output = Command::new("git")
+        .arg("fetch")
+        .current_dir(&path)
+        .output()?;
+
+    if !output.status.success() {
+        let err_out = String::from_utf8(output.stderr)?;
+        anyhow::bail!("failed to fetch: {}", err_out);
+    }
+
+    // Ensure that the revision required in the lockfile is actually present
+    let has_revision = Command::new("git")
+        .arg("cat-file")
+        .arg("-t")
+        .arg(rev)
+        .current_dir(&path)
+        .output()?;
+
+    if !has_revision.status.success()
+        || String::from_utf8(has_revision.stdout)
+            .ok()
+            .as_ref()
+            .map(|s| s.as_ref())
+            != Some("commit\n")
+    {
+        anyhow::bail!("git repo for {} does not contain revision {}", krate, rev);
+    }
+
+    Ok(())
 }
 
 pub fn registry(url: &url::Url) -> Result<Bytes, Error> {
@@ -123,6 +172,14 @@ fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
         estimated_size += TAR_HEADER_SIZE;
         if let Ok(md) = entry.metadata() {
             estimated_size += md.len();
+
+            // Add write permissions to all files, this is to
+            // get around an issue where unpacking tar files on
+            // Windows will result in errors if there are read-only
+            // directories
+            let mut perms = md.permissions();
+            perms.set_readonly(false);
+            std::fs::set_permissions(entry.path(), perms)?;
         }
     }
 

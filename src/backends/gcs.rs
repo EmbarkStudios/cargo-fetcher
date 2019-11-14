@@ -228,6 +228,10 @@ impl crate::Backend for GcsBackend {
 
         Ok(get_response.metadata.updated)
     }
+
+    fn set_prefix(&mut self, prefix: &str) {
+        self.prefix = prefix.to_owned();
+    }
 }
 
 pub fn convert_response(

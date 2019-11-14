@@ -28,6 +28,18 @@ impl S3Backend {
     fn make_key(&self, krate: &Krate) -> String {
         format!("{}{}", self.prefix, krate.cloud_id())
     }
+
+    #[cfg(feature = "s3_test")]
+    pub fn make_bucket(&self) -> Result<(), Error> {
+        let bucket_request = rusoto_s3::CreateBucketRequest {
+            bucket: self.bucket.clone(),
+            ..Default::default()
+        };
+
+        self.client.create_bucket(bucket_request).sync()?;
+
+        Ok(())
+    }
 }
 
 impl crate::Backend for S3Backend {
@@ -78,9 +90,7 @@ impl crate::Backend for S3Backend {
             .sync()
             .context("failed to list objects")?;
 
-        let objects = list_objects_response
-            .contents
-            .context("list response doesn't contain anything")?;
+        let objects = list_objects_response.contents.unwrap_or_else(Vec::new);
 
         let len = self.prefix.len();
 
@@ -114,5 +124,9 @@ impl crate::Backend for S3Backend {
             .with_timezone(&chrono::Utc);
 
         Ok(Some(last_modified))
+    }
+
+    fn set_prefix(&mut self, prefix: &str) {
+        self.prefix = prefix.to_owned();
     }
 }

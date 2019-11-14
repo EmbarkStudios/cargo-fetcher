@@ -11,13 +11,17 @@ repository = "https://github.com/EmbarkStudios/cargo-fetcher"
 keywords = ["fetch", "gcs", "s3"]
 readme = "README.md"
 
+[[bin]]
+name = "cargo-fetcher"
+path = "src/cmds/main.rs"
+
 [dependencies]
-anyhow = "1.0.17"
+anyhow = "1.0.19"
 bytes = "0.4.12"
 chrono = "0.4.9"
 app_dirs2 = "2.0.4"
 env_logger = "0.7.1"
-flate2 = { version = "1.0.12", default-features = false, features = ["rust_backend"] }
+flate2 = { version = "1.0.13", default-features = false, features = ["rust_backend"] }
 futures = { version = "0.1.29", optional = true}
 http = "0.1.19"
 log = "0.4.8"
@@ -28,17 +32,36 @@ ring = "0.16.9"
 rusoto_core = { version = "0.41.0", default-features = false, features = ["rustls"], optional = true }
 rusoto_s3 = { version = "0.41.0", default-features = false, features = ["rustls"], optional = true }
 serde = { version = "1.0.102", features = ["derive"] }
-structopt = "0.3.3"
+structopt = "0.3.4"
 tame-gcs = { version = "0.5.1", optional = true }
 tame-oauth = { version = "0.3.0", features = ["gcp"], optional = true }
 tar = "0.4.26"
 tempfile = "3.1.0"
-toml = "0.5.3"
+toml = "0.5.5"
 url = "2.1.0"
 walkdir = "2.2.9"
-zstd = "0.5.0+zstd.1.4.3"
+zstd = "0.5.1+zstd.1.4.4"
 
 [features]
 default = []
 gcs = ["tame-gcs", "tame-oauth"]
 s3 = ["futures", "rusoto_core", "rusoto_s3"]
+s3_test = ["s3"]
+
+[dev-dependencies]
+tempfile = "3.1.0"
+
+[[test]]
+name = "sync_crates_io"
+path = "tests/sync_crates_io.rs"
+required-features = ["s3_test"]
+
+[[test]]
+name = "sync_git"
+path = "tests/sync_git.rs"
+required-features = ["s3_test"]
+
+[[test]]
+name = "sync_index"
+path = "tests/sync_index.rs"
+required-features = ["s3_test"]

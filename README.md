@@ -1,6 +1,6 @@
 # 🎁 cargo-fetcher
 
-[![Build Status](https://travis-ci.com/EmbarkStudios/cargo-fetcher.svg?branch=master)](https://travis-ci.com/EmbarkStudios/cargo-fetcher)
+[![Build Status](https://github.com/EmbarkStudios/cargo-fetcher/workflows/CI/badge.svg)](https://github.com/EmbarkStudios/cargo-fetcher/actions?workflow=CI)
 [![Crates.io](https://img.shields.io/crates/v/cargo-fetcher.svg)](https://crates.io/crates/cargo-fetcher)
 [![Docs](https://docs.rs/cargo-fetcher/badge.svg)](https://docs.rs/cargo-fetcher)
 [![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v1.4%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)

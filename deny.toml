@@ -23,14 +23,15 @@ skip = [
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },
 
-    # rand crate gonna rand crate
-    { name = "rand_core", version = "=0.3.1" },
-
+    # crossbeam-queue uses and old crossbeam-utils :facepalm:
+    { name = "crossbeam-utils", version = "=0.6.6" },
+]
+skip-tree = [
     # uuid uses old rand
-    { name = "rand_chacha", version = "=0.1.1" },
-    { name = "rand_core", version = "=0.4.2" },
-    { name = "rand_hc", version = "=0.1.0" },
     { name = "rand", version = "=0.6.5" },
+
+    # ring pulls in web-sys, which we don't use, and don't care about
+    { name = "web-sys", version = "=0.3.31" },
 ]
 
 [licenses]
