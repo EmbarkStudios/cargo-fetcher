@@ -1,3 +1,5 @@
+#![cfg(feature = "s3_test")]
+
 use cargo_fetcher as cf;
 
 pub fn s3_ctx(bucket: &str, prefix: &str) -> cf::Ctx {
