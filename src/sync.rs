@@ -5,11 +5,11 @@ use log::{debug, error, info};
 use rayon::prelude::*;
 use std::{convert::TryFrom, io::Write};
 
-const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
-const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
-const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
-const GIT_DB_DIR: &str = "git/db";
-const GIT_CO_DIR: &str = "git/checkouts";
+pub const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
+pub const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
+pub const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
+pub const GIT_DB_DIR: &str = "git/db";
+pub const GIT_CO_DIR: &str = "git/checkouts";
 
 pub fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
     let index_path = ctx.root_dir.join(INDEX_DIR);

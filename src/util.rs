@@ -128,8 +128,9 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
     }
 }
 
-pub fn determine_cargo_root(explicit: Option<PathBuf>) -> Result<PathBuf, Error> {
+pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error> {
     let root_dir = explicit
+        .cloned()
         .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
         .or_else(|| {
             app_dirs2::data_root(app_dirs2::AppDataType::UserConfig)
@@ -220,7 +221,7 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
 }
 
 // All of cargo's checksums are currently SHA256
-pub(crate) fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Error> {
+pub fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Error> {
     if expected.len() != 64 {
         bail!(
             "hex checksum length is {} instead of expected 64",

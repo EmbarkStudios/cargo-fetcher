@@ -8,6 +8,7 @@ use std::{
     fmt,
     path::{Path, PathBuf},
 };
+pub use url::Url;
 
 pub mod backends;
 mod fetch;
@@ -28,7 +29,7 @@ struct LockContents {
     metadata: BTreeMap<String, String>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Source {
     CratesIo(String),
     Git {
@@ -77,7 +78,7 @@ impl Source {
     }
 }
 
-#[derive(Ord, Eq)]
+#[derive(Ord, Eq, Clone)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings

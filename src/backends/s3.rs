@@ -28,6 +28,18 @@ impl S3Backend {
     fn make_key(&self, krate: &Krate) -> String {
         format!("{}{}", self.prefix, krate.cloud_id())
     }
+
+    #[cfg(feature = "s3_test")]
+    pub fn make_bucket(&self) -> Result<(), Error> {
+        let bucket_request = rusoto_s3::CreateBucketRequest {
+            bucket: self.bucket.clone(),
+            ..Default::default()
+        };
+
+        self.client.create_bucket(bucket_request).sync()?;
+
+        Ok(())
+    }
 }
 
 impl crate::Backend for S3Backend {

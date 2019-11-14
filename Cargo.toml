@@ -11,6 +11,10 @@ repository = "https://github.com/EmbarkStudios/cargo-fetcher"
 keywords = ["fetch", "gcs", "s3"]
 readme = "README.md"
 
+[[bin]]
+name = "cargo-fetcher"
+path = "src/cmds/main.rs"
+
 [dependencies]
 anyhow = "1.0.19"
 bytes = "0.4.12"
@@ -42,8 +46,22 @@ zstd = "0.5.1+zstd.1.4.4"
 default = []
 gcs = ["tame-gcs", "tame-oauth"]
 s3 = ["futures", "rusoto_core", "rusoto_s3"]
+s3_test = ["s3"]
+
 [dev-dependencies]
 tempfile = "3.1.0"
 
-[patch.crates-io]
-tar = { git = "https://github.com/EmbarkStudios/tar-rs.git", rev = "890b55e" }
+[[test]]
+name = "sync_crates_io"
+path = "tests/sync_crates_io.rs"
+required-features = ["s3_test"]
+
+[[test]]
+name = "sync_git"
+path = "tests/sync_git.rs"
+required-features = ["s3_test"]
+
+[[test]]
+name = "sync_index"
+path = "tests/sync_index.rs"
+required-features = ["s3_test"]
