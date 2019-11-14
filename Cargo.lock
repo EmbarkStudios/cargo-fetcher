@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-fetcher"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow 1.0.19 (registry+https://github.com/rust-lang/crates.io-index)",
  "app_dirs2 2.0.4 (registry+https://github.com/rust-lang/crates.io-index)",

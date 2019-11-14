@@ -19,10 +19,10 @@ pub fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
     // as a patch on top of an existing repo via git fetch is
     // presumably faster
     if index_path.join(".git").exists() {
-        info!("registry index already exists, pulling instead");
+        info!("registry index already exists, fetching instead");
 
         let output = std::process::Command::new("git")
-            .arg("pull")
+            .arg("fetch")
             .current_dir(&index_path)
             .output()?;
 
