@@ -368,6 +368,7 @@ pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error
 
     let output = Command::new("git")
         .arg("clone")
+        .arg("--recurse-submodules")
         .arg(src)
         .arg(target)
         .output()?;
