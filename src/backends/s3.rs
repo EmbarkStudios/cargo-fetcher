@@ -115,4 +115,8 @@ impl crate::Backend for S3Backend {
 
         Ok(Some(last_modified))
     }
+
+    fn set_prefix(&mut self, prefix: &str) {
+        self.prefix = prefix.to_owned();
+    }
 }

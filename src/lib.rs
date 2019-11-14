@@ -197,6 +197,7 @@ pub trait Backend {
     fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error>;
     fn list(&self) -> Result<Vec<String>, Error>;
     fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
+    fn set_prefix(&mut self, prefix: &str);
 }
 
 pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
