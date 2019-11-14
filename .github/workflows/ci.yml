@@ -184,10 +184,9 @@ jobs:
           args: --target ${{ matrix.target }}
       - name: Release build
         uses: actions-rs/cargo@v1
-        if: matrix.os != 'ubuntu-latest'
         with:
           command: build
-          args: --release --target ${{ matrix.target }} --all-features
+          args: --release --target ${{ matrix.target }} --features="gcs,s3"
       - name: Package
         shell: bash
         run: |
