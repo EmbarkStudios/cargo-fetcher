@@ -90,7 +90,7 @@ impl crate::Backend for S3Backend {
             .sync()
             .context("failed to list objects")?;
 
-        let objects = list_objects_response.contents.unwrap_or_else(|| Vec::new());
+        let objects = list_objects_response.contents.unwrap_or_else(Vec::new);
 
         let len = self.prefix.len();
 
