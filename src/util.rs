@@ -110,8 +110,7 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
         }
 
         // Repos can generally be accessed with or without `.git` extension.
-        let needs_chopping = url.path().ends_with(".git");
-        if needs_chopping {
+        if url.path().ends_with(".git") {
             let last = {
                 let last = url.path_segments().unwrap().next_back().unwrap();
                 last[..last.len() - 4].to_owned()
