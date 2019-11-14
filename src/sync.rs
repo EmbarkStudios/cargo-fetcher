@@ -168,11 +168,29 @@ pub fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
                         let mut src_path = src_dir.join(format!("{}", krate.local_id()));
                         // Remove the .crate extension
                         src_path.set_extension("");
+                        let ok = src_path.join(".cargo-ok");
 
-                        if !src_path.exists() {
+                        if !ok.exists() {
+                            if src_path.exists() {
+                                log::debug!("cleaning src/ dir for {}", krate);
+                                if let Err(e) = remove_dir_all::remove_dir_all(&src_path) {
+                                    error!("failed to clean dependency {}: {}", krate, e);
+                                    return;
+                                }
+                            }
+
                             log::debug!("unpacking {} to src/", krate);
-                            if let Err((_, e)) = util::unpack_tar(gz_decoder, src_path) {
+
+                            // Crate tarballs already include the top level directory internally,
+                            // so unpack in the top-level source directory
+                            if let Err((_, e)) = util::unpack_tar(gz_decoder, &src_dir) {
                                 error!("failed to unpack dependency {}: {}", krate, e);
+                                return;
+                            }
+
+                            // Create the .cargo-ok file so that cargo doesn't suspect a thing
+                            if let Err(e) = std::fs::File::create(ok) {
+                                error!("failed to write .cargo-ok: {}", e);
                             }
                         }
                     }
