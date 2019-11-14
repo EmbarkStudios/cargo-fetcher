@@ -20,7 +20,6 @@ your compute resources can be spent on the things that you actually care about.
 inside of [GCS](https://cloud.google.com/storage/) which means they can be located closer to the compute resources your CI is running on. PRs are of course welcome for adding additional storage backends though!
 * `cargo-fetcher` should not be used in a typical user environment as it completely disregards various
 safety mechanisms that are built into cargo, such as file-based locking.
-* You project doesn't have a `Cargo.lock` file. `cargo-fetcher` only works with `Cargo.lock` files (due to how `cargo fetch` works), so library crates without checked in lock files won't be able to use `cargo-fetcher`.
 
 ## Features
 ### `gcs`
@@ -48,7 +47,7 @@ This is an example from our CI for an internal project.
 
 ### Scenario
 
-The following CI jobs are run in parallel, each in a Kubernetes Job running on GKE. The container base is roughly the same as the official [rust](https://hub.docker.com/_/rust):1.36.0-slim image.
+The following CI jobs are run in parallel, each in a Kubernetes Job running on GKE. The container base is roughly the same as the official [rust](https://hub.docker.com/_/rust):1.39.0-slim image.
 
 * Build modules for WASM 
 * Build modules for native
@@ -64,8 +63,8 @@ All 3 build jobs take around **1m2s** each to do `cargo fetch --target x86_64-un
 
 ### After
 
-All 3 build jobs take **2-3s** each to do `cargo fetcher --include-index mirror` followed by **6s** to
-do `cargo fetch --target x86_64-unknown-linux-gnu`. The **6s** can probably be [further reduced](https://github.com/EmbarkStudios/cargo-fetcher/issues/1).
+All 3 build jobs take **3-4s** each to do `cargo fetcher --include-index mirror` followed by **5-7s** to
+do `cargo fetch --target x86_64-unknown-linux-gnu`.
 
 ## Contributing
 
