@@ -16,7 +16,7 @@ name = "cargo-fetcher"
 path = "src/cmds/main.rs"
 
 [dependencies]
-anyhow = "1.0.19"
+anyhow = "1.0.25"
 bytes = "0.4.12"
 chrono = "0.4.10"
 app_dirs2 = "2.0.4"
