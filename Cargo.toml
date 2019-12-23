@@ -27,7 +27,7 @@ http = "0.1.19"
 log = "0.4.8"
 rayon = "1.2.0"
 remove_dir_all = "0.5.2"
-reqwest = { version = "0.9.22", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.9.24", default-features = false, features = ["rustls-tls"] }
 ring = "0.16.9"
 rusoto_core = { version = "0.41.0", default-features = false, features = ["rustls"], optional = true }
 rusoto_s3 = { version = "0.41.0", default-features = false, features = ["rustls"], optional = true }
