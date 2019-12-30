@@ -17,7 +17,7 @@ path = "src/cmds/main.rs"
 
 [dependencies]
 anyhow = "1.0.26"
-bytes = "0.4.12"
+bytes = "0.5.3"
 chrono = "0.4.10"
 app_dirs2 = "2.0.4"
 env_logger = "0.7.1"
