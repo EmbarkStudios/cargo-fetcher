@@ -39,7 +39,7 @@ tar = "0.4.26"
 tempfile = "3.1.0"
 toml = "0.5.5"
 url = "2.1.0"
-walkdir = "2.2.9"
+walkdir = "2.3.1"
 zstd = "0.5.1+zstd.1.4.4"
 
 [features]
