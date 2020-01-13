@@ -38,7 +38,7 @@ tame-oauth = { version = "0.3.0", features = ["gcp"], optional = true }
 tar = "0.4.26"
 tempfile = "3.1.0"
 toml = "0.5.5"
-url = "2.1.0"
+url = "2.1.1"
 walkdir = "2.2.9"
 zstd = "0.5.1+zstd.1.4.4"
 
