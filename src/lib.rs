@@ -193,12 +193,13 @@ impl Ctx {
     }
 }
 
+#[async_trait::async_trait]
 pub trait Backend {
-    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error>;
-    fn list(&self) -> Result<Vec<String>, Error>;
-    fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
-    fn set_prefix(&mut self, prefix: &str);
+    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
+    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error>;
+    async fn list(&self) -> Result<Vec<String>, Error>;
+    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
+    async fn set_prefix(&mut self, prefix: &str);
 }
 
 pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {

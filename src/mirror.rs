@@ -3,7 +3,7 @@ use anyhow::Error;
 use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
 
-pub fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
+pub async fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::Canonicalized::try_from(&url)?;
     let ident = canonicalized.ident();
@@ -22,7 +22,7 @@ pub fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
 
     // Retrieve the metadata for the last updated registry entry, and update
     // only it if it's stale
-    if let Ok(last_updated) = ctx.backend.updated(&krate) {
+    if let Ok(last_updated) = ctx.backend.updated(&krate).await {
         if let Some(last_updated) = last_updated {
             let now = chrono::Utc::now();
             let max_dur = chrono::Duration::from_std(max_stale)?;
@@ -39,14 +39,14 @@ pub fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
 
     let index = fetch::registry(canonicalized.as_ref())?;
 
-    ctx.backend.upload(index, &krate)
+    ctx.backend.upload(index, &krate).await
 }
 
-pub fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
+pub async fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
     info!("mirroring {} crates", ctx.krates.len());
 
     info!("checking existing stored crates...");
-    let mut names = ctx.backend.list()?;
+    let mut names = ctx.backend.list().await?;
 
     names.sort();
 
@@ -72,18 +72,22 @@ pub fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
 
     info!("uploading {} crates...", to_mirror.len());
 
-    use rayon::prelude::*;
+    let mut futures = Vec::with_capacity(to_mirror.len());
 
-    to_mirror
-        .par_iter()
-        .for_each(|krate| match fetch::from_crates_io(&ctx.client, krate) {
-            Err(e) => error!("failed to retrieve {}: {}", krate, e),
-            Ok(buffer) => {
-                if let Err(e) = ctx.backend.upload(buffer, krate) {
-                    error!("failed to upload {}: {}", krate, e);
+    for krate in to_mirror {
+        futures.push(async {
+            match fetch::from_crates_io(&ctx.client, krate).await {
+                Err(e) => error!("failed to retrieve {}: {}", krate, e),
+                Ok(buffer) => {
+                    if let Err(e) = ctx.backend.upload(buffer, krate).await {
+                        error!("failed to upload {}: {}", krate, e);
+                    }
                 }
             }
         });
+    }
+
+    futures::future::join_all(futures).await;
 
     Ok(())
 }

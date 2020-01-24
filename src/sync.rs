@@ -1,6 +1,6 @@
 use crate::{util, Krate, Source};
 use anyhow::{Context, Error};
-use bytes::{Buf, IntoBuf};
+use bytes::{buf::BufExt, Buf};
 use log::{debug, error, info};
 use rayon::prelude::*;
 use std::{convert::TryFrom, io::Write};
@@ -11,7 +11,7 @@ pub const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
 
-pub fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
+pub async fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
     let index_path = ctx.root_dir.join(INDEX_DIR);
     std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
 
@@ -55,9 +55,9 @@ pub fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
         },
     };
 
-    let index_data = ctx.backend.fetch(&krate)?;
+    let index_data = ctx.backend.fetch(&krate).await?;
 
-    let buf_reader = index_data.into_buf().reader();
+    let buf_reader = index_data.reader();
     let zstd_decoder = zstd::Decoder::new(buf_reader)?;
 
     if let Err((_, e)) = util::unpack_tar(zstd_decoder, index_path) {
@@ -67,7 +67,7 @@ pub fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
+pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
     info!("synchronizing {} crates...", ctx.krates.len());
 
     let root_dir = &ctx.root_dir;
@@ -148,7 +148,7 @@ pub fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
         }
 
         // Decompress and splat the tar onto the filesystem
-        let buf_reader = data.into_buf().reader();
+        let buf_reader = data.reader();
         let gz_decoder = flate2::read::GzDecoder::new(buf_reader);
 
         let mut src_path = src_dir.join(format!("{}", krate.local_id()));
@@ -177,7 +177,7 @@ pub fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
     };
 
     let sync_git = |krate: &Krate, data: bytes::Bytes, rev: &str| -> Result<(), Error> {
-        let buf_reader = data.into_buf().reader();
+        let buf_reader = data.reader();
         let zstd_decoder = zstd::Decoder::new(buf_reader)?;
 
         let db_path = git_db_dir.join(format!("{}", krate.local_id()));

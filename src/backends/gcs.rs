@@ -95,8 +95,9 @@ impl GcsBackend {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::Backend for GcsBackend {
-    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
+    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
         let dl_req =
             tame_gcs::objects::Object::download(&(&self.bucket, &self.obj_name(krate)?), None)?;
 
@@ -107,15 +108,15 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let mut response = self.client.execute(request)?.error_for_status()?;
-        let res = convert_response(&mut response)?;
+        let mut response = self.client.execute(request).await?.error_for_status()?;
+        let res = convert_response(&mut response).await?;
         let content = res.into_body();
 
         Ok(content)
     }
 
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
-        use bytes::{Buf, IntoBuf};
+    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
+        use bytes::Buf;
         use tame_gcs::objects::{InsertObjectOptional, Object};
 
         let content_len = source.len() as u64;
@@ -135,16 +136,13 @@ impl crate::Backend for GcsBackend {
         let uri = parts.uri.to_string();
         let builder = self.client.post(&uri);
 
-        let request = builder
-            .headers(parts.headers)
-            .body(reqwest::Body::new(body.into_buf().reader()))
-            .build()?;
+        let request = builder.headers(parts.headers).body(body).build()?;
 
-        self.client.execute(request)?.error_for_status()?;
+        self.client.execute(request).await?.error_for_status()?;
         Ok(())
     }
 
-    fn list(&self) -> Result<Vec<String>, Error> {
+    async fn list(&self) -> Result<Vec<String>, Error> {
         use tame_gcs::objects::{ListOptional, ListResponse, Object};
 
         // Get a list of all crates already present in gcs, the list
@@ -173,9 +171,9 @@ impl crate::Backend for GcsBackend {
 
             let request = builder.headers(parts.headers).build()?;
 
-            let mut res = self.client.execute(request)?;
+            let mut res = self.client.execute(request).await?;
 
-            let response = convert_response(&mut res)?;
+            let response = convert_response(&mut res).await?;
             let list_response = ListResponse::try_from(response)?;
 
             let name_block: Vec<_> = list_response
@@ -200,7 +198,7 @@ impl crate::Backend for GcsBackend {
             .collect())
     }
 
-    fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
         use tame_gcs::objects::{GetObjectOptional, GetObjectResponse, Object};
 
         let get_req = Object::get(
@@ -221,9 +219,9 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let mut response = self.client.execute(request)?.error_for_status()?;
+        let mut response = self.client.execute(request).await?.error_for_status()?;
 
-        let response = convert_response(&mut response)?;
+        let response = convert_response(&mut response).await?;
         let get_response = GetObjectResponse::try_from(response)?;
 
         Ok(get_response.metadata.updated)
@@ -234,16 +232,9 @@ impl crate::Backend for GcsBackend {
     }
 }
 
-pub fn convert_response(
+pub async fn convert_response(
     res: &mut reqwest::Response,
 ) -> Result<http::Response<bytes::Bytes>, Error> {
-    use bytes::BufMut;
-
-    let body = bytes::BytesMut::with_capacity(res.content_length().unwrap_or(4 * 1024) as usize);
-    let mut writer = body.writer();
-    res.copy_to(&mut writer)?;
-    let body = writer.into_inner();
-
     let mut builder = http::Response::builder();
 
     builder.status(res.status()).version(res.version());
@@ -258,5 +249,7 @@ pub fn convert_response(
             .map(|(k, v)| (k.clone(), v.clone())),
     );
 
-    Ok(builder.body(body.freeze())?)
+    let body = res.bytes().await?;
+
+    Ok(builder.body(body)?)
 }

@@ -162,16 +162,9 @@ pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error
     Ok(root_dir)
 }
 
-pub fn convert_response(
+pub async fn convert_response(
     res: &mut reqwest::Response,
 ) -> Result<http::Response<bytes::Bytes>, Error> {
-    use bytes::BufMut;
-
-    let body = bytes::BytesMut::with_capacity(res.content_length().unwrap_or(4 * 1024) as usize);
-    let mut writer = body.writer();
-    res.copy_to(&mut writer)?;
-    let body = writer.into_inner();
-
     let mut builder = http::Response::builder();
 
     builder.status(res.status()).version(res.version());
@@ -186,7 +179,9 @@ pub fn convert_response(
             .map(|(k, v)| (k.clone(), v.clone())),
     );
 
-    Ok(builder.body(body.freeze())?)
+    let body = res.bytes().await?;
+
+    Ok(builder.body(body)?)
 }
 
 pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(

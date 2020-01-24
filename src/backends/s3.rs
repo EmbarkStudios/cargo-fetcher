@@ -1,6 +1,7 @@
 use crate::Krate;
 use anyhow::{Context, Error};
 use rusoto_s3::{S3Client, S3};
+use tokio::task::spawn_blocking;
 
 pub struct S3Backend {
     client: S3Client,
@@ -42,18 +43,17 @@ impl S3Backend {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::Backend for S3Backend {
-    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
+    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
         let get_request = rusoto_s3::GetObjectRequest {
             bucket: self.bucket.clone(),
             key: self.make_key(krate),
             ..Default::default()
         };
 
-        let get_output = self
-            .client
-            .get_object(get_request)
-            .sync()
+        let get_output = spawn_blocking(|| self.client.get_object(get_request).sync())
+            .await
             .context("failed to retrieve object")?;
 
         let stream = get_output.body.context("failed to retrieve body")?;
@@ -62,7 +62,7 @@ impl crate::Backend for S3Backend {
         Ok(stream.concat2().wait().context("failed to read body")?)
     }
 
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
+    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
         let put_request = rusoto_s3::PutObjectRequest {
             bucket: self.bucket.clone(),
             key: self.make_key(krate),
@@ -70,25 +70,23 @@ impl crate::Backend for S3Backend {
             ..Default::default()
         };
 
-        self.client
-            .put_object(put_request)
-            .sync()
+        spawn_blocking(|| self.client.put_object(put_request).sync())
+            .await
             .context("failed to upload object")?;
 
         Ok(())
     }
 
-    fn list(&self) -> Result<Vec<String>, Error> {
+    async fn list(&self) -> Result<Vec<String>, Error> {
         let list_request = rusoto_s3::ListObjectsV2Request {
             bucket: self.bucket.clone(),
             ..Default::default()
         };
 
-        let list_objects_response = self
-            .client
-            .list_objects_v2(list_request)
-            .sync()
-            .context("failed to list objects")?;
+        let list_objects_response =
+            spawn_blocking(|| self.client.list_objects_v2(list_request).sync())
+                .await
+                .context("failed to list objects")?;
 
         let objects = list_objects_response.contents.unwrap_or_else(Vec::new);
 
@@ -100,7 +98,7 @@ impl crate::Backend for S3Backend {
             .collect())
     }
 
-    fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
         let get_request = rusoto_s3::GetObjectRequest {
             bucket: self.bucket.clone(),
             key: self.make_key(krate),
@@ -109,10 +107,8 @@ impl crate::Backend for S3Backend {
 
         // Uhh...so it appears like S3 doesn't have a way of just getting metdata, it also
         // always retrieves the actual object? WTF
-        let get_output = self
-            .client
-            .get_object(get_request)
-            .sync()
+        let get_output = spawn_blocking(|| self.client.get_object(get_request).sync())
+            .await
             .context("failed to get object")?;
 
         let last_modified = get_output

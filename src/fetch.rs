@@ -1,11 +1,11 @@
 use crate::{util, Krate, Source};
 use anyhow::{bail, Context, Error};
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{buf::BufMutExt, Bytes, BytesMut};
 use log::debug;
 use reqwest::Client;
 use std::{path::Path, process::Command};
 
-pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
+pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
         Source::CratesIo(chksum) => {
             let url = format!(
@@ -13,8 +13,8 @@ pub fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
                 krate.name, krate.name, krate.version
             );
 
-            let mut response = client.get(&url).send()?.error_for_status()?;
-            let res = util::convert_response(&mut response)?;
+            let mut response = client.get(&url).send().await?.error_for_status()?;
+            let res = util::convert_response(&mut response).await?;
             let content = res.into_body();
 
             util::validate_checksum(&content, &chksum)?;
@@ -195,14 +195,6 @@ fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
     let zstd_encoder = archiver.into_inner()?;
     let buf_writer = zstd_encoder.finish()?;
     let out_buffer = buf_writer.into_inner();
-
-    // This is obviously super rough, but at least gives some inkling
-    // of our compression ratio
-    // debug!(
-    //     "estimated compression ratio {:.2}% for {}",
-    //     (out_buffer.len() as f64 / estimated_size as f64) * 100f64,
-    //     krate
-    // );
 
     Ok(out_buffer.freeze())
 }
