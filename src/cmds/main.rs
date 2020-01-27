@@ -133,7 +133,7 @@ fn main() {
     match real_main() {
         Ok(_) => {}
         Err(e) => {
-            error!("{}", e);
+            error!("{:#}", e);
             std::process::exit(1);
         }
     }
