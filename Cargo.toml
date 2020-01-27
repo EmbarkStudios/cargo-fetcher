@@ -33,7 +33,7 @@ rusoto_core = { version = "0.41.0", default-features = false, features = ["rustl
 rusoto_s3 = { version = "0.41.0", default-features = false, features = ["rustls"], optional = true }
 serde = { version = "1.0.104", features = ["derive"] }
 structopt = "0.3.7"
-tame-gcs = { version = "0.5.1", optional = true }
+tame-gcs = { version = "0.6.1", optional = true }
 tame-oauth = { version = "0.3.0", features = ["gcp"], optional = true }
 tar = "0.4.26"
 tempfile = "3.1.0"
