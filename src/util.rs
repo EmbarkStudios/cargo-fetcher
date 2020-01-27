@@ -163,11 +163,11 @@ pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error
 }
 
 pub async fn convert_response(
-    res: &mut reqwest::Response,
+    res: reqwest::Response,
 ) -> Result<http::Response<bytes::Bytes>, Error> {
-    let mut builder = http::Response::builder();
-
-    builder.status(res.status()).version(res.version());
+    let mut builder = http::Response::builder()
+        .status(res.status())
+        .version(res.version());
 
     let headers = builder
         .headers_mut()

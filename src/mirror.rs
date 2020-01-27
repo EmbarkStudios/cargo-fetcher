@@ -3,7 +3,7 @@ use anyhow::Error;
 use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
 
-pub async fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
+pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<(), Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::Canonicalized::try_from(&url)?;
     let ident = canonicalized.ident();
@@ -22,7 +22,7 @@ pub async fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error>
 
     // Retrieve the metadata for the last updated registry entry, and update
     // only it if it's stale
-    if let Ok(last_updated) = ctx.backend.updated(&krate).await {
+    if let Ok(last_updated) = backend.updated(&krate).await {
         if let Some(last_updated) = last_updated {
             let now = chrono::Utc::now();
             let max_dur = chrono::Duration::from_std(max_stale)?;
@@ -37,12 +37,12 @@ pub async fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error>
         }
     }
 
-    let index = fetch::registry(canonicalized.as_ref())?;
+    let index = fetch::registry(canonicalized.as_ref()).await?;
 
-    ctx.backend.upload(index, &krate).await
+    backend.upload(index, &krate).await
 }
 
-pub async fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
+pub async fn locked_crates(ctx: Ctx) -> Result<(), Error> {
     info!("mirroring {} crates", ctx.krates.len());
 
     info!("checking existing stored crates...");
@@ -51,7 +51,7 @@ pub async fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
     names.sort();
 
     let mut to_mirror = Vec::with_capacity(names.len());
-    for krate in &ctx.krates {
+    for krate in ctx.krates {
         let cid = format!("{}", krate.cloud_id());
         if names
             .binary_search_by(|name| name.as_str().cmp(&cid))
@@ -72,22 +72,28 @@ pub async fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
 
     info!("uploading {} crates...", to_mirror.len());
 
-    let mut futures = Vec::with_capacity(to_mirror.len());
+    let client = ctx.client;
+    let backend = ctx.backend;
+
+    let mut handles = Vec::with_capacity(to_mirror.len());
 
     for krate in to_mirror {
-        futures.push(async {
-            match fetch::from_crates_io(&ctx.client, krate).await {
+        let client = client.clone();
+        let backend = backend.clone();
+
+        handles.push(tokio::spawn(async move {
+            match fetch::from_crates_io(&client, &krate).await {
                 Err(e) => error!("failed to retrieve {}: {}", krate, e),
                 Ok(buffer) => {
-                    if let Err(e) = ctx.backend.upload(buffer, krate).await {
+                    if let Err(e) = backend.upload(buffer, &krate).await {
                         error!("failed to upload {}: {}", krate, e);
                     }
                 }
             }
-        });
+        }));
     }
 
-    futures::future::join_all(futures).await;
+    futures::future::join_all(handles).await;
 
     Ok(())
 }

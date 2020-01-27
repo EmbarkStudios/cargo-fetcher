@@ -3,7 +3,8 @@ use anyhow::{bail, Context, Error};
 use bytes::{buf::BufMutExt, Bytes, BytesMut};
 use log::debug;
 use reqwest::Client;
-use std::{path::Path, process::Command};
+use std::path::Path;
+use tokio::process::Command;
 
 pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
@@ -14,18 +15,18 @@ pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Err
             );
 
             let mut response = client.get(&url).send().await?.error_for_status()?;
-            let res = util::convert_response(&mut response).await?;
+            let res = util::convert_response(response).await?;
             let content = res.into_body();
 
             util::validate_checksum(&content, &chksum)?;
 
             Ok(content)
         }
-        Source::Git { .. } => via_git(&krate),
+        Source::Git { .. } => via_git(&krate).await,
     }
 }
 
-pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
+pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
         Source::Git { url, rev, .. } => {
             // Create a temporary directory to clone the repo into
@@ -37,7 +38,8 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
                 .arg("--bare")
                 .arg(url.as_str())
                 .arg(temp_dir.path())
-                .output()?;
+                .output()
+                .await?;
 
             if !output.status.success() {
                 let err_out = String::from_utf8(output.stderr)?;
@@ -50,7 +52,8 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
                 .arg("-t")
                 .arg(rev)
                 .current_dir(temp_dir.path())
-                .output()?;
+                .output()
+                .await?;
 
             if !has_revision.status.success()
                 || String::from_utf8(has_revision.stdout)
@@ -73,7 +76,7 @@ pub fn via_git(krate: &Krate) -> Result<Bytes, Error> {
     }
 }
 
-pub fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
+pub async fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
     let rev = match &krate.source {
         Source::Git { rev, .. } => rev,
         _ => bail!("not a git source"),
@@ -86,7 +89,8 @@ pub fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
         .arg("-t")
         .arg(rev)
         .current_dir(&path)
-        .output()?;
+        .output()
+        .await?;
 
     if has_revision.status.success() {
         return Ok(());
@@ -95,7 +99,8 @@ pub fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
     let output = Command::new("git")
         .arg("fetch")
         .current_dir(&path)
-        .output()?;
+        .output()
+        .await?;
 
     if !output.status.success() {
         let err_out = String::from_utf8(output.stderr)?;
@@ -108,7 +113,8 @@ pub fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
         .arg("-t")
         .arg(rev)
         .current_dir(&path)
-        .output()?;
+        .output()
+        .await?;
 
     if !has_revision.status.success()
         || String::from_utf8(has_revision.stdout)
@@ -123,7 +129,7 @@ pub fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn registry(url: &url::Url) -> Result<Bytes, Error> {
+pub async fn registry(url: &url::Url) -> Result<Bytes, Error> {
     // See https://github.com/rust-lang/cargo/blob/0e38712d4d7b346747bf91fb26cce8df6934e178/src/cargo/sources/registry/remote.rs#L61
     // for why we go through the whole repo init process + fetch instead of just a bare clone
     let temp_dir = tempfile::tempdir()?;
@@ -133,6 +139,7 @@ pub fn registry(url: &url::Url) -> Result<Bytes, Error> {
         .arg("--template=''") // Ensure we don't get any templates
         .current_dir(&temp_dir)
         .output()
+        .await
         .context("git-init")?;
 
     if !output.status.success() {
@@ -146,6 +153,7 @@ pub fn registry(url: &url::Url) -> Result<Bytes, Error> {
         .arg("refs/heads/master:refs/remotes/origin/master")
         .current_dir(temp_dir.path())
         .output()
+        .await
         .context("git-fetch")?;
 
     if !output.status.success() {

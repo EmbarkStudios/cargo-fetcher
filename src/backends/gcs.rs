@@ -4,7 +4,7 @@ use reqwest::Client;
 use std::convert::TryFrom;
 use tame_gcs::{BucketName, ObjectName};
 
-fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, Error> {
+async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, Error> {
     // If we're not completing whatever task in under an hour then
     // have more problems than the token expiring
     use tame_oauth::gcp;
@@ -37,14 +37,11 @@ fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, E
                 method => unimplemented!("{} not implemented", method),
             };
 
-            let req = builder
-                .headers(parts.headers)
-                .body(reqwest::Body::new(std::io::Cursor::new(body)))
-                .build()?;
+            let req = builder.headers(parts.headers).body(body).build()?;
 
-            let mut res = client.execute(req)?;
+            let mut res = client.execute(req).await?;
 
-            let response = convert_response(&mut res)?;
+            let response = convert_response(res).await?;
             svc_account_access.parse_token_response(scope_hash, response)?
         }
         _ => unreachable!(),
@@ -60,10 +57,13 @@ pub struct GcsBackend {
 }
 
 impl GcsBackend {
-    pub fn new(loc: crate::GcsLocation<'_>, credentials: &std::path::Path) -> Result<Self, Error> {
+    pub async fn new(
+        loc: crate::GcsLocation<'_>,
+        credentials: &std::path::Path,
+    ) -> Result<Self, Error> {
         let bucket = BucketName::try_from(loc.bucket.to_owned())?;
 
-        let token = acquire_gcs_token(credentials)?;
+        let token = acquire_gcs_token(credentials).await?;
 
         use reqwest::header;
 
@@ -76,7 +76,7 @@ impl GcsBackend {
             hm
         };
 
-        let client = Client::builder().default_headers(hm).gzip(false).build()?;
+        let client = Client::builder().default_headers(hm).build()?;
 
         Ok(Self {
             bucket,
@@ -109,7 +109,7 @@ impl crate::Backend for GcsBackend {
         let request = builder.headers(parts.headers).build()?;
 
         let mut response = self.client.execute(request).await?.error_for_status()?;
-        let res = convert_response(&mut response).await?;
+        let res = convert_response(response).await?;
         let content = res.into_body();
 
         Ok(content)
@@ -173,7 +173,7 @@ impl crate::Backend for GcsBackend {
 
             let mut res = self.client.execute(request).await?;
 
-            let response = convert_response(&mut res).await?;
+            let response = convert_response(res).await?;
             let list_response = ListResponse::try_from(response)?;
 
             let name_block: Vec<_> = list_response
@@ -221,7 +221,7 @@ impl crate::Backend for GcsBackend {
 
         let mut response = self.client.execute(request).await?.error_for_status()?;
 
-        let response = convert_response(&mut response).await?;
+        let response = convert_response(response).await?;
         let get_response = GetObjectResponse::try_from(response)?;
 
         Ok(get_response.metadata.updated)
@@ -233,11 +233,11 @@ impl crate::Backend for GcsBackend {
 }
 
 pub async fn convert_response(
-    res: &mut reqwest::Response,
+    res: reqwest::Response,
 ) -> Result<http::Response<bytes::Bytes>, Error> {
-    let mut builder = http::Response::builder();
-
-    builder.status(res.status()).version(res.version());
+    let mut builder = http::Response::builder()
+        .status(res.status())
+        .version(res.version());
 
     let headers = builder
         .headers_mut()

@@ -1,9 +1,8 @@
 use crate::{util, Krate, Source};
 use anyhow::{Context, Error};
-use bytes::{buf::BufExt, Buf};
+use bytes::buf::BufExt;
 use log::{debug, error, info};
-use rayon::prelude::*;
-use std::{convert::TryFrom, io::Write};
+use std::{convert::TryFrom, io::Write, path::PathBuf};
 
 pub const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
 pub const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
@@ -11,8 +10,8 @@ pub const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
 
-pub async fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
-    let index_path = ctx.root_dir.join(INDEX_DIR);
+pub async fn registry_index(root_dir: PathBuf, backend: crate::Storage) -> Result<(), Error> {
+    let index_path = root_dir.join(INDEX_DIR);
     std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
 
     // Just skip the index if the git directory already exists,
@@ -21,10 +20,11 @@ pub async fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
     if index_path.join(".git").exists() {
         info!("registry index already exists, fetching instead");
 
-        let output = std::process::Command::new("git")
+        let output = tokio::process::Command::new("git")
             .arg("fetch")
             .current_dir(&index_path)
-            .output()?;
+            .output()
+            .await?;
 
         if !output.status.success() {
             let err_out = String::from_utf8(output.stderr)?;
@@ -55,7 +55,7 @@ pub async fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
         },
     };
 
-    let index_data = ctx.backend.fetch(&krate).await?;
+    let index_data = backend.fetch(&krate).await?;
 
     let buf_reader = index_data.reader();
     let zstd_decoder = zstd::Decoder::new(buf_reader)?;
@@ -67,7 +67,51 @@ pub async fn registry_index(ctx: &crate::Ctx) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
+async fn sync_git(
+    db_dir: PathBuf,
+    co_dir: PathBuf,
+    krate: &Krate,
+    data: bytes::Bytes,
+    rev: &str,
+) -> Result<(), Error> {
+    let buf_reader = data.reader();
+    let zstd_decoder = zstd::Decoder::new(buf_reader)?;
+
+    let db_path = db_dir.join(format!("{}", krate.local_id()));
+
+    // The path may already exist, so in that case just do a fetch
+    if db_path.exists() {
+        debug!("fetching bare repo for {}", krate);
+        crate::fetch::update_bare(krate, &db_path)
+            .await
+            .with_context(|| format!("unable to fetch into {}", db_path.display()))?;
+    } else {
+        util::unpack_tar(zstd_decoder, &db_path)
+            .map_err(|(_, e)| e)
+            .with_context(|| format!("unable to unpack tar into {}", db_path.display()))?;
+    }
+
+    let co_path = co_dir.join(format!("{}/{}", krate.local_id(), rev));
+
+    // If we get here, it means there wasn't a .cargo-ok in the dir, even if the
+    // rest of it is checked out and ready, so blow it away just in case as we are
+    // doing a clone/checkout from a local bare repository rather than a remote one
+    if co_path.exists() {
+        debug!("removing checkout dir {} for {}", co_path.display(), krate);
+        remove_dir_all::remove_dir_all(&co_path)
+            .with_context(|| format!("unable to remove {}", co_path.display()))?;
+    }
+
+    // Do a checkout of the bare clone
+    debug!("checking out {} to {}", krate, co_path.display());
+    util::checkout(&db_path, &co_path, rev)?;
+    let ok = co_path.join(".cargo-ok");
+    std::fs::File::create(&ok).with_context(|| ok.display().to_string())?;
+
+    Ok(())
+}
+
+pub async fn locked_crates(ctx: crate::Ctx) -> Result<usize, Error> {
     info!("synchronizing {} crates...", ctx.krates.len());
 
     let root_dir = &ctx.root_dir;
@@ -176,60 +220,38 @@ pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
         Ok(())
     };
 
-    let sync_git = |krate: &Krate, data: bytes::Bytes, rev: &str| -> Result<(), Error> {
-        let buf_reader = data.reader();
-        let zstd_decoder = zstd::Decoder::new(buf_reader)?;
+    let backend = ctx.backend;
 
-        let db_path = git_db_dir.join(format!("{}", krate.local_id()));
+    let mut handles = Vec::with_capacity(to_sync.len());
+    let num_syncs = to_sync.len();
 
-        // The path may already exist, so in that case just do a fetch
-        if db_path.exists() {
-            debug!("fetching bare repo for {}", krate);
-            crate::fetch::update_bare(krate, &db_path)
-                .with_context(|| format!("unable to fetch into {}", db_path.display()))?;
-        } else {
-            util::unpack_tar(zstd_decoder, &db_path)
-                .map_err(|(_, e)| e)
-                .with_context(|| format!("unable to unpack tar into {}", db_path.display()))?;
-        }
+    for krate in to_sync {
+        let backend = backend.clone();
+        let git_db_dir = git_db_dir.clone();
+        let git_co_dir = git_co_dir.clone();
 
-        let co_path = git_co_dir.join(format!("{}/{}", krate.local_id(), rev));
-
-        // If we get here, it means there wasn't a .cargo-ok in the dir, even if the
-        // rest of it is checked out and ready, so blow it away just in case as we are
-        // doing a clone/checkout from a local bare repository rather than a remote one
-        if co_path.exists() {
-            debug!("removing checkout dir {} for {}", co_path.display(), krate);
-            remove_dir_all::remove_dir_all(&co_path)
-                .with_context(|| format!("unable to remove {}", co_path.display()))?;
-        }
-
-        // Do a checkout of the bare clone
-        debug!("checking out {} to {}", krate, co_path.display());
-        util::checkout(&db_path, &co_path, rev)?;
-        let ok = co_path.join(".cargo-ok");
-        std::fs::File::create(&ok).with_context(|| ok.display().to_string())?;
-
-        Ok(())
-    };
-
-    to_sync
-        .par_iter()
-        .for_each(|krate| match ctx.backend.fetch(krate) {
-            Err(e) => error!("failed to download {}: {}", krate, e),
-            Ok(krate_data) => match &krate.source {
-                Source::CratesIo(ref chksum) => {
-                    if let Err(e) = sync_package(krate, krate_data, chksum) {
-                        error!("unable to synchronize {}: {}", krate, e);
+        handles.push(async move {
+            match backend.fetch(krate).await {
+                Err(e) => error!("failed to download {}: {}", krate, e),
+                Ok(krate_data) => match &krate.source {
+                    Source::CratesIo(ref chksum) => {
+                        if let Err(e) = sync_package(krate, krate_data, chksum) {
+                            error!("unable to synchronize {}: {}", krate, e);
+                        }
                     }
-                }
-                Source::Git { rev, .. } => {
-                    if let Err(e) = sync_git(krate, krate_data, rev) {
-                        error!("unable to synchronize {}: {}", krate, e);
+                    Source::Git { rev, .. } => {
+                        if let Err(e) =
+                            sync_git(git_db_dir, git_co_dir, krate, krate_data, rev).await
+                        {
+                            error!("unable to synchronize {}: {}", krate, e);
+                        }
                     }
-                }
-            },
+                },
+            }
         });
+    }
 
-    Ok(to_sync.len())
+    futures::future::join_all(handles).await;
+
+    Ok(num_syncs)
 }

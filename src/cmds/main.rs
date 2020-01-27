@@ -1,7 +1,8 @@
 extern crate cargo_fetcher as cf;
+
 use anyhow::{anyhow, Context, Error};
 use log::error;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use structopt::StructOpt;
 use url::Url;
 
@@ -76,28 +77,28 @@ Possible values:
 fn init_backend(
     loc: cf::CloudLocation<'_>,
     _credentials: Option<PathBuf>,
-) -> Result<Box<dyn cf::Backend + Sync>, Error> {
+) -> Result<Arc<dyn cf::Backend + Sync + Send>, Error> {
     match loc {
         #[cfg(feature = "gcs")]
         cf::CloudLocation::Gcs(gcs) => {
             let cred_path = _credentials.context("GCS credentials not specified")?;
 
             let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path)?;
-            Ok(Box::new(gcs))
+            Ok(Arc::new(gcs))
         }
         #[cfg(not(feature = "gcs"))]
         cf::CloudLocation::Gcs(_) => anyhow::bail!("GCS backend not enabled"),
         #[cfg(feature = "s3")]
         cf::CloudLocation::S3(s3) => {
             let s3 = cf::backends::s3::S3Backend::new(s3)?;
-            Ok(Box::new(s3))
+            Ok(Arc::new(s3))
         }
         #[cfg(not(feature = "s3"))]
         cf::CloudLocation::S3(_) => anyhow::bail!("S3 backend not enabled"),
     }
 }
 
-fn real_main() -> Result<(), Error> {
+async fn real_main() -> Result<(), Error> {
     let args = Opts::from_iter({
         std::env::args().enumerate().filter_map(|(i, a)| {
             if i == 1 && a == "fetcher" {
@@ -113,24 +114,26 @@ fn real_main() -> Result<(), Error> {
     let location = cf::util::parse_cloud_location(&args.url)?;
     let backend = init_backend(location, args.credentials)?;
 
-    let krates = cf::gather(args.lock_file).context("failed to get crates from lock file")?;
+    let krates =
+        cf::read_lock_file(args.lock_file).context("failed to get crates from lock file")?;
 
     match args.cmd {
         Command::Mirror(margs) => {
             let ctx = cf::Ctx::new(None, backend, krates).context("failed to create context")?;
-            mirror::cmd(ctx, args.include_index, margs)
+            mirror::cmd(ctx, args.include_index, margs).await
         }
         Command::Sync(sargs) => {
             let root_dir = cf::util::determine_cargo_root(sargs.cargo_root.as_ref())?;
             let ctx = cf::Ctx::new(Some(root_dir), backend, krates)
                 .context("failed to create context")?;
-            sync::cmd(ctx, args.include_index, sargs)
+            sync::cmd(ctx, args.include_index, sargs).await
         }
     }
 }
 
-fn main() {
-    match real_main() {
+#[tokio::main]
+async fn main() {
+    match real_main().await {
         Ok(_) => {}
         Err(e) => {
             error!("{:#}", e);

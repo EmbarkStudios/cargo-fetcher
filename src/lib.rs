@@ -7,6 +7,7 @@ use std::{
     convert::TryFrom,
     fmt,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 pub use url::Url;
 
@@ -21,15 +22,20 @@ struct Package {
     name: String,
     version: String,
     source: Option<String>,
+    /// V2 lock format has the package checksum at the package definition
+    /// instead of the separate metadata
+    checksum: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
 struct LockContents {
     package: Vec<Package>,
+    /// V2 lock format doesn't have a metadata section
+    #[serde(default)]
     metadata: BTreeMap<String, String>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
 pub enum Source {
     CratesIo(String),
     Git {
@@ -78,7 +84,7 @@ impl Source {
     }
 }
 
-#[derive(Ord, Eq, Clone)]
+#[derive(Ord, Eq, Clone, Debug)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
@@ -163,9 +169,11 @@ pub enum CloudLocation<'a> {
     S3(S3Location<'a>),
 }
 
+pub type Storage = Arc<dyn Backend + Sync + Send>;
+
 pub struct Ctx {
     pub client: reqwest::Client,
-    pub backend: Box<dyn Backend + Sync>,
+    pub backend: Storage,
     pub krates: Vec<Krate>,
     pub root_dir: PathBuf,
 }
@@ -173,11 +181,11 @@ pub struct Ctx {
 impl Ctx {
     pub fn new(
         root_dir: Option<PathBuf>,
-        backend: Box<dyn Backend + Sync>,
+        backend: Storage,
         krates: Vec<Krate>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: reqwest::Client::builder().gzip(false).build()?,
+            client: reqwest::Client::builder().build()?,
             backend,
             krates,
             root_dir: root_dir.unwrap_or_else(|| PathBuf::from(".")),
@@ -199,10 +207,10 @@ pub trait Backend {
     async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error>;
     async fn list(&self) -> Result<Vec<String>, Error>;
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
-    async fn set_prefix(&mut self, prefix: &str);
+    fn set_prefix(&mut self, prefix: &str);
 }
 
-pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
+pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
     use log::{debug, error};
     use std::fmt::Write;
 

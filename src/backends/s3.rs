@@ -52,14 +52,39 @@ impl crate::Backend for S3Backend {
             ..Default::default()
         };
 
-        let get_output = spawn_blocking(|| self.client.get_object(get_request).sync())
+        let client = self.client.clone();
+        let get_output = spawn_blocking(move || client.get_object(get_request).sync())
             .await
+            .context("blocking error")?
             .context("failed to retrieve object")?;
 
+        let len = get_output.content_length.unwrap_or(1024) as usize;
         let stream = get_output.body.context("failed to retrieve body")?;
 
-        use futures::{Future, Stream};
-        Ok(stream.concat2().wait().context("failed to read body")?)
+        let buffer = spawn_blocking(move || -> Result<bytes::Bytes, std::io::Error> {
+            use std::io::Read;
+
+            let mut buffer = bytes::BytesMut::with_capacity(len);
+            let mut reader = stream.into_blocking_read();
+
+            let mut chunk = [0u8; 8 * 1024];
+            loop {
+                let read = reader.read(&mut chunk)?;
+
+                if read > 0 {
+                    buffer.extend_from_slice(&chunk);
+                } else {
+                    break;
+                }
+            }
+
+            Ok(buffer.freeze())
+        })
+        .await
+        .context("blocking error")?
+        .context("read error")?;
+
+        Ok(buffer)
     }
 
     async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
@@ -70,7 +95,9 @@ impl crate::Backend for S3Backend {
             ..Default::default()
         };
 
-        spawn_blocking(|| self.client.put_object(put_request).sync())
+        let client = self.client.clone();
+
+        spawn_blocking(move || client.put_object(put_request).sync())
             .await
             .context("failed to upload object")?;
 
@@ -83,9 +110,11 @@ impl crate::Backend for S3Backend {
             ..Default::default()
         };
 
+        let client = self.client.clone();
         let list_objects_response =
-            spawn_blocking(|| self.client.list_objects_v2(list_request).sync())
+            spawn_blocking(move || client.list_objects_v2(list_request).sync())
                 .await
+                .context("blocking error")?
                 .context("failed to list objects")?;
 
         let objects = list_objects_response.contents.unwrap_or_else(Vec::new);
@@ -107,8 +136,10 @@ impl crate::Backend for S3Backend {
 
         // Uhh...so it appears like S3 doesn't have a way of just getting metdata, it also
         // always retrieves the actual object? WTF
-        let get_output = spawn_blocking(|| self.client.get_object(get_request).sync())
+        let client = self.client.clone();
+        let get_output = spawn_blocking(move || client.get_object(get_request).sync())
             .await
+            .context("blocking error")?
             .context("failed to get object")?;
 
         let last_modified = get_output
