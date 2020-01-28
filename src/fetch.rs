@@ -14,7 +14,7 @@ pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Err
                 krate.name, krate.name, krate.version
             );
 
-            let mut response = client.get(&url).send().await?.error_for_status()?;
+            let response = client.get(&url).send().await?.error_for_status()?;
             let res = util::convert_response(response).await?;
             let content = res.into_body();
 

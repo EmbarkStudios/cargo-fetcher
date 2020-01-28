@@ -99,6 +99,7 @@ impl crate::Backend for S3Backend {
 
         spawn_blocking(move || client.put_object(put_request).sync())
             .await
+            .context("join error")?
             .context("failed to upload object")?;
 
         Ok(())

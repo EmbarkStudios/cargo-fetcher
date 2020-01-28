@@ -39,7 +39,7 @@ async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::To
 
             let req = builder.headers(parts.headers).body(body).build()?;
 
-            let mut res = client.execute(req).await?;
+            let res = client.execute(req).await?;
 
             let response = convert_response(res).await?;
             svc_account_access.parse_token_response(scope_hash, response)?
@@ -108,7 +108,7 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let mut response = self.client.execute(request).await?.error_for_status()?;
+        let response = self.client.execute(request).await?.error_for_status()?;
         let res = convert_response(response).await?;
         let content = res.into_body();
 
@@ -116,7 +116,6 @@ impl crate::Backend for GcsBackend {
     }
 
     async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
-        use bytes::Buf;
         use tame_gcs::objects::{InsertObjectOptional, Object};
 
         let content_len = source.len() as u64;
@@ -171,7 +170,7 @@ impl crate::Backend for GcsBackend {
 
             let request = builder.headers(parts.headers).build()?;
 
-            let mut res = self.client.execute(request).await?;
+            let res = self.client.execute(request).await?;
 
             let response = convert_response(res).await?;
             let list_response = ListResponse::try_from(response)?;
@@ -219,7 +218,7 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let mut response = self.client.execute(request).await?.error_for_status()?;
+        let response = self.client.execute(request).await?.error_for_status()?;
 
         let response = convert_response(response).await?;
         let get_response = GetObjectResponse::try_from(response)?;

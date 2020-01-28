@@ -74,7 +74,7 @@ Possible values:
     cmd: Command,
 }
 
-fn init_backend(
+async fn init_backend(
     loc: cf::CloudLocation<'_>,
     _credentials: Option<PathBuf>,
 ) -> Result<Arc<dyn cf::Backend + Sync + Send>, Error> {
@@ -83,7 +83,7 @@ fn init_backend(
         cf::CloudLocation::Gcs(gcs) => {
             let cred_path = _credentials.context("GCS credentials not specified")?;
 
-            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path)?;
+            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path).await?;
             Ok(Arc::new(gcs))
         }
         #[cfg(not(feature = "gcs"))]
@@ -112,7 +112,7 @@ async fn real_main() -> Result<(), Error> {
     env_logger::builder().filter_level(args.log_level).init();
 
     let location = cf::util::parse_cloud_location(&args.url)?;
-    let backend = init_backend(location, args.credentials)?;
+    let backend = init_backend(location, args.credentials).await?;
 
     let krates =
         cf::read_lock_file(args.lock_file).context("failed to get crates from lock file")?;
