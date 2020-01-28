@@ -151,27 +151,7 @@ pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error
                 .ok()
         });
 
-    let root_dir = root_dir.ok_or_else(|| anyhow!("unable to determine cargo root"))?;
-
-    // There should always be a bin/cargo(.exe) relative to the root directory, at a minimum
-    // there are probably ways to have setups where this doesn't hold true, but this is simple
-    // and can be fixed later
-    let cargo_path = {
-        let mut cpath = root_dir.join("bin/cargo");
-
-        if cfg!(target_os = "windows") {
-            cpath.set_extension("exe");
-        }
-
-        cpath
-    };
-
-    if !cargo_path.exists() {
-        return Err(anyhow!(
-            "cargo root {} does not seem to contain the cargo binary",
-            root_dir.display()
-        ));
-    }
+    let root_dir = root_dir.context("unable to determine cargo root")?;
 
     Ok(root_dir)
 }
