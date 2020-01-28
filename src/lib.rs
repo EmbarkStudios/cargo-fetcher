@@ -232,22 +232,31 @@ pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error>
         };
 
         if source == "registry+https://github.com/rust-lang/crates.io-index" {
-            write!(
-                &mut lookup,
-                "checksum {} {} (registry+https://github.com/rust-lang/crates.io-index)",
-                p.name, p.version
-            )
-            .unwrap();
-
-            if let Some(chksum) = locks.metadata.remove(&lookup) {
-                krates.push(Krate {
+            match p.checksum {
+                Some(chksum) => krates.push(Krate {
                     name: p.name,
                     version: p.version,
                     source: Source::CratesIo(chksum),
-                })
-            }
+                }),
+                None => {
+                    write!(
+                        &mut lookup,
+                        "checksum {} {} (registry+https://github.com/rust-lang/crates.io-index)",
+                        p.name, p.version
+                    )
+                    .unwrap();
 
-            lookup.clear();
+                    if let Some(chksum) = locks.metadata.remove(&lookup) {
+                        krates.push(Krate {
+                            name: p.name,
+                            version: p.version,
+                            source: Source::CratesIo(chksum),
+                        })
+                    }
+
+                    lookup.clear();
+                }
+            }
         } else {
             // We support exactly one form of git sources, rev specififers
             // eg. git+https://github.com/EmbarkStudios/rust-build-helper?rev=9135717#91357179ba2ce6ec7e430a2323baab80a8f7d9b3
