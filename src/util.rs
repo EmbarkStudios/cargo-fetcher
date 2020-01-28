@@ -82,8 +82,6 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
         // they use don't have any query params or fragments, even though
         // they do occur in Cargo.lock files
 
-        let mut url = url.clone();
-
         // cannot-be-a-base-urls (e.g., `github.com:rust-lang-nursery/rustfmt.git`)
         // are not supported.
         if url.cannot_be_a_base() {
@@ -93,35 +91,51 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
             )
         }
 
-        // Strip a trailing slash.
-        if url.path().ends_with('/') {
-            url.path_segments_mut().unwrap().pop_if_empty();
-        }
+        let mut url_str = String::new();
+
+        let is_github = url.host_str() == Some("github.com");
 
         // HACK: for GitHub URLs specifically, just lower-case
         // everything. GitHub treats both the same, but they hash
         // differently, and we're gonna be hashing them. This wants a more
         // general solution, and also we're almost certainly not using the
         // same case conversion rules that GitHub does. (See issue #84.)
-        if url.host_str() == Some("github.com") {
-            url.set_scheme("https").unwrap();
-            let path = url.path().to_lowercase();
-            url.set_path(&path);
+        if is_github {
+            url_str.push_str("https://");
+        } else {
+            url_str.push_str(url.scheme());
+            url_str.push_str("://");
+        }
+
+        // Not handling username/password
+
+        if let Some(host) = url.host_str() {
+            url_str.push_str(host);
+        }
+
+        if let Some(port) = url.port() {
+            use std::fmt::Write;
+            url_str.push(':');
+            write!(&mut url_str, "{}", port)?;
+        }
+
+        if is_github {
+            url_str.push_str(&url.path().to_lowercase());
+        } else {
+            url_str.push_str(url.path());
+        }
+
+        // Strip a trailing slash.
+        if url_str.ends_with('/') {
+            url_str.pop();
         }
 
         // Repos can generally be accessed with or without `.git` extension.
-        if url.path().ends_with(".git") {
-            let last = {
-                let last = url.path_segments().unwrap().next_back().unwrap();
-                last[..last.len() - 4].to_owned()
-            };
-            url.path_segments_mut().unwrap().pop().push(&last);
+        if url_str.ends_with(".git") {
+            url_str.truncate(url_str.len() - 4);
         }
 
-        // Ensure there are no fragments, eg sha-1 revision specifiers
-        url.set_fragment(None);
-        // Strip off any query params, they aren't relevant for the hash
-        url.set_query(None);
+        let url = Url::parse(&url_str)?;
 
         Ok(Self(url))
     }
