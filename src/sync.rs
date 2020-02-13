@@ -111,7 +111,7 @@ async fn sync_git(
     Ok(())
 }
 
-pub async fn locked_crates(ctx: crate::Ctx) -> Result<usize, Error> {
+pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
     info!("synchronizing {} crates...", ctx.krates.len());
 
     let root_dir = &ctx.root_dir;
@@ -220,38 +220,48 @@ pub async fn locked_crates(ctx: crate::Ctx) -> Result<usize, Error> {
         Ok(())
     };
 
-    let backend = ctx.backend;
-
-    let mut handles = Vec::with_capacity(to_sync.len());
     let num_syncs = to_sync.len();
 
-    for krate in to_sync {
-        let backend = backend.clone();
-        let git_db_dir = git_db_dir.clone();
-        let git_co_dir = git_co_dir.clone();
+    use futures::StreamExt;
 
-        handles.push(async move {
-            match backend.fetch(krate).await {
-                Err(e) => error!("failed to download {}: {}", krate, e),
-                Ok(krate_data) => match &krate.source {
-                    Source::CratesIo(ref chksum) => {
-                        if let Err(e) = sync_package(krate, krate_data, chksum) {
-                            error!("unable to synchronize {}: {}", krate, e);
+    let bodies = futures::stream::iter(to_sync)
+        .map(|krate| {
+            let backend = ctx.backend.clone();
+
+            let git_db_dir = git_db_dir.clone();
+            let git_co_dir = git_co_dir.clone();
+
+            async move {
+                match backend.fetch(krate).await {
+                    Err(e) => Err(format!("failed to download {}: {}", krate, e)),
+                    Ok(krate_data) => match &krate.source {
+                        Source::CratesIo(ref chksum) => sync_package(krate, krate_data, chksum)
+                            .map_err(|e| {
+                                format!("unable to synchronize (crates.io) {}: {}", krate, e)
+                            }),
+                        Source::Git { rev, .. } => {
+                            sync_git(git_db_dir, git_co_dir, krate, krate_data, rev)
+                                .await
+                                .map_err(|e| {
+                                    format!("unable to synchronize (git) {}: {}", krate, e)
+                                })
                         }
-                    }
-                    Source::Git { rev, .. } => {
-                        if let Err(e) =
-                            sync_git(git_db_dir, git_co_dir, krate, krate_data, rev).await
-                        {
-                            error!("unable to synchronize {}: {}", krate, e);
-                        }
-                    }
-                },
+                    },
+                }
             }
-        });
-    }
+        })
+        .buffer_unordered(32);
 
-    futures::future::join_all(handles).await;
+    bodies
+        .for_each(|res| async move {
+            match res {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("{}", e);
+                }
+            }
+        })
+        .await;
 
     Ok(num_syncs)
 }

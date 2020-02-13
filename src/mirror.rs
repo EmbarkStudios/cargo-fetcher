@@ -3,7 +3,7 @@ use anyhow::Error;
 use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
 
-pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<(), Error> {
+pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<usize, Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::Canonicalized::try_from(&url)?;
     let ident = canonicalized.ident();
@@ -32,7 +32,7 @@ pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Res
                     "crates.io-index was last updated {}, skipping update as it less than {:?} old",
                     last_updated, max_stale
                 );
-                return Ok(());
+                return Ok(0);
             }
         }
     }
@@ -42,7 +42,7 @@ pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Res
     backend.upload(index, &krate).await
 }
 
-pub async fn locked_crates(ctx: Ctx) -> Result<(), Error> {
+pub async fn locked_crates(ctx: &Ctx) -> Result<usize, Error> {
     info!("mirroring {} crates", ctx.krates.len());
 
     info!("checking existing stored crates...");
@@ -51,7 +51,7 @@ pub async fn locked_crates(ctx: Ctx) -> Result<(), Error> {
     names.sort();
 
     let mut to_mirror = Vec::with_capacity(names.len());
-    for krate in ctx.krates {
+    for krate in &ctx.krates {
         let cid = format!("{}", krate.cloud_id());
         if names
             .binary_search_by(|name| name.as_str().cmp(&cid))
@@ -67,33 +67,46 @@ pub async fn locked_crates(ctx: Ctx) -> Result<(), Error> {
 
     if to_mirror.is_empty() {
         info!("all crates already uploaded");
-        return Ok(());
+        return Ok(0);
     }
 
     info!("uploading {} crates...", to_mirror.len());
 
-    let client = ctx.client;
-    let backend = ctx.backend;
+    let client = &ctx.client;
+    let backend = &ctx.backend;
 
-    let mut handles = Vec::with_capacity(to_mirror.len());
+    use futures::StreamExt;
 
-    for krate in to_mirror {
-        let client = client.clone();
-        let backend = backend.clone();
+    let bodies = futures::stream::iter(to_mirror)
+        .map(|krate| {
+            let client = &client;
+            let backend = backend.clone();
+            async move {
+                let res: Result<usize, String> = match fetch::from_crates_io(&client, &krate).await
+                {
+                    Err(e) => Err(format!("failed to retrieve {}: {}", krate, e)),
+                    Ok(buffer) => match backend.upload(buffer, &krate).await {
+                        Err(e) => Err(format!("failed to upload {}: {}", krate, e)),
+                        Ok(len) => Ok(len),
+                    },
+                };
 
-        handles.push(tokio::spawn(async move {
-            match fetch::from_crates_io(&client, &krate).await {
-                Err(e) => error!("failed to retrieve {}: {}", krate, e),
-                Ok(buffer) => {
-                    if let Err(e) = backend.upload(buffer, &krate).await {
-                        error!("failed to upload {}: {}", krate, e);
-                    }
+                res
+            }
+        })
+        .buffer_unordered(32);
+
+    let total_bytes = bodies
+        .fold(0usize, |acc, res| async move {
+            match res {
+                Ok(len) => acc + len,
+                Err(e) => {
+                    error!("{}", e);
+                    acc
                 }
             }
-        }));
-    }
+        })
+        .await;
 
-    futures::future::join_all(handles).await;
-
-    Ok(())
+    Ok(total_bytes)
 }

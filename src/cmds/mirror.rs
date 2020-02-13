@@ -24,29 +24,30 @@ Times may be specified with no suffix (default days), or one of:
 }
 
 pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
-    let mut handles = Vec::new();
+    let backend = ctx.backend.clone();
 
-    if include_index {
-        let backend = ctx.backend.clone();
-        handles.push(tokio::task::spawn(async move {
-            info!("mirroring crates.io index");
-            match mirror::registry_index(backend, args.max_stale).await {
-                Ok(_) => info!("successfully mirrored crates.io index"),
-                Err(e) => error!("failed to mirror crates.io index: {}", e),
-            }
-        }));
-    }
+    let index = tokio::task::spawn(async move {
+        if !include_index {
+            return;
+        }
 
-    handles.push(tokio::task::spawn(async move {
-        match mirror::locked_crates(ctx).await {
+        info!("mirroring crates.io index");
+        match mirror::registry_index(backend, args.max_stale).await {
+            Ok(_) => info!("successfully mirrored crates.io index"),
+            Err(e) => error!("failed to mirror crates.io index: {}", e),
+        }
+    });
+
+    let (index, _mirror) = tokio::join!(index, async move {
+        match mirror::locked_crates(&ctx).await {
             Ok(_) => {
                 info!("finished uploading crates");
             }
             Err(e) => error!("failed to mirror crates: {}", e),
         }
-    }));
+    });
 
-    futures::future::join_all(handles).await;
+    index?;
 
     Ok(())
 }

@@ -14,31 +14,31 @@ pub struct Args {
 pub(crate) async fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<(), Error> {
     ctx.prep_sync_dirs()?;
 
-    let mut handles = Vec::new();
+    let root = ctx.root_dir.clone();
+    let backend = ctx.backend.clone();
 
-    if include_index {
-        let root = ctx.root_dir.clone();
-        let backend = ctx.backend.clone();
+    let index = tokio::task::spawn(async move {
+        if !include_index {
+            return;
+        }
 
-        handles.push(tokio::task::spawn(async move {
-            info!("syncing crates.io index");
-            match sync::registry_index(root, backend).await {
-                Ok(_) => info!("successfully synced crates.io index"),
-                Err(e) => error!("failed to sync crates.io index: {}", e),
-            }
-        }));
-    }
+        info!("syncing crates.io index");
+        match sync::registry_index(root, backend).await {
+            Ok(_) => info!("successfully synced crates.io index"),
+            Err(e) => error!("failed to sync crates.io index: {}", e),
+        }
+    });
 
-    handles.push(tokio::task::spawn(async move {
-        match sync::locked_crates(ctx).await {
+    let (index, _sync) = tokio::join!(index, async move {
+        match sync::locked_crates(&ctx).await {
             Ok(_) => {
                 info!("finished syncing crates");
             }
             Err(e) => error!("failed to sync crates: {}", e),
         }
-    }));
+    });
 
-    futures::future::join_all(handles).await;
+    index?;
 
     Ok(())
 }

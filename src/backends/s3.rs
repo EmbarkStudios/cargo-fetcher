@@ -1,7 +1,6 @@
 use crate::Krate;
 use anyhow::{Context, Error};
 use rusoto_s3::{S3Client, S3};
-use tokio::task::spawn_blocking;
 
 pub struct S3Backend {
     client: S3Client,
@@ -31,13 +30,13 @@ impl S3Backend {
     }
 
     #[cfg(feature = "s3_test")]
-    pub fn make_bucket(&self) -> Result<(), Error> {
+    pub async fn make_bucket(&self) -> Result<(), Error> {
         let bucket_request = rusoto_s3::CreateBucketRequest {
             bucket: self.bucket.clone(),
             ..Default::default()
         };
 
-        self.client.create_bucket(bucket_request).sync()?;
+        self.client.create_bucket(bucket_request).await?;
 
         Ok(())
     }
@@ -52,42 +51,36 @@ impl crate::Backend for S3Backend {
             ..Default::default()
         };
 
-        let client = self.client.clone();
-        let get_output = spawn_blocking(move || client.get_object(get_request).sync())
+        let get_output = self
+            .client
+            .get_object(get_request)
             .await
-            .context("blocking error")?
             .context("failed to retrieve object")?;
 
         let len = get_output.content_length.unwrap_or(1024) as usize;
         let stream = get_output.body.context("failed to retrieve body")?;
 
-        let buffer = spawn_blocking(move || -> Result<bytes::Bytes, std::io::Error> {
-            use std::io::Read;
+        let mut buffer = bytes::BytesMut::with_capacity(len);
+        let mut reader = stream.into_async_read();
+        let mut chunk = [0u8; 8 * 1024];
 
-            let mut buffer = bytes::BytesMut::with_capacity(len);
-            let mut reader = stream.into_blocking_read();
+        use tokio::io::AsyncReadExt;
 
-            let mut chunk = [0u8; 8 * 1024];
-            loop {
-                let read = reader.read(&mut chunk)?;
-
-                if read > 0 {
-                    buffer.extend_from_slice(&chunk);
-                } else {
-                    break;
-                }
+        loop {
+            let read = reader.read(&mut chunk).await?;
+            if read > 0 {
+                buffer.extend_from_slice(&chunk[..read]);
+            } else {
+                break;
             }
+        }
 
-            Ok(buffer.freeze())
-        })
-        .await
-        .context("blocking error")?
-        .context("read error")?;
-
+        let buffer = buffer.freeze();
         Ok(buffer)
     }
 
-    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
+    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
+        let len = source.len();
         let put_request = rusoto_s3::PutObjectRequest {
             bucket: self.bucket.clone(),
             key: self.make_key(krate),
@@ -95,14 +88,12 @@ impl crate::Backend for S3Backend {
             ..Default::default()
         };
 
-        let client = self.client.clone();
-
-        spawn_blocking(move || client.put_object(put_request).sync())
+        self.client
+            .put_object(put_request)
             .await
-            .context("join error")?
             .context("failed to upload object")?;
 
-        Ok(())
+        Ok(len)
     }
 
     async fn list(&self) -> Result<Vec<String>, Error> {
@@ -111,14 +102,13 @@ impl crate::Backend for S3Backend {
             ..Default::default()
         };
 
-        let client = self.client.clone();
-        let list_objects_response =
-            spawn_blocking(move || client.list_objects_v2(list_request).sync())
-                .await
-                .context("blocking error")?
-                .context("failed to list objects")?;
+        let resp = self
+            .client
+            .list_objects_v2(list_request)
+            .await
+            .context("failed to list objects")?;
 
-        let objects = list_objects_response.contents.unwrap_or_else(Vec::new);
+        let objects = resp.contents.unwrap_or_default();
 
         let len = self.prefix.len();
 
@@ -129,21 +119,19 @@ impl crate::Backend for S3Backend {
     }
 
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
-        let get_request = rusoto_s3::GetObjectRequest {
+        let head_request = rusoto_s3::HeadObjectRequest {
             bucket: self.bucket.clone(),
             key: self.make_key(krate),
             ..Default::default()
         };
 
-        // Uhh...so it appears like S3 doesn't have a way of just getting metdata, it also
-        // always retrieves the actual object? WTF
-        let client = self.client.clone();
-        let get_output = spawn_blocking(move || client.get_object(get_request).sync())
+        let head_output = self
+            .client
+            .head_object(head_request)
             .await
-            .context("blocking error")?
-            .context("failed to get object")?;
+            .context("failed to get head object")?;
 
-        let last_modified = get_output
+        let last_modified = head_output
             .last_modified
             .context("last_modified not available for object")?;
 

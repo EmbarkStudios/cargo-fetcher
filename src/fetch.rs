@@ -70,7 +70,11 @@ pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
                 );
             }
 
-            tarball(temp_dir.path())
+            log::debug!("TARBALLING {}", krate);
+            let buffer = tokio::task::spawn_blocking(move || tarball(temp_dir.path())).await?;
+            log::debug!("TARBALLED! {}", krate);
+
+            buffer
         }
         Source::CratesIo(_) => bail!("{} is not a git source", krate),
     }

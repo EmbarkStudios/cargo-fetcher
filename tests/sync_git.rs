@@ -13,9 +13,9 @@ macro_rules! git_source {
     }};
 }
 
-#[test]
-fn multiple_from_same_repo() {
-    let mut s3_ctx = util::s3_ctx("sync-multi-git", "multi-git/");
+#[tokio::test(threaded_scheduler)]
+async fn multiple_from_same_repo() {
+    let mut s3_ctx = util::s3_ctx("sync-multi-git", "multi-git/").await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
     s3_ctx.root_dir = missing_root.path().to_owned();
@@ -33,10 +33,14 @@ fn multiple_from_same_repo() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx).expect("failed to mirror crates");
+    cf::mirror::locked_crates(&s3_ctx)
+        .await
+        .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx).expect("synced 1 git source"),
+        cf::sync::locked_crates(&s3_ctx)
+            .await
+            .expect("synced 1 git source"),
         1,
     );
 

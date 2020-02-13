@@ -54,6 +54,7 @@ pub struct GcsBackend {
     client: Client,
     bucket: BucketName<'static>,
     prefix: String,
+    current: std::sync::atomic::AtomicUsize,
 }
 
 impl GcsBackend {
@@ -76,12 +77,16 @@ impl GcsBackend {
             hm
         };
 
-        let client = Client::builder().default_headers(hm).build()?;
+        let client = Client::builder()
+            .default_headers(hm)
+            .use_rustls_tls()
+            .build()?;
 
         Ok(Self {
             bucket,
             client,
             prefix: loc.prefix.to_owned(),
+            current: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -115,7 +120,7 @@ impl crate::Backend for GcsBackend {
         Ok(content)
     }
 
-    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
+    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
         use tame_gcs::objects::{InsertObjectOptional, Object};
 
         let content_len = source.len() as u64;
@@ -137,8 +142,21 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).body(body).build()?;
 
+        use std::sync::atomic::Ordering;
+
+        log::debug!(
+            "uploading {} {}",
+            krate,
+            self.current.fetch_add(1, Ordering::Relaxed)
+        );
         self.client.execute(request).await?.error_for_status()?;
-        Ok(())
+        log::debug!(
+            "uploaded! {} {}",
+            krate,
+            self.current.fetch_sub(1, Ordering::Relaxed)
+        );
+
+        Ok(content_len as usize)
     }
 
     async fn list(&self) -> Result<Vec<String>, Error> {
