@@ -1,3 +1,16 @@
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "x86_64-unknown-linux-musl" },
+]
+
+[advisories]
+unmaintained = "deny"
+ignore = [
+    "RUSTSEC-2019-0031",
+]
+
 [bans]
 multiple-versions = "deny"
 deny = [
@@ -10,28 +23,23 @@ deny = [
     { name = "dirs-sys" },
 ]
 skip = [
-    # reqwest <= 0.19.21 doesn't feature gate cookies, which ends up
-    # bringing in a metric fuckton of duplicates
-    { name = "idna", version = "=0.1.5" },
-    { name = "percent-encoding", version = "=1.0.1" },
-    { name = "serde_urlencoded", version = "=0.5.5" },
-    { name = "url", version = "=1.7.2" },
+    # crossbeam et all use an outdated autocfg
+    { name = "autocfg", version = "=0.1.7" },
+
+    # rustls uses an old version of base64
+    { name = "base64", version = "=0.10.1" },
 
     # mio-named-pipes brings in 2 versions of miow
     { name = "miow", version = "=0.2.1" },
 
+    # chrono uses an old version of time
+    { name = "time", version = "=0.1.42" },
+
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },
-
-    # crossbeam-queue uses and old crossbeam-utils :facepalm:
-    { name = "crossbeam-utils", version = "=0.6.6" },
 ]
 skip-tree = [
-    # uuid uses old rand
-    { name = "rand", version = "=0.6.5" },
 
-    # ring pulls in web-sys, which we don't use, and don't care about
-    { name = "web-sys", version = "=0.3.31" },
 ]
 
 [licenses]
@@ -42,7 +50,6 @@ allow = [
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
-    "CC0-1.0",
     "ISC",
     "MIT",
     "MPL-2.0",
