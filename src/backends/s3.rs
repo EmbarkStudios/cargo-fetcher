@@ -36,7 +36,8 @@ impl S3Backend {
             ..Default::default()
         };
 
-        self.client.create_bucket(bucket_request).await?;
+        // Can "fail" if bucket already exists
+        let _ = self.client.create_bucket(bucket_request).await;
 
         Ok(())
     }
