@@ -54,7 +54,10 @@ s3 = ["rusoto_core", "rusoto_s3"]
 s3_test = ["s3"]
 
 [dev-dependencies]
+difference = "2.0.0"
 tempfile = "3.1.0"
+twox-hash = "1.5.0"
+walkdir = "2.3.1"
 
 [[test]]
 name = "sync_crates_io"

@@ -187,6 +187,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "difference",
  "env_logger",
  "flate2",
  "futures",
@@ -206,6 +207,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "twox-hash",
  "url",
  "walkdir",
  "zstd",
@@ -356,6 +358,12 @@ checksum = "4d3686f5fa27dbc1d76c751300376e167c5a43387f44bb451fd1c24776e49113"
 dependencies = [
  "sct",
 ]
+
+[[package]]
+name = "difference"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "524cbf6897b527295dff137cec09ecf3a05f4fddffd7dfcd1585403449e74198"
 
 [[package]]
 name = "digest"
@@ -1900,6 +1908,9 @@ name = "twox-hash"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bfd5b7557925ce778ff9b9ef90e3ade34c524b5ff10e239c69a42d546d2af56"
+dependencies = [
+ "rand",
+]
 
 [[package]]
 name = "typenum"
