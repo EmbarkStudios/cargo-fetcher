@@ -106,7 +106,9 @@ async fn sync_git(
     debug!("checking out {} to {}", krate, co_path.display());
     util::checkout(&db_path, &co_path, rev)?;
     let ok = co_path.join(".cargo-ok");
+    // The non-git .cargo-ok has "ok" in it, however, the git ones, do not
     std::fs::File::create(&ok).with_context(|| ok.display().to_string())?;
+    //util::write_ok(&ok)?;
 
     Ok(())
 }
@@ -214,7 +216,7 @@ pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
             util::unpack_tar(gz_decoder, &src_dir).map_err(|(_, e)| e)?;
 
             // Create the .cargo-ok file so that cargo doesn't suspect a thing
-            std::fs::File::create(&ok).with_context(|| ok.display().to_string())?;
+            util::write_ok(&ok)?;
         }
 
         Ok(())

@@ -357,6 +357,9 @@ pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error
 
     let output = Command::new("git")
         .arg("clone")
+        .arg("--template")
+        .arg("")
+        //.arg("--no-tags")
         .arg("--recurse-submodules")
         .arg(src)
         .arg(target)
@@ -368,6 +371,8 @@ pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error
     }
 
     let output = Command::new("git")
+        .arg("-c")
+        .arg("core.sharedRepository=false")
         .arg("checkout")
         .arg(rev)
         .current_dir(target)
@@ -383,6 +388,15 @@ pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error
         );
     }
 
+    Ok(())
+}
+
+pub(crate) fn write_ok(to: &Path) -> Result<(), Error> {
+    let mut f = std::fs::File::create(&to)
+        .with_context(|| format!("failed to create: {}", to.display()))?;
+
+    use std::io::Write;
+    f.write(b"ok")?;
     Ok(())
 }
 

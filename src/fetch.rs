@@ -33,8 +33,12 @@ pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
             let temp_dir = tempfile::tempdir()?;
 
             debug!("cloning {}", krate);
+
             let output = Command::new("git")
                 .arg("clone")
+                .arg("--template")
+                .arg("")
+                //.arg("--no-tags")
                 .arg("--bare")
                 .arg(url.as_str())
                 .arg(temp_dir.path())
