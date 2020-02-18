@@ -54,12 +54,25 @@ async fn multiple_from_same_repo() {
         let cpal_root = db_root.join(format!("cpal-{}", ident));
         assert!(cpal_root.exists(), "unable to find cpal db");
 
-        // assert!(
-        //     cpal_root
-        //         .join("objects/pack/pack-8cd88d098a99144f96ebc73435ee36b37598453b.pack")
-        //         .exists(),
-        //     "unable to find pack file"
-        // );
+        // We expect a pack and idx file
+        let mut has_idx = false;
+        let mut has_pack = false;
+        for entry in std::fs::read_dir(cpal_root.join("objects/pack")).unwrap() {
+            let entry = entry.unwrap();
+
+            let path = entry.path();
+            let path = path.to_str().unwrap();
+
+            if path.ends_with(".pack") {
+                has_pack = true;
+            }
+
+            if path.ends_with(".idx") {
+                has_idx = true;
+            }
+        }
+
+        assert!(has_idx && has_pack);
     }
 
     // Ensure cpal is checked out
@@ -74,6 +87,6 @@ async fn multiple_from_same_repo() {
         let ok = cpal_root.join(format!("{}/.cargo-ok", rev));
         assert!(ok.exists(), "unable to find .cargo-ok");
 
-        assert_eq!(std::fs::read_to_string(ok).unwrap(), "ok");
+        assert_eq!(std::fs::read_to_string(ok).unwrap(), "");
     }
 }
