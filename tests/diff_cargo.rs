@@ -119,6 +119,7 @@ use cargo_fetcher as cf;
 mod util;
 
 #[tokio::test(threaded_scheduler)]
+#[ignore]
 async fn diff_cargo() {
     let mut s3_ctx = util::s3_ctx("diff", "multi-git/").await;
 
