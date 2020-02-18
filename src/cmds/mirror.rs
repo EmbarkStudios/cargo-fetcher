@@ -34,7 +34,7 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
         info!("mirroring crates.io index");
         match mirror::registry_index(backend, args.max_stale).await {
             Ok(_) => info!("successfully mirrored crates.io index"),
-            Err(e) => error!("failed to mirror crates.io index: {}", e),
+            Err(e) => error!("failed to mirror crates.io index: {:#}", e),
         }
     });
 
@@ -43,7 +43,7 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
             Ok(_) => {
                 info!("finished uploading crates");
             }
-            Err(e) => error!("failed to mirror crates: {}", e),
+            Err(e) => error!("failed to mirror crates: {:#}", e),
         }
     });
 
