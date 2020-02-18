@@ -352,34 +352,33 @@ pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error
     }
 }
 
-pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error> {
-    use std::process::Command;
+pub(crate) async fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error> {
+    use tokio::process::Command;
 
     let output = Command::new("git")
         .arg("clone")
-        .arg("--template")
-        .arg("")
-        //.arg("--no-tags")
-        .arg("--recurse-submodules")
+        .arg("--template=''")
+        .arg("--no-tags")
         .arg(src)
         .arg(target)
-        .output()?;
+        .output()
+        .await?;
 
     if !output.status.success() {
         let err_out = String::from_utf8(output.stderr)?;
         bail!("failed to clone {}: {}", src.display(), err_out);
     }
 
-    let output = Command::new("git")
-        .arg("-c")
-        .arg("core.sharedRepository=false")
-        .arg("checkout")
+    let reset = Command::new("git")
+        .arg("reset")
+        .arg("--hard")
         .arg(rev)
         .current_dir(target)
-        .output()?;
+        .output()
+        .await?;
 
-    if !output.status.success() {
-        let err_out = String::from_utf8(output.stderr)?;
+    if !reset.status.success() {
+        let err_out = String::from_utf8(reset.stderr)?;
         bail!(
             "failed to checkout {} @ {}: {}",
             src.display(),

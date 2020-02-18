@@ -104,7 +104,7 @@ async fn sync_git(
 
     // Do a checkout of the bare clone
     debug!("checking out {} to {}", krate, co_path.display());
-    util::checkout(&db_path, &co_path, rev)?;
+    util::checkout(&db_path, &co_path, rev).await?;
     let ok = co_path.join(".cargo-ok");
     // The non-git .cargo-ok has "ok" in it, however, the git ones, do not
     std::fs::File::create(&ok).with_context(|| ok.display().to_string())?;
