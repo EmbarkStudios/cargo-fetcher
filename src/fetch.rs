@@ -101,8 +101,9 @@ pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
             }
 
             log::debug!("TARBALLING {}", krate);
-            let buffer = tokio::task::spawn_blocking(move || tarball(temp_dir.path())).await?;
+            let buffer = tarball(temp_dir.path()).await;
             log::debug!("TARBALLED! {}", krate);
+            //let buffer = tokio::task::spawn_blocking(move || tarball(temp_dir.path())).await?;
 
             buffer
         }
@@ -199,10 +200,10 @@ pub async fn registry(url: &url::Url) -> Result<Bytes, Error> {
     std::fs::File::create(temp_dir.path().join(".last-updated"))
         .context("failed to create .last-updated")?;
 
-    tarball(temp_dir.path())
+    tarball(temp_dir.path()).await
 }
 
-fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
+async fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
     // If we don't allocate adequate space in our output buffer, things
     // go very poorly for everyone involved
     let mut estimated_size = 0;
@@ -225,17 +226,62 @@ fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
         }
     }
 
+    use std::{
+        io,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    struct Writer<W: io::Write> {
+        encoder: zstd::Encoder<W>,
+    }
+
+    impl<W> futures::io::AsyncWrite for Writer<W>
+    where
+        W: io::Write + Send + std::marker::Unpin,
+    {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            let w = self.get_mut(); //unsafe { self.get_unchecked_mut() };
+            Poll::Ready(io::Write::write(&mut w.encoder, buf))
+        }
+
+        fn poll_write_vectored(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            bufs: &[io::IoSlice<'_>],
+        ) -> Poll<io::Result<usize>> {
+            let w = unsafe { self.get_unchecked_mut() };
+            Poll::Ready(io::Write::write_vectored(&mut w.encoder, bufs))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            let w = unsafe { self.get_unchecked_mut() };
+            Poll::Ready(io::Write::flush(&mut w.encoder))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            self.poll_flush(cx)
+        }
+    }
+
     let out_buffer = BytesMut::with_capacity(estimated_size as usize);
     let buf_writer = out_buffer.writer();
 
     let zstd_encoder = zstd::Encoder::new(buf_writer, 9)?;
 
-    let mut archiver = tar::Builder::new(zstd_encoder);
-    archiver.append_dir_all(".", path)?;
-    archiver.finish()?;
+    let mut archiver = async_tar::Builder::new(Box::pin(Writer {
+        encoder: zstd_encoder,
+    }));
+    archiver.append_dir_all(".", path).await?;
+    archiver.finish().await?;
 
-    let zstd_encoder = archiver.into_inner()?;
-    let buf_writer = zstd_encoder.finish()?;
+    let writer = archiver.into_inner().await?;
+    let writer = Pin::into_inner(writer);
+    let buf_writer = writer.encoder.finish()?;
     let out_buffer = buf_writer.into_inner();
 
     Ok(out_buffer.freeze())
