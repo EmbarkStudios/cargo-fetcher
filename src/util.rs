@@ -255,8 +255,6 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
         _ => anyhow::bail!("host name is an IP"),
     };
 
-    // TODO: Support localhost without bucket and region, for testing
-
     // We only support virtual-hosted-style references as path style is being deprecated
     // mybucket.s3-us-west-2.amazonaws.com
     // https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/
@@ -299,7 +297,7 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
         let region = region.context("region not specified")?.0;
         let host = host.context("host not specified")?;
 
-        let loc = crate::S3Location {
+        Ok(crate::S3Location {
             bucket,
             region,
             host,
@@ -308,9 +306,15 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
             } else {
                 url.path()
             },
-        };
-
-        Ok(loc)
+        })
+    } else if host_dns == "localhost" {
+        let root = url.as_str();
+        Ok(crate::S3Location {
+            bucket: "testing",
+            region: "",
+            host: &root[..root.len() - 1],
+            prefix: "",
+        })
     } else {
         anyhow::bail!("not an s3 url");
     }

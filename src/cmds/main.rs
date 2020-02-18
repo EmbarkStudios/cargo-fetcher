@@ -89,8 +89,18 @@ async fn init_backend(
         #[cfg(not(feature = "gcs"))]
         cf::CloudLocation::Gcs(_) => anyhow::bail!("GCS backend not enabled"),
         #[cfg(feature = "s3")]
-        cf::CloudLocation::S3(s3) => {
-            let s3 = cf::backends::s3::S3Backend::new(s3)?;
+        cf::CloudLocation::S3(loc) => {
+            // Special case local testing
+            let make_bucket = loc.bucket == "testing" && loc.host.contains("localhost");
+
+            let s3 = cf::backends::s3::S3Backend::new(loc)?;
+
+            if make_bucket {
+                s3.make_bucket()
+                    .await
+                    .context("failed to create test bucket")?;
+            }
+
             Ok(Arc::new(s3))
         }
         #[cfg(not(feature = "s3"))]

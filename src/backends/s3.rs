@@ -29,7 +29,6 @@ impl S3Backend {
         format!("{}{}", self.prefix, krate.cloud_id())
     }
 
-    #[cfg(feature = "s3_test")]
     pub async fn make_bucket(&self) -> Result<(), Error> {
         let bucket_request = rusoto_s3::CreateBucketRequest {
             bucket: self.bucket.clone(),
