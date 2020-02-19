@@ -268,21 +268,23 @@ async fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
         }
     }
 
-    let out_buffer = BytesMut::with_capacity(estimated_size as usize);
-    let buf_writer = out_buffer.writer();
+    //let out_buffer = BytesMut::with_capacity(estimated_size as usize);
+    //let buf_writer = out_buffer.writer();
+
+    let out_buffer = Vec::with_capacity(estimated_size as usize);
+    let buf_writer = std::io::Cursor::new(out_buffer);
 
     let zstd_encoder = zstd::Encoder::new(buf_writer, 9)?;
 
-    let mut archiver = async_tar::Builder::new(Box::pin(Writer {
+    let mut archiver = async_tar::Builder::new(Writer {
         encoder: zstd_encoder,
-    }));
+    });
     archiver.append_dir_all(".", path).await?;
     archiver.finish().await?;
 
     let writer = archiver.into_inner().await?;
-    let writer = Pin::into_inner(writer);
     let buf_writer = writer.encoder.finish()?;
     let out_buffer = buf_writer.into_inner();
 
-    Ok(out_buffer.freeze())
+    Ok(Bytes::from(out_buffer))
 }

@@ -399,7 +399,7 @@ pub(crate) fn write_ok(to: &Path) -> Result<(), Error> {
         .with_context(|| format!("failed to create: {}", to.display()))?;
 
     use std::io::Write;
-    f.write(b"ok")?;
+    f.write_all(b"ok")?;
     Ok(())
 }
 

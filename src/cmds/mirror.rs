@@ -26,19 +26,26 @@ Times may be specified with no suffix (default days), or one of:
 pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
     let backend = ctx.backend.clone();
 
-    let index = tokio::task::spawn(async move {
+    let local = tokio::task::LocalSet::new();
+    let index = local.run_until(async move {
         if !include_index {
             return;
         }
 
-        info!("mirroring crates.io index");
-        match mirror::registry_index(backend, args.max_stale).await {
-            Ok(_) => info!("successfully mirrored crates.io index"),
-            Err(e) => error!("failed to mirror crates.io index: {:#}", e),
+        if let Err(e) = tokio::task::spawn_local(async move {
+            info!("mirroring crates.io index");
+            match mirror::registry_index(backend, args.max_stale).await {
+                Ok(_) => info!("successfully mirrored crates.io index"),
+                Err(e) => error!("failed to mirror crates.io index: {:#}", e),
+            }
+        })
+        .await
+        {
+            error!("failed to spawn index mirror task: {:#}", e);
         }
     });
 
-    let (index, _mirror) = tokio::join!(index, async move {
+    let (_index, _mirror) = tokio::join!(index, async move {
         match mirror::locked_crates(&ctx).await {
             Ok(_) => {
                 info!("finished uploading crates");
@@ -46,8 +53,6 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
             Err(e) => error!("failed to mirror crates: {:#}", e),
         }
     });
-
-    index?;
 
     Ok(())
 }
