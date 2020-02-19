@@ -1,7 +1,7 @@
 use anyhow::Error;
 use cf::{mirror, Ctx};
-use log::{error, info};
 use std::time::Duration;
+use tracing::{error, info};
 
 #[derive(structopt::StructOpt)]
 pub struct Args {

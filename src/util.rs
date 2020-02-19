@@ -191,7 +191,7 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
         // _hopefully_ don't actually mess up cargo
         if dir.exists() {
             if let Err(e) = remove_dir_all::remove_dir_all(dir) {
-                log::error!(
+                tracing::error!(
                     "error trying to remove contents of {}: {}",
                     dir.display(),
                     e

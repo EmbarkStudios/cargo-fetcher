@@ -211,8 +211,8 @@ pub trait Backend {
 }
 
 pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
-    use log::{debug, error};
     use std::fmt::Write;
+    use tracing::{debug, error};
 
     let mut locks: LockContents = {
         let toml_contents = std::fs::read_to_string(lock_path)?;
@@ -277,12 +277,9 @@ pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error>
                     });
                 }
                 Err(e) => {
-                    log::error!(
+                    error!(
                         "unable to use git url {} for {}-{}: {}",
-                        url,
-                        p.name,
-                        p.version,
-                        e
+                        url, p.name, p.version, e
                     );
                 }
             }

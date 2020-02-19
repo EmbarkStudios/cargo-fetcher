@@ -3,6 +3,7 @@ use anyhow::{anyhow, Context, Error};
 use reqwest::Client;
 use std::convert::TryFrom;
 use tame_gcs::{BucketName, ObjectName};
+use tracing::debug;
 
 async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, Error> {
     // If we're not completing whatever task in under an hour then
@@ -10,7 +11,7 @@ async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::To
     use tame_oauth::gcp;
 
     #[cfg(feature = "gcs")]
-    log::debug!("using credentials in {}", cred_path.display());
+    debug!("using credentials in {}", cred_path.display());
 
     let svc_account_info =
         gcp::ServiceAccountInfo::deserialize(std::fs::read_to_string(&cred_path)?)
@@ -144,13 +145,13 @@ impl crate::Backend for GcsBackend {
 
         use std::sync::atomic::Ordering;
 
-        log::debug!(
+        debug!(
             "uploading {} {}",
             krate,
             self.current.fetch_add(1, Ordering::Relaxed)
         );
         self.client.execute(request).await?.error_for_status()?;
-        log::debug!(
+        debug!(
             "uploaded! {} {}",
             krate,
             self.current.fetch_sub(1, Ordering::Relaxed)

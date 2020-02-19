@@ -1,9 +1,9 @@
 extern crate cargo_fetcher as cf;
 
 use anyhow::{anyhow, Context, Error};
-use log::error;
 use std::{path::PathBuf, sync::Arc};
 use structopt::StructOpt;
+use tracing_subscriber::filter::LevelFilter;
 use url::Url;
 
 mod mirror;
@@ -21,8 +21,8 @@ enum Command {
     Sync(sync::Args),
 }
 
-fn parse_level(s: &str) -> Result<log::LevelFilter, Error> {
-    s.parse::<log::LevelFilter>()
+fn parse_level(s: &str) -> Result<LevelFilter, Error> {
+    s.parse::<LevelFilter>()
         .map_err(|_| anyhow!("failed to parse level '{}'", s))
 }
 
@@ -59,14 +59,13 @@ struct Opts {
 
 Possible values:
 * off
-* critical
 * error
-* warning
-* info
+* warn
+* info (default)
 * debug
 * trace"
     )]
-    log_level: log::LevelFilter,
+    log_level: LevelFilter,
     /// A snapshot of the registry index is also included when mirroring or syncing
     #[structopt(short, long = "include-index")]
     include_index: bool,
@@ -119,7 +118,24 @@ async fn real_main() -> Result<(), Error> {
         })
     });
 
-    env_logger::builder().filter_level(args.log_level).init();
+    let mut env_filter = tracing_subscriber::EnvFilter::from_default_env();
+
+    // If a user specifies a log level, we assume it only pertains to cargo_fetcher,
+    // if they want to trace other crates they can use the RUST_LOG env approach
+    env_filter = env_filter.add_directive(args.log_level.into());
+
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_env_filter(env_filter)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .context("failed to set default subscriber")?;
+
+    tracing::trace!("trace");
+    tracing::debug!("debug");
+    tracing::info!("info");
+    tracing::warn!("warn");
+    tracing::error!("error");
 
     let location = cf::util::parse_cloud_location(&args.url)?;
     let backend = init_backend(location, args.credentials).await?;
@@ -146,7 +162,7 @@ async fn main() {
     match real_main().await {
         Ok(_) => {}
         Err(e) => {
-            error!("{:#}", e);
+            tracing::error!("{:#}", e);
             std::process::exit(1);
         }
     }

@@ -1,8 +1,8 @@
 use crate::{util, Krate, Source};
 use anyhow::{Context, Error};
 use bytes::buf::BufExt;
-use log::{debug, error, info};
 use std::{convert::TryFrom, io::Write, path::PathBuf};
+use tracing::{debug, error, info};
 
 pub const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
 pub const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
@@ -204,12 +204,12 @@ pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
 
         if !ok.exists() {
             if src_path.exists() {
-                log::debug!("cleaning src/ dir for {}", krate);
+                debug!("cleaning src/ dir for {}", krate);
                 remove_dir_all::remove_dir_all(&src_path)
                     .with_context(|| format!("unable to remove {}", src_path.display()))?;
             }
 
-            log::debug!("unpacking {} to src/", krate);
+            debug!("unpacking {} to src/", krate);
 
             // Crate tarballs already include the top level directory internally,
             // so unpack in the top-level source directory

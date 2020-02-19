@@ -1,7 +1,7 @@
 use anyhow::Error;
 use cf::{sync, Ctx};
-use log::{error, info};
 use std::path::PathBuf;
+use tracing::{error, info};
 
 #[derive(structopt::StructOpt)]
 pub struct Args {

@@ -1,10 +1,10 @@
 use crate::{util, Krate, Source};
 use anyhow::{bail, Context, Error};
-use bytes::{buf::BufMutExt, Bytes, BytesMut};
-use log::debug;
+use bytes::Bytes;
 use reqwest::Client;
 use std::path::Path;
 use tokio::process::Command;
+use tracing::debug;
 
 pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
@@ -100,9 +100,9 @@ pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
                 );
             }
 
-            log::debug!("TARBALLING {}", krate);
+            debug!("TARBALLING {}", krate);
             let buffer = tarball(temp_dir.path()).await;
-            log::debug!("TARBALLED! {}", krate);
+            debug!("TARBALLED! {}", krate);
             //let buffer = tokio::task::spawn_blocking(move || tarball(temp_dir.path())).await?;
 
             buffer
