@@ -5,7 +5,9 @@ use reqwest::Client;
 use std::path::Path;
 use tokio::process::Command;
 use tracing::debug;
+use tracing_attributes::instrument;
 
+#[instrument]
 pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
         Source::CratesIo(chksum) => {
@@ -26,6 +28,7 @@ pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Err
     }
 }
 
+#[instrument]
 pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
     match &krate.source {
         Source::Git { url, rev, .. } => {
@@ -108,6 +111,7 @@ pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
     }
 }
 
+#[instrument]
 pub async fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
     let rev = match &krate.source {
         Source::Git { rev, .. } => rev,
@@ -161,6 +165,7 @@ pub async fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+#[instrument]
 pub async fn registry(url: &url::Url) -> Result<Bytes, Error> {
     // See https://github.com/rust-lang/cargo/blob/0e38712d4d7b346747bf91fb26cce8df6934e178/src/cargo/sources/registry/remote.rs#L61
     // for why we go through the whole repo init process + fetch instead of just a bare clone
@@ -200,6 +205,7 @@ pub async fn registry(url: &url::Url) -> Result<Bytes, Error> {
     tarball(temp_dir.path()).await
 }
 
+#[instrument]
 async fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
     // If we don't allocate adequate space in our output buffer, things
     // go very poorly for everyone involved
