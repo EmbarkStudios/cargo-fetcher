@@ -126,6 +126,7 @@ async fn real_main() -> Result<(), Error> {
 
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(env_filter)
+        //.json()
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)

@@ -91,6 +91,12 @@ pub struct Krate {
     pub source: Source,
 }
 
+// impl tracing::Value for Krate {
+//     fn record(&self, key: &tracing::field::Field, visitor: &mut dyn tracing::field::Visit) {
+//         visitor.record_debug(key, self)
+//     }
+// }
+
 impl PartialOrd for Krate {
     fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
         self.source.partial_cmp(&b.source)
@@ -201,8 +207,14 @@ impl Ctx {
     }
 }
 
+impl fmt::Debug for Ctx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "krates: {}", self.krates.len())
+    }
+}
+
 #[async_trait::async_trait]
-pub trait Backend {
+pub trait Backend: fmt::Debug {
     async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
     async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error>;
     async fn list(&self) -> Result<Vec<String>, Error>;
@@ -212,7 +224,7 @@ pub trait Backend {
 
 pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
     use std::fmt::Write;
-    use tracing::{debug, error};
+    use tracing::{error, trace};
 
     let mut locks: LockContents = {
         let toml_contents = std::fs::read_to_string(lock_path)?;
@@ -226,7 +238,7 @@ pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error>
         let source = match p.source.as_ref() {
             Some(s) => s,
             None => {
-                debug!("skipping 'path' source {}-{}", p.name, p.version);
+                trace!("skipping 'path' source {}-{}", p.name, p.version);
                 continue;
             }
         };

@@ -2,6 +2,7 @@ use anyhow::Error;
 use cf::{mirror, Ctx};
 use std::time::Duration;
 use tracing::{error, info};
+use tracing_futures::Instrument;
 
 #[derive(structopt::StructOpt)]
 pub struct Args {
@@ -33,9 +34,14 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
         }
 
         if let Err(e) = tokio::task::spawn_local(async move {
-            info!("mirroring crates.io index");
-            match mirror::registry_index(backend, args.max_stale).await {
-                Ok(_) => info!("successfully mirrored crates.io index"),
+            match mirror::registry_index(backend, args.max_stale)
+                .instrument(tracing::info_span!("index"))
+                .await
+            {
+                Ok(_) => {
+                    info!("successfully mirrored crates.io index");
+                    panic!("OOPS");
+                }
                 Err(e) => error!("failed to mirror crates.io index: {:#}", e),
             }
         })

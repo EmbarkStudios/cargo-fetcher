@@ -55,7 +55,6 @@ pub struct GcsBackend {
     client: Client,
     bucket: BucketName<'static>,
     prefix: String,
-    current: std::sync::atomic::AtomicUsize,
 }
 
 impl GcsBackend {
@@ -87,7 +86,6 @@ impl GcsBackend {
             bucket,
             client,
             prefix: loc.prefix.to_owned(),
-            current: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -98,6 +96,17 @@ impl GcsBackend {
             self.prefix,
             krate.cloud_id()
         ))?)
+    }
+}
+
+use std::fmt;
+
+impl fmt::Debug for GcsBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("gcs")
+            .field("bucket", &self.bucket)
+            .field("prefix", &self.prefix)
+            .finish()
     }
 }
 
@@ -143,19 +152,7 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).body(body).build()?;
 
-        use std::sync::atomic::Ordering;
-
-        debug!(
-            "uploading {} {}",
-            krate,
-            self.current.fetch_add(1, Ordering::Relaxed)
-        );
         self.client.execute(request).await?.error_for_status()?;
-        debug!(
-            "uploaded! {} {}",
-            krate,
-            self.current.fetch_sub(1, Ordering::Relaxed)
-        );
 
         Ok(content_len as usize)
     }
