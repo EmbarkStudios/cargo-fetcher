@@ -72,3 +72,8 @@ name = "sync_git"
 path = "tests/sync_git.rs"
 required-features = ["s3_test"]
 
+[[test]]
+name = "diff_cargo"
+path = "tests/diff_cargo.rs"
+required-features = ["s3_test"]
+
