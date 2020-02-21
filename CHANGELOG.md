@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Added
+- Cargo's v2 Cargo.lock format is now supported
+
+### Changed
+- Async (almost) all the things!
 
 ## [0.6.1] - 2019-11-14
 ### Fixed
