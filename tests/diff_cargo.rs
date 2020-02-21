@@ -62,10 +62,10 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
         for d in &changeset.diffs {
             match d {
                 difference::Difference::Add(dif) => {
-                    write!(&mut w, "\x1b[92m{}\x1b[0m\n", dif).unwrap()
+                    writeln!(&mut w, "\x1b[92m{}\x1b[0m", dif).unwrap()
                 }
                 difference::Difference::Rem(dif) => {
-                    write!(&mut w, "\x1b[91m{}\x1b[0m\n", dif).unwrap()
+                    writeln!(&mut w, "\x1b[91m{}\x1b[0m", dif).unwrap()
                 }
                 _ => {}
             }
@@ -101,7 +101,7 @@ fn hash<P: AsRef<Path>>(file: P) -> u64 {
             loop {
                 let read = match f.read(&mut chunk) {
                     Ok(r) => r,
-                    Err(_) => 0xdeadbeef,
+                    Err(_) => 0xdead_beef,
                 };
 
                 if read > 0 {
@@ -113,7 +113,7 @@ fn hash<P: AsRef<Path>>(file: P) -> u64 {
 
             xh.finish()
         }
-        Err(_) => 0xdeaddead,
+        Err(_) => 0xdead_dead,
     }
 }
 
