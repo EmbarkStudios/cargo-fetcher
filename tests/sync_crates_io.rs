@@ -2,11 +2,12 @@ use anyhow::Context;
 use cargo_fetcher as cf;
 use cf::{Krate, Source};
 
-mod util;
+mod tutil;
+use tutil as util;
 
-#[test]
-fn all_missing() {
-    let mut s3_ctx = util::s3_ctx("sync-all", "missing/");
+#[tokio::test(threaded_scheduler)]
+async fn all_missing() {
+    let mut s3_ctx = util::s3_ctx("sync-all", "missing/").await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
     s3_ctx.root_dir = missing_root.path().to_owned();
@@ -35,22 +36,32 @@ fn all_missing() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx).expect("failed to mirror crates");
+    cf::mirror::crates(&s3_ctx)
+        .await
+        .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx).expect("synced 3 crates"),
+        cf::sync::crates(&s3_ctx)
+            .await
+            .expect("synced 3 crates")
+            .good,
         3,
     );
+
+    tracing::info!("synced crates");
 
     // Ensure the unmutated crates are in the cache directory
     {
         let cache_root = s3_ctx.root_dir.join(cf::sync::CACHE_DIR);
 
         for krate in &s3_ctx.krates {
-            let bytes =
-                std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
-                    .with_context(|| format!("{:#}", krate))
-                    .expect("can't read");
+            let bytes = {
+                let path = cache_root.join(format!("{}-{}.crate", krate.name, krate.version));
+
+                std::fs::read(&path)
+                    .with_context(|| format!("{:#} {}", krate, path.display()))
+                    .expect("can't read")
+            };
 
             match krate.source {
                 Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
@@ -71,9 +82,9 @@ fn all_missing() {
     }
 }
 
-#[test]
-fn some_missing() {
-    let mut s3_ctx = util::s3_ctx("sync-some", "some_missing/");
+#[tokio::test(threaded_scheduler)]
+async fn some_missing() {
+    let mut s3_ctx = util::s3_ctx("sync-some", "some_missing/").await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
     s3_ctx.root_dir = missing_root.path().to_owned();
@@ -102,12 +113,20 @@ fn some_missing() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx).expect("failed to mirror crates");
+    cf::mirror::crates(&s3_ctx)
+        .await
+        .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
 
     let stored = s3_ctx.krates.clone();
     s3_ctx.krates = vec![stored[2].clone()];
-    assert_eq!(cf::sync::locked_crates(&s3_ctx).expect("synced 1 crate"), 1);
+    assert_eq!(
+        cf::sync::crates(&s3_ctx)
+            .await
+            .expect("synced 1 crate")
+            .good,
+        1
+    );
 
     // Ensure the unmutated crates are in the cache directory
     {
@@ -140,7 +159,10 @@ fn some_missing() {
 
     s3_ctx.krates = stored;
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx).expect("synced 2 crates"),
+        cf::sync::crates(&s3_ctx)
+            .await
+            .expect("synced 2 crates")
+            .good,
         2
     );
 
@@ -173,9 +195,9 @@ fn some_missing() {
     }
 }
 
-#[test]
-fn none_missing() {
-    let mut s3_ctx = util::s3_ctx("sync-none", "none_missing/");
+#[tokio::test(threaded_scheduler)]
+async fn none_missing() {
+    let mut s3_ctx = util::s3_ctx("sync-none", "none_missing/").await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
     s3_ctx.root_dir = missing_root.path().to_owned();
@@ -204,10 +226,18 @@ fn none_missing() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx).expect("failed to mirror crates");
+    cf::mirror::crates(&s3_ctx)
+        .await
+        .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
 
-    assert_eq!(cf::sync::locked_crates(&s3_ctx).expect("synced 3 crate"), 3);
+    assert_eq!(
+        cf::sync::crates(&s3_ctx)
+            .await
+            .expect("synced 3 crate")
+            .good,
+        3
+    );
 
     // Ensure the unmutated crates are in the cache directory
     {
@@ -239,7 +269,10 @@ fn none_missing() {
     }
 
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx).expect("synced 0 crates"),
+        cf::sync::crates(&s3_ctx)
+            .await
+            .expect("synced 0 crates")
+            .total_bytes,
         0
     );
 

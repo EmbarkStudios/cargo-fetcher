@@ -1,9 +1,10 @@
 use crate::{fetch, util, Ctx, Krate, Source};
 use anyhow::Error;
-use log::{error, info};
 use std::{convert::TryFrom, time::Duration};
+use tracing::{debug, error, info};
+use tracing_futures::Instrument;
 
-pub fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
+pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<usize, Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::Canonicalized::try_from(&url)?;
     let ident = canonicalized.ident();
@@ -22,7 +23,7 @@ pub fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
 
     // Retrieve the metadata for the last updated registry entry, and update
     // only it if it's stale
-    if let Ok(last_updated) = ctx.backend.updated(&krate) {
+    if let Ok(last_updated) = backend.updated(&krate).await {
         if let Some(last_updated) = last_updated {
             let now = chrono::Utc::now();
             let max_dur = chrono::Duration::from_std(max_stale)?;
@@ -32,21 +33,32 @@ pub fn registry_index(ctx: &Ctx, max_stale: Duration) -> Result<(), Error> {
                     "crates.io-index was last updated {}, skipping update as it less than {:?} old",
                     last_updated, max_stale
                 );
-                return Ok(());
+                return Ok(0);
             }
         }
     }
 
-    let index = fetch::registry(canonicalized.as_ref())?;
+    let index = async {
+        let res = fetch::registry(canonicalized.as_ref()).await;
 
-    ctx.backend.upload(index, &krate)
+        if let Ok(ref buffer) = res {
+            debug!(size = buffer.len(), "crates.io index downloaded");
+        }
+
+        res
+    }
+    .instrument(tracing::debug_span!("fetch"))
+    .await?;
+
+    backend
+        .upload(index, &krate)
+        .instrument(tracing::debug_span!("upload"))
+        .await
 }
 
-pub fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
-    info!("mirroring {} crates", ctx.krates.len());
-
-    info!("checking existing stored crates...");
-    let mut names = ctx.backend.list()?;
+pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
+    debug!("checking existing crates...");
+    let mut names = ctx.backend.list().await?;
 
     names.sort();
 
@@ -67,23 +79,58 @@ pub fn locked_crates(ctx: &Ctx) -> Result<(), Error> {
 
     if to_mirror.is_empty() {
         info!("all crates already uploaded");
-        return Ok(());
+        return Ok(0);
     }
 
-    info!("uploading {} crates...", to_mirror.len());
+    info!(
+        "mirroring {} of {} crates",
+        to_mirror.len(),
+        ctx.krates.len()
+    );
 
-    use rayon::prelude::*;
+    let client = &ctx.client;
+    let backend = &ctx.backend;
 
-    to_mirror
-        .par_iter()
-        .for_each(|krate| match fetch::from_crates_io(&ctx.client, krate) {
-            Err(e) => error!("failed to retrieve {}: {}", krate, e),
-            Ok(buffer) => {
-                if let Err(e) = ctx.backend.upload(buffer, krate) {
-                    error!("failed to upload {}: {}", krate, e);
+    use futures::StreamExt;
+
+    let bodies = futures::stream::iter(to_mirror)
+        .map(|krate| {
+            let client = &client;
+            let backend = backend.clone();
+            async move {
+                let res: Result<usize, String> = match fetch::from_crates_io(&client, &krate).await
+                {
+                    Err(e) => Err(format!("failed to retrieve {}: {}", krate, e)),
+                    Ok(buffer) => {
+                        debug!(size = buffer.len(), "fetched");
+                        match backend
+                            .upload(buffer, &krate)
+                            .instrument(tracing::debug_span!("upload"))
+                            .await
+                        {
+                            Err(e) => Err(format!("failed to upload {}: {}", krate, e)),
+                            Ok(len) => Ok(len),
+                        }
+                    }
+                };
+
+                res
+            }
+            .instrument(tracing::debug_span!("mirror", %krate))
+        })
+        .buffer_unordered(32);
+
+    let total_bytes = bodies
+        .fold(0usize, |acc, res| async move {
+            match res {
+                Ok(len) => acc + len,
+                Err(e) => {
+                    error!("{:#}", e);
+                    acc
                 }
             }
-        });
+        })
+        .await;
 
-    Ok(())
+    Ok(total_bytes)
 }

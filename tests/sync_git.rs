@@ -2,7 +2,8 @@ use anyhow::Context;
 use cargo_fetcher as cf;
 use cf::{Krate, Source};
 
-mod util;
+mod tutil;
+use tutil as util;
 
 macro_rules! git_source {
     ($url:expr) => {{
@@ -13,9 +14,9 @@ macro_rules! git_source {
     }};
 }
 
-#[test]
-fn multiple_from_same_repo() {
-    let mut s3_ctx = util::s3_ctx("sync-multi-git", "multi-git/");
+#[tokio::test(threaded_scheduler)]
+async fn multiple_from_same_repo() {
+    let mut s3_ctx = util::s3_ctx("sync-multi-git", "multi-git/").await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
     s3_ctx.root_dir = missing_root.path().to_owned();
@@ -33,10 +34,15 @@ fn multiple_from_same_repo() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx).expect("failed to mirror crates");
+    cf::mirror::crates(&s3_ctx)
+        .await
+        .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx).expect("synced 1 git source"),
+        cf::sync::crates(&s3_ctx)
+            .await
+            .expect("synced 1 git source")
+            .good,
         1,
     );
 
@@ -50,12 +56,25 @@ fn multiple_from_same_repo() {
         let cpal_root = db_root.join(format!("cpal-{}", ident));
         assert!(cpal_root.exists(), "unable to find cpal db");
 
-        assert!(
-            cpal_root
-                .join("objects/pack/pack-8cd88d098a99144f96ebc73435ee36b37598453b.pack")
-                .exists(),
-            "unable to find pack file"
-        );
+        // We expect a pack and idx file
+        let mut has_idx = false;
+        let mut has_pack = false;
+        for entry in std::fs::read_dir(cpal_root.join("objects/pack")).unwrap() {
+            let entry = entry.unwrap();
+
+            let path = entry.path();
+            let path = path.to_str().unwrap();
+
+            if path.ends_with(".pack") {
+                has_pack = true;
+            }
+
+            if path.ends_with(".idx") {
+                has_idx = true;
+            }
+        }
+
+        assert!(has_idx && has_pack);
     }
 
     // Ensure cpal is checked out
@@ -66,9 +85,10 @@ fn multiple_from_same_repo() {
         assert!(cpal_root.exists(), "unable to find cpal checkout");
 
         assert!(cpal_root.join(rev).exists(), "unable to find cpal checkout");
-        assert!(
-            cpal_root.join(format!("{}/.cargo-ok", rev)).exists(),
-            "unable to find .cargo-ok"
-        );
+
+        let ok = cpal_root.join(format!("{}/.cargo-ok", rev));
+        assert!(ok.exists(), "unable to find .cargo-ok");
+
+        assert_eq!(std::fs::read_to_string(ok).unwrap(), "");
     }
 }

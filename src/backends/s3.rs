@@ -29,21 +29,22 @@ impl S3Backend {
         format!("{}{}", self.prefix, krate.cloud_id())
     }
 
-    #[cfg(feature = "s3_test")]
-    pub fn make_bucket(&self) -> Result<(), Error> {
+    pub async fn make_bucket(&self) -> Result<(), Error> {
         let bucket_request = rusoto_s3::CreateBucketRequest {
             bucket: self.bucket.clone(),
             ..Default::default()
         };
 
-        self.client.create_bucket(bucket_request).sync()?;
+        // Can "fail" if bucket already exists
+        let _ = self.client.create_bucket(bucket_request).await;
 
         Ok(())
     }
 }
 
+#[async_trait::async_trait]
 impl crate::Backend for S3Backend {
-    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
+    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
         let get_request = rusoto_s3::GetObjectRequest {
             bucket: self.bucket.clone(),
             key: self.make_key(krate),
@@ -53,16 +54,33 @@ impl crate::Backend for S3Backend {
         let get_output = self
             .client
             .get_object(get_request)
-            .sync()
+            .await
             .context("failed to retrieve object")?;
 
+        let len = get_output.content_length.unwrap_or(1024) as usize;
         let stream = get_output.body.context("failed to retrieve body")?;
 
-        use futures::{Future, Stream};
-        Ok(stream.concat2().wait().context("failed to read body")?)
+        let mut buffer = bytes::BytesMut::with_capacity(len);
+        let mut reader = stream.into_async_read();
+        let mut chunk = [0u8; 8 * 1024];
+
+        use tokio::io::AsyncReadExt;
+
+        loop {
+            let read = reader.read(&mut chunk).await?;
+            if read > 0 {
+                buffer.extend_from_slice(&chunk[..read]);
+            } else {
+                break;
+            }
+        }
+
+        let buffer = buffer.freeze();
+        Ok(buffer)
     }
 
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error> {
+    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
+        let len = source.len();
         let put_request = rusoto_s3::PutObjectRequest {
             bucket: self.bucket.clone(),
             key: self.make_key(krate),
@@ -72,25 +90,25 @@ impl crate::Backend for S3Backend {
 
         self.client
             .put_object(put_request)
-            .sync()
+            .await
             .context("failed to upload object")?;
 
-        Ok(())
+        Ok(len)
     }
 
-    fn list(&self) -> Result<Vec<String>, Error> {
+    async fn list(&self) -> Result<Vec<String>, Error> {
         let list_request = rusoto_s3::ListObjectsV2Request {
             bucket: self.bucket.clone(),
             ..Default::default()
         };
 
-        let list_objects_response = self
+        let resp = self
             .client
             .list_objects_v2(list_request)
-            .sync()
+            .await
             .context("failed to list objects")?;
 
-        let objects = list_objects_response.contents.unwrap_or_else(Vec::new);
+        let objects = resp.contents.unwrap_or_default();
 
         let len = self.prefix.len();
 
@@ -100,22 +118,20 @@ impl crate::Backend for S3Backend {
             .collect())
     }
 
-    fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
-        let get_request = rusoto_s3::GetObjectRequest {
+    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+        let head_request = rusoto_s3::HeadObjectRequest {
             bucket: self.bucket.clone(),
             key: self.make_key(krate),
             ..Default::default()
         };
 
-        // Uhh...so it appears like S3 doesn't have a way of just getting metdata, it also
-        // always retrieves the actual object? WTF
-        let get_output = self
+        let head_output = self
             .client
-            .get_object(get_request)
-            .sync()
-            .context("failed to get object")?;
+            .head_object(head_request)
+            .await
+            .context("failed to get head object")?;
 
-        let last_modified = get_output
+        let last_modified = head_output
             .last_modified
             .context("last_modified not available for object")?;
 
@@ -128,5 +144,16 @@ impl crate::Backend for S3Backend {
 
     fn set_prefix(&mut self, prefix: &str) {
         self.prefix = prefix.to_owned();
+    }
+}
+
+use std::fmt;
+
+impl fmt::Debug for S3Backend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("s3")
+            .field("bucket", &self.bucket)
+            .field("prefix", &self.prefix)
+            .finish()
     }
 }

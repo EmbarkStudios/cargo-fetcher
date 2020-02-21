@@ -1,8 +1,9 @@
 extern crate cargo_fetcher as cf;
+
 use anyhow::{anyhow, Context, Error};
-use log::error;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use structopt::StructOpt;
+use tracing_subscriber::filter::LevelFilter;
 use url::Url;
 
 mod mirror;
@@ -20,8 +21,8 @@ enum Command {
     Sync(sync::Args),
 }
 
-fn parse_level(s: &str) -> Result<log::LevelFilter, Error> {
-    s.parse::<log::LevelFilter>()
+fn parse_level(s: &str) -> Result<LevelFilter, Error> {
+    s.parse::<LevelFilter>()
         .map_err(|_| anyhow!("failed to parse level '{}'", s))
 }
 
@@ -58,14 +59,16 @@ struct Opts {
 
 Possible values:
 * off
-* critical
 * error
-* warning
-* info
+* warn
+* info (default)
 * debug
 * trace"
     )]
-    log_level: log::LevelFilter,
+    log_level: LevelFilter,
+    /// Output log messages as json
+    #[structopt(long)]
+    json: bool,
     /// A snapshot of the registry index is also included when mirroring or syncing
     #[structopt(short, long = "include-index")]
     include_index: bool,
@@ -73,31 +76,41 @@ Possible values:
     cmd: Command,
 }
 
-fn init_backend(
+async fn init_backend(
     loc: cf::CloudLocation<'_>,
     _credentials: Option<PathBuf>,
-) -> Result<Box<dyn cf::Backend + Sync>, Error> {
+) -> Result<Arc<dyn cf::Backend + Sync + Send>, Error> {
     match loc {
         #[cfg(feature = "gcs")]
         cf::CloudLocation::Gcs(gcs) => {
             let cred_path = _credentials.context("GCS credentials not specified")?;
 
-            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path)?;
-            Ok(Box::new(gcs))
+            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path).await?;
+            Ok(Arc::new(gcs))
         }
         #[cfg(not(feature = "gcs"))]
         cf::CloudLocation::Gcs(_) => anyhow::bail!("GCS backend not enabled"),
         #[cfg(feature = "s3")]
-        cf::CloudLocation::S3(s3) => {
-            let s3 = cf::backends::s3::S3Backend::new(s3)?;
-            Ok(Box::new(s3))
+        cf::CloudLocation::S3(loc) => {
+            // Special case local testing
+            let make_bucket = loc.bucket == "testing" && loc.host.contains("localhost");
+
+            let s3 = cf::backends::s3::S3Backend::new(loc)?;
+
+            if make_bucket {
+                s3.make_bucket()
+                    .await
+                    .context("failed to create test bucket")?;
+            }
+
+            Ok(Arc::new(s3))
         }
         #[cfg(not(feature = "s3"))]
         cf::CloudLocation::S3(_) => anyhow::bail!("S3 backend not enabled"),
     }
 }
 
-fn real_main() -> Result<(), Error> {
+async fn real_main() -> Result<(), Error> {
     let args = Opts::from_iter({
         std::env::args().enumerate().filter_map(|(i, a)| {
             if i == 1 && a == "fetcher" {
@@ -108,32 +121,48 @@ fn real_main() -> Result<(), Error> {
         })
     });
 
-    env_logger::builder().filter_level(args.log_level).init();
+    let mut env_filter = tracing_subscriber::EnvFilter::from_default_env();
+
+    // If a user specifies a log level, we assume it only pertains to cargo_fetcher,
+    // if they want to trace other crates they can use the RUST_LOG env approach
+    env_filter = env_filter.add_directive(args.log_level.into());
+
+    let subscriber = tracing_subscriber::FmtSubscriber::builder().with_env_filter(env_filter);
+
+    if args.json {
+        tracing::subscriber::set_global_default(subscriber.json().finish())
+            .context("failed to set default subscriber")?;
+    } else {
+        tracing::subscriber::set_global_default(subscriber.finish())
+            .context("failed to set default subscriber")?;
+    };
 
     let location = cf::util::parse_cloud_location(&args.url)?;
-    let backend = init_backend(location, args.credentials)?;
+    let backend = init_backend(location, args.credentials).await?;
 
-    let krates = cf::gather(args.lock_file).context("failed to get crates from lock file")?;
+    let krates =
+        cf::read_lock_file(args.lock_file).context("failed to get crates from lock file")?;
 
     match args.cmd {
         Command::Mirror(margs) => {
             let ctx = cf::Ctx::new(None, backend, krates).context("failed to create context")?;
-            mirror::cmd(ctx, args.include_index, margs)
+            mirror::cmd(ctx, args.include_index, margs).await
         }
         Command::Sync(sargs) => {
             let root_dir = cf::util::determine_cargo_root(sargs.cargo_root.as_ref())?;
             let ctx = cf::Ctx::new(Some(root_dir), backend, krates)
                 .context("failed to create context")?;
-            sync::cmd(ctx, args.include_index, sargs)
+            sync::cmd(ctx, args.include_index, sargs).await
         }
     }
 }
 
-fn main() {
-    match real_main() {
+#[tokio::main]
+async fn main() {
+    match real_main().await {
         Ok(_) => {}
         Err(e) => {
-            error!("{}", e);
+            tracing::error!("{:#}", e);
             std::process::exit(1);
         }
     }

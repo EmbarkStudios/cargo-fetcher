@@ -4,6 +4,7 @@ use std::{
     hash::{Hash, Hasher, SipHasher},
     path::{Path, PathBuf},
 };
+use tracing::debug;
 use url::Url;
 
 fn to_hex(num: u64) -> String {
@@ -82,8 +83,6 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
         // they use don't have any query params or fragments, even though
         // they do occur in Cargo.lock files
 
-        let mut url = url.clone();
-
         // cannot-be-a-base-urls (e.g., `github.com:rust-lang-nursery/rustfmt.git`)
         // are not supported.
         if url.cannot_be_a_base() {
@@ -93,35 +92,51 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
             )
         }
 
-        // Strip a trailing slash.
-        if url.path().ends_with('/') {
-            url.path_segments_mut().unwrap().pop_if_empty();
-        }
+        let mut url_str = String::new();
+
+        let is_github = url.host_str() == Some("github.com");
 
         // HACK: for GitHub URLs specifically, just lower-case
         // everything. GitHub treats both the same, but they hash
         // differently, and we're gonna be hashing them. This wants a more
         // general solution, and also we're almost certainly not using the
         // same case conversion rules that GitHub does. (See issue #84.)
-        if url.host_str() == Some("github.com") {
-            url.set_scheme("https").unwrap();
-            let path = url.path().to_lowercase();
-            url.set_path(&path);
+        if is_github {
+            url_str.push_str("https://");
+        } else {
+            url_str.push_str(url.scheme());
+            url_str.push_str("://");
+        }
+
+        // Not handling username/password
+
+        if let Some(host) = url.host_str() {
+            url_str.push_str(host);
+        }
+
+        if let Some(port) = url.port() {
+            use std::fmt::Write;
+            url_str.push(':');
+            write!(&mut url_str, "{}", port)?;
+        }
+
+        if is_github {
+            url_str.push_str(&url.path().to_lowercase());
+        } else {
+            url_str.push_str(url.path());
+        }
+
+        // Strip a trailing slash.
+        if url_str.ends_with('/') {
+            url_str.pop();
         }
 
         // Repos can generally be accessed with or without `.git` extension.
-        if url.path().ends_with(".git") {
-            let last = {
-                let last = url.path_segments().unwrap().next_back().unwrap();
-                last[..last.len() - 4].to_owned()
-            };
-            url.path_segments_mut().unwrap().pop().push(&last);
+        if url_str.ends_with(".git") {
+            url_str.truncate(url_str.len() - 4);
         }
 
-        // Ensure there are no fragments, eg sha-1 revision specifiers
-        url.set_fragment(None);
-        // Strip off any query params, they aren't relevant for the hash
-        url.set_query(None);
+        let url = Url::parse(&url_str)?;
 
         Ok(Self(url))
     }
@@ -137,44 +152,17 @@ pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error
                 .ok()
         });
 
-    let root_dir = root_dir.ok_or_else(|| anyhow!("unable to determine cargo root"))?;
-
-    // There should always be a bin/cargo(.exe) relative to the root directory, at a minimum
-    // there are probably ways to have setups where this doesn't hold true, but this is simple
-    // and can be fixed later
-    let cargo_path = {
-        let mut cpath = root_dir.join("bin/cargo");
-
-        if cfg!(target_os = "windows") {
-            cpath.set_extension("exe");
-        }
-
-        cpath
-    };
-
-    if !cargo_path.exists() {
-        return Err(anyhow!(
-            "cargo root {} does not seem to contain the cargo binary",
-            root_dir.display()
-        ));
-    }
+    let root_dir = root_dir.context("unable to determine cargo root")?;
 
     Ok(root_dir)
 }
 
-pub fn convert_response(
-    res: &mut reqwest::Response,
+pub async fn convert_response(
+    res: reqwest::Response,
 ) -> Result<http::Response<bytes::Bytes>, Error> {
-    use bytes::BufMut;
-
-    let body = bytes::BytesMut::with_capacity(res.content_length().unwrap_or(4 * 1024) as usize);
-    let mut writer = body.writer();
-    res.copy_to(&mut writer)?;
-    let body = writer.into_inner();
-
-    let mut builder = http::Response::builder();
-
-    builder.status(res.status()).version(res.version());
+    let mut builder = http::Response::builder()
+        .status(res.status())
+        .version(res.version());
 
     let headers = builder
         .headers_mut()
@@ -186,23 +174,63 @@ pub fn convert_response(
             .map(|(k, v)| (k.clone(), v.clone())),
     );
 
-    Ok(builder.body(body.freeze())?)
+    let body = res.bytes().await?;
+
+    Ok(builder.body(body)?)
 }
 
-pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
-    stream: R,
-    dir: P,
-) -> Result<R, (R, Error)> {
-    let mut archive_reader = tar::Archive::new(stream);
+#[derive(Clone, Copy)]
+pub(crate) enum Encoding {
+    Gzip,
+    Zstd,
+}
 
-    let dir = dir.as_ref();
+use bytes::Bytes;
+use std::{
+    io,
+    pin::Pin,
+    task::{Context as TaskCtx, Poll},
+};
+
+pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Result<(), Error> {
+    enum Decoder<R: io::Read + io::BufRead> {
+        Gzip(flate2::read::GzDecoder<R>),
+        Zstd(zstd::Decoder<R>),
+    }
+
+    impl<R> io::Read for Decoder<R>
+    where
+        R: io::Read + io::BufRead,
+    {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match self {
+                Self::Gzip(gz) => gz.read(buf),
+                Self::Zstd(zstd) => zstd.read(buf),
+            }
+        }
+    }
+
+    use bytes::buf::BufExt;
+    let buf_reader = buffer.reader();
+
+    let decoder = match encoding {
+        Encoding::Gzip => {
+            // zstd::Decoder automatically wraps the Read(er) in a BufReader, so do
+            // that explicitly for gzip so the types match
+            let buf_reader = std::io::BufReader::new(buf_reader);
+            Decoder::Gzip(flate2::read::GzDecoder::new(buf_reader))
+        }
+        Encoding::Zstd => Decoder::Zstd(zstd::Decoder::new(buf_reader)?),
+    };
+
+    let mut archive_reader = tar::Archive::new(decoder);
 
     if let Err(e) = archive_reader.unpack(dir) {
         // Attempt to remove anything that may have been written so that we
-        // _hopefully_ don't actually mess up cargo
+        // _hopefully_ don't mess up cargo itself
         if dir.exists() {
             if let Err(e) = remove_dir_all::remove_dir_all(dir) {
-                log::error!(
+                tracing::error!(
                     "error trying to remove contents of {}: {}",
                     dir.display(),
                     e
@@ -210,13 +238,99 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
             }
         }
 
-        return Err((
-            archive_reader.into_inner(),
-            anyhow!("failed to unpack: {:#?}", e),
-        ));
+        return Err(e).context("failed to unpack");
     }
 
-    Ok(archive_reader.into_inner())
+    Ok(())
+}
+
+pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
+    // If we don't allocate adequate space in our output buffer, things
+    // go very poorly for everyone involved
+    let mut estimated_size = 0;
+    const TAR_HEADER_SIZE: u64 = 512;
+    for entry in walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        estimated_size += TAR_HEADER_SIZE;
+        if let Ok(md) = entry.metadata() {
+            estimated_size += md.len();
+
+            // Add write permissions to all files, this is to
+            // get around an issue where unpacking tar files on
+            // Windows will result in errors if there are read-only
+            // directories
+            let mut perms = md.permissions();
+            perms.set_readonly(false);
+            std::fs::set_permissions(entry.path(), perms)?;
+        }
+    }
+
+    struct Writer<W: io::Write> {
+        encoder: zstd::Encoder<W>,
+        original: usize,
+    }
+
+    impl<W> futures::io::AsyncWrite for Writer<W>
+    where
+        W: io::Write + Send + std::marker::Unpin,
+    {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut TaskCtx<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            let w = self.get_mut();
+            w.original += buf.len();
+            Poll::Ready(io::Write::write(&mut w.encoder, buf))
+        }
+
+        fn poll_write_vectored(
+            self: Pin<&mut Self>,
+            _: &mut TaskCtx<'_>,
+            bufs: &[io::IoSlice<'_>],
+        ) -> Poll<io::Result<usize>> {
+            let w = self.get_mut();
+            Poll::Ready(io::Write::write_vectored(&mut w.encoder, bufs))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut TaskCtx<'_>) -> Poll<io::Result<()>> {
+            let w = self.get_mut();
+            Poll::Ready(io::Write::flush(&mut w.encoder))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, cx: &mut TaskCtx<'_>) -> Poll<io::Result<()>> {
+            self.poll_flush(cx)
+        }
+    }
+
+    use bytes::buf::BufMutExt;
+
+    let out_buffer = bytes::BytesMut::with_capacity(estimated_size as usize);
+    let buf_writer = out_buffer.writer();
+
+    let zstd_encoder = zstd::Encoder::new(buf_writer, 9)?;
+
+    let mut archiver = async_tar::Builder::new(Writer {
+        encoder: zstd_encoder,
+        original: 0,
+    });
+    archiver.append_dir_all(".", path).await?;
+    archiver.finish().await?;
+
+    let writer = archiver.into_inner().await?;
+    let buf_writer = writer.encoder.finish()?;
+    let out_buffer = buf_writer.into_inner();
+
+    debug!(
+        input = writer.original,
+        output = out_buffer.len(),
+        ratio = (out_buffer.len() as f64 / writer.original as f64 * 100.0) as u32,
+        "compressed"
+    );
+
+    Ok(out_buffer.freeze())
 }
 
 // All of cargo's checksums are currently SHA256
@@ -266,8 +380,6 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
         _ => anyhow::bail!("host name is an IP"),
     };
 
-    // TODO: Support localhost without bucket and region, for testing
-
     // We only support virtual-hosted-style references as path style is being deprecated
     // mybucket.s3-us-west-2.amazonaws.com
     // https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/
@@ -310,7 +422,7 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
         let region = region.context("region not specified")?.0;
         let host = host.context("host not specified")?;
 
-        let loc = crate::S3Location {
+        Ok(crate::S3Location {
             bucket,
             region,
             host,
@@ -319,9 +431,15 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
             } else {
                 url.path()
             },
-        };
-
-        Ok(loc)
+        })
+    } else if host_dns == "localhost" {
+        let root = url.as_str();
+        Ok(crate::S3Location {
+            bucket: "testing",
+            region: "",
+            host: &root[..root.len() - 1],
+            prefix: "",
+        })
     } else {
         anyhow::bail!("not an s3 url");
     }
@@ -363,29 +481,33 @@ pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error
     }
 }
 
-pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error> {
-    use std::process::Command;
+pub(crate) async fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error> {
+    use tokio::process::Command;
 
     let output = Command::new("git")
         .arg("clone")
-        .arg("--recurse-submodules")
+        .arg("--template=''")
+        .arg("--no-tags")
         .arg(src)
         .arg(target)
-        .output()?;
+        .output()
+        .await?;
 
     if !output.status.success() {
         let err_out = String::from_utf8(output.stderr)?;
         bail!("failed to clone {}: {}", src.display(), err_out);
     }
 
-    let output = Command::new("git")
-        .arg("checkout")
+    let reset = Command::new("git")
+        .arg("reset")
+        .arg("--hard")
         .arg(rev)
         .current_dir(target)
-        .output()?;
+        .output()
+        .await?;
 
-    if !output.status.success() {
-        let err_out = String::from_utf8(output.stderr)?;
+    if !reset.status.success() {
+        let err_out = String::from_utf8(reset.stderr)?;
         bail!(
             "failed to checkout {} @ {}: {}",
             src.display(),
@@ -394,6 +516,15 @@ pub(crate) fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error
         );
     }
 
+    Ok(())
+}
+
+pub(crate) fn write_ok(to: &Path) -> Result<(), Error> {
+    let mut f = std::fs::File::create(&to)
+        .with_context(|| format!("failed to create: {}", to.display()))?;
+
+    use std::io::Write;
+    f.write_all(b"ok")?;
     Ok(())
 }
 

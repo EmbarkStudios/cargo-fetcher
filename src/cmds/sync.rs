@@ -1,7 +1,7 @@
 use anyhow::Error;
 use cf::{sync, Ctx};
-use log::{error, info};
 use std::path::PathBuf;
+use tracing::{error, info};
 
 #[derive(structopt::StructOpt)]
 pub struct Args {
@@ -11,28 +11,39 @@ pub struct Args {
     pub cargo_root: Option<PathBuf>,
 }
 
-pub fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<(), Error> {
+pub(crate) async fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<(), Error> {
     ctx.prep_sync_dirs()?;
 
-    rayon::join(
-        || {
-            if !include_index {
-                return;
-            }
+    let root = ctx.root_dir.clone();
+    let backend = ctx.backend.clone();
 
-            info!("syncing crates.io index");
-            match sync::registry_index(&ctx) {
-                Ok(_) => info!("successfully synced crates.io index"),
-                Err(e) => error!("failed to sync crates.io index: {}", e),
+    let index = tokio::task::spawn(async move {
+        if !include_index {
+            return;
+        }
+
+        info!("syncing crates.io index");
+        match sync::registry_index(root, backend).await {
+            Ok(_) => info!("successfully synced crates.io index"),
+            Err(e) => error!(err = ?e, "failed to sync crates.io index"),
+        }
+    });
+
+    let (index, _sync) = tokio::join!(index, async move {
+        match sync::crates(&ctx).await {
+            Ok(summary) => {
+                info!(
+                    bytes = summary.total_bytes,
+                    succeeded = summary.good,
+                    failed = summary.bad,
+                    "synced crates"
+                );
             }
-        },
-        || match sync::locked_crates(&ctx) {
-            Ok(_) => {
-                info!("finished syncing crates");
-            }
-            Err(e) => error!("failed to sync crates: {}", e),
-        },
-    );
+            Err(e) => error!(err = ?e, "failed to sync crates"),
+        }
+    });
+
+    index?;
 
     Ok(())
 }

@@ -1,0 +1,13 @@
+[package]
+name = "full"
+version = "0.1.0"
+authors = ["Jake Shadle <jake.shadle@embark-studios.com>"]
+edition = "2018"
+
+[dependencies]
+tame-oauth = "=0.4.2"
+cpal = { version = "0.10.0" }
+tame-gcs = { git = "https://github.com/EmbarkStudios/tame-gcs", rev = "822e2bb" }
+
+[patch.crates-io]
+cpal = { git = "https://github.com/EmbarkStudios/cpal", rev = "e68e61f7d" }

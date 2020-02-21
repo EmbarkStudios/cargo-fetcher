@@ -4,7 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+<!-- next-header -->
+## [Unreleased] - ReleaseDate
+### Added
+- Cargo's v2 Cargo.lock format is now supported
+
+### Changed
+- Async (almost) all the things!
 
 ## [0.6.1] - 2019-11-14
 ### Fixed
@@ -64,6 +70,7 @@ for a user specified amount of time, rather than always
 ### Added
 - Initial add of `cargo-fetcher`
 
+<!-- next-url -->
 [Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.6.1...HEAD
 [0.6.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.6.0...0.6.1
 [0.6.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.5.1...0.6.0

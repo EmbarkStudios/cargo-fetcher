@@ -1,7 +1,8 @@
 use anyhow::Error;
 use cf::{mirror, Ctx};
-use log::{error, info};
 use std::time::Duration;
+use tracing::{error, info};
+use tracing_futures::Instrument;
 
 #[derive(structopt::StructOpt)]
 pub struct Args {
@@ -23,26 +24,40 @@ Times may be specified with no suffix (default days), or one of:
     max_stale: Duration,
 }
 
-pub fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
-    rayon::join(
-        || {
-            if !include_index {
-                return;
-            }
+pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
+    let backend = ctx.backend.clone();
 
-            info!("mirroring crates.io index");
-            match mirror::registry_index(&ctx, args.max_stale) {
-                Ok(_) => info!("successfully mirrored crates.io index"),
-                Err(e) => error!("failed to mirror crates.io index: {}", e),
+    let local = tokio::task::LocalSet::new();
+    let index = local.run_until(async move {
+        if !include_index {
+            return;
+        }
+
+        if let Err(e) = tokio::task::spawn_local(async move {
+            match mirror::registry_index(backend, args.max_stale)
+                .instrument(tracing::info_span!("index"))
+                .await
+            {
+                Ok(_) => {
+                    info!("successfully mirrored crates.io index");
+                }
+                Err(e) => error!("failed to mirror crates.io index: {:#}", e),
             }
-        },
-        || match mirror::locked_crates(&ctx) {
+        })
+        .await
+        {
+            error!("failed to spawn index mirror task: {:#}", e);
+        }
+    });
+
+    let (_index, _mirror) = tokio::join!(index, async move {
+        match mirror::crates(&ctx).await {
             Ok(_) => {
                 info!("finished uploading crates");
             }
-            Err(e) => error!("failed to mirror crates: {}", e),
-        },
-    );
+            Err(e) => error!("failed to mirror crates: {:#}", e),
+        }
+    });
 
     Ok(())
 }

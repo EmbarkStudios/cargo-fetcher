@@ -7,6 +7,7 @@ use std::{
     convert::TryFrom,
     fmt,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 pub use url::Url;
 
@@ -21,15 +22,20 @@ struct Package {
     name: String,
     version: String,
     source: Option<String>,
+    /// V2 lock format has the package checksum at the package definition
+    /// instead of the separate metadata
+    checksum: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
 struct LockContents {
     package: Vec<Package>,
+    /// V2 lock format doesn't have a metadata section
+    #[serde(default)]
     metadata: BTreeMap<String, String>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
 pub enum Source {
     CratesIo(String),
     Git {
@@ -78,12 +84,18 @@ impl Source {
     }
 }
 
-#[derive(Ord, Eq, Clone)]
+#[derive(Ord, Eq, Clone, Debug)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
     pub source: Source,
 }
+
+// impl tracing::Value for Krate {
+//     fn record(&self, key: &tracing::field::Field, visitor: &mut dyn tracing::field::Visit) {
+//         visitor.record_debug(key, self)
+//     }
+// }
 
 impl PartialOrd for Krate {
     fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
@@ -163,9 +175,11 @@ pub enum CloudLocation<'a> {
     S3(S3Location<'a>),
 }
 
+pub type Storage = Arc<dyn Backend + Sync + Send>;
+
 pub struct Ctx {
     pub client: reqwest::Client,
-    pub backend: Box<dyn Backend + Sync>,
+    pub backend: Storage,
     pub krates: Vec<Krate>,
     pub root_dir: PathBuf,
 }
@@ -173,11 +187,11 @@ pub struct Ctx {
 impl Ctx {
     pub fn new(
         root_dir: Option<PathBuf>,
-        backend: Box<dyn Backend + Sync>,
+        backend: Storage,
         krates: Vec<Krate>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: reqwest::Client::builder().gzip(false).build()?,
+            client: reqwest::Client::builder().build()?,
             backend,
             krates,
             root_dir: root_dir.unwrap_or_else(|| PathBuf::from(".")),
@@ -193,17 +207,24 @@ impl Ctx {
     }
 }
 
-pub trait Backend {
-    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<(), Error>;
-    fn list(&self) -> Result<Vec<String>, Error>;
-    fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
+impl fmt::Debug for Ctx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "krates: {}", self.krates.len())
+    }
+}
+
+#[async_trait::async_trait]
+pub trait Backend: fmt::Debug {
+    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
+    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error>;
+    async fn list(&self) -> Result<Vec<String>, Error>;
+    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
     fn set_prefix(&mut self, prefix: &str);
 }
 
-pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
-    use log::{debug, error};
+pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
     use std::fmt::Write;
+    use tracing::{error, trace};
 
     let mut locks: LockContents = {
         let toml_contents = std::fs::read_to_string(lock_path)?;
@@ -217,28 +238,37 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
         let source = match p.source.as_ref() {
             Some(s) => s,
             None => {
-                debug!("skipping 'path' source {}-{}", p.name, p.version);
+                trace!("skipping 'path' source {}-{}", p.name, p.version);
                 continue;
             }
         };
 
         if source == "registry+https://github.com/rust-lang/crates.io-index" {
-            write!(
-                &mut lookup,
-                "checksum {} {} (registry+https://github.com/rust-lang/crates.io-index)",
-                p.name, p.version
-            )
-            .unwrap();
-
-            if let Some(chksum) = locks.metadata.remove(&lookup) {
-                krates.push(Krate {
+            match p.checksum {
+                Some(chksum) => krates.push(Krate {
                     name: p.name,
                     version: p.version,
                     source: Source::CratesIo(chksum),
-                })
-            }
+                }),
+                None => {
+                    write!(
+                        &mut lookup,
+                        "checksum {} {} (registry+https://github.com/rust-lang/crates.io-index)",
+                        p.name, p.version
+                    )
+                    .unwrap();
 
-            lookup.clear();
+                    if let Some(chksum) = locks.metadata.remove(&lookup) {
+                        krates.push(Krate {
+                            name: p.name,
+                            version: p.version,
+                            source: Source::CratesIo(chksum),
+                        })
+                    }
+
+                    lookup.clear();
+                }
+            }
         } else {
             // We support exactly one form of git sources, rev specififers
             // eg. git+https://github.com/EmbarkStudios/rust-build-helper?rev=9135717#91357179ba2ce6ec7e430a2323baab80a8f7d9b3
@@ -259,12 +289,9 @@ pub fn gather<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
                     });
                 }
                 Err(e) => {
-                    log::error!(
+                    error!(
                         "unable to use git url {} for {}-{}: {}",
-                        url,
-                        p.name,
-                        p.version,
-                        e
+                        url, p.name, p.version, e
                     );
                 }
             }
