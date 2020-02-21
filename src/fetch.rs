@@ -4,102 +4,99 @@ use bytes::Bytes;
 use reqwest::Client;
 use std::path::Path;
 use tokio::process::Command;
+use tracing::{debug, error};
 use tracing_futures::Instrument;
 
 pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
-    match &krate.source {
-        Source::CratesIo(chksum) => {
-            let url = format!(
-                "https://static.crates.io/crates/{}/{}-{}.crate",
-                krate.name, krate.name, krate.version
-            );
+    async {
+        match &krate.source {
+            Source::CratesIo(chksum) => {
+                let url = format!(
+                    "https://static.crates.io/crates/{}/{}-{}.crate",
+                    krate.name, krate.name, krate.version
+                );
 
-            let response = client.get(&url).send().await?.error_for_status()?;
-            let res = util::convert_response(response).await?;
-            let content = res.into_body();
+                let response = client.get(&url).send().await?.error_for_status()?;
+                let res = util::convert_response(response).await?;
+                let content = res.into_body();
 
-            util::validate_checksum(&content, &chksum)?;
+                util::validate_checksum(&content, &chksum)?;
 
-            Ok(content)
+                Ok(content)
+            }
+            Source::Git { url, rev, .. } => via_git(url, rev).await,
         }
-        Source::Git { .. } => via_git(&krate).await,
     }
+    .instrument(tracing::debug_span!("fetch"))
+    .await
 }
 
-#[instrument]
-pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
-    match &krate.source {
-        Source::Git { url, rev, .. } => {
-            // Create a temporary directory to clone the repo into
-            let temp_dir = tempfile::tempdir()?;
+pub async fn via_git(url: &url::Url, rev: &str) -> Result<Bytes, Error> {
+    // Create a temporary directory to clone the repo into
+    let temp_dir = tempfile::tempdir()?;
 
-            debug!("cloning {}", krate);
+    let init = Command::new("git")
+        .arg("init")
+        .arg("--template=''")
+        .arg("--bare")
+        .arg(temp_dir.path())
+        .output()
+        .await?;
 
-            let init = Command::new("git")
-                .arg("init")
-                .arg("--template")
-                .arg("")
-                .arg("--bare")
-                .arg(temp_dir.path())
-                .output()
-                .await?;
+    if !init.status.success() {
+        let err = String::from_utf8(init.stderr)?;
+        error!(?err, "failed to init git repo");
+        bail!("failed to init git repo");
+    }
 
-            if !init.status.success() {
-                let err_out = String::from_utf8(init.stderr)?;
-                bail!("failed to init git repo {}: {}", krate, err_out);
-            }
+    let mut fetch = Command::new("git");
+    fetch
+        .arg("fetch")
+        .arg("--tags") // fetch all tags
+        .arg("--force") // handle force pushes
+        .arg("--update-head-ok") // see discussion in #2078
+        .arg(url.as_str())
+        .arg("refs/heads/*:refs/heads/*")
+        // If cargo is run by git (for example, the `exec` command in `git
+        // rebase`), the GIT_DIR is set by git and will point to the wrong
+        // location (this takes precedence over the cwd). Make sure this is
+        // unset so git will look at cwd for the repo.
+        .env_remove("GIT_DIR")
+        // The reset of these may not be necessary, but I'm including them
+        // just to be extra paranoid and avoid any issues.
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+        .current_dir(temp_dir.path());
 
-            let mut fetch = Command::new("git");
-            fetch
-                .arg("fetch")
-                .arg("--tags") // fetch all tags
-                .arg("--force") // handle force pushes
-                .arg("--update-head-ok") // see discussion in #2078
-                .arg(url.as_str())
-                .arg("refs/heads/*:refs/heads/*")
-                // If cargo is run by git (for example, the `exec` command in `git
-                // rebase`), the GIT_DIR is set by git and will point to the wrong
-                // location (this takes precedence over the cwd). Make sure this is
-                // unset so git will look at cwd for the repo.
-                .env_remove("GIT_DIR")
-                // The reset of these may not be necessary, but I'm including them
-                // just to be extra paranoid and avoid any issues.
-                .env_remove("GIT_WORK_TREE")
-                .env_remove("GIT_INDEX_FILE")
-                .env_remove("GIT_OBJECT_DIRECTORY")
-                .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-                .current_dir(temp_dir.path());
+    let fetch = fetch.output().await?;
 
-            let fetch = fetch.output().await?;
+    if !fetch.status.success() {
+        let err = String::from_utf8(fetch.stderr)?;
+        error!(?err, "failed to fetch git repo");
+        bail!("failed to fetch git repo");
+    }
 
-            if !fetch.status.success() {
-                let err_out = String::from_utf8(fetch.stderr)?;
-                bail!("failed to fetch git repo {}: {}", krate, err_out);
-            }
+    // Ensure that the revision required in the lockfile is actually present
+    let has_revision = Command::new("git")
+        .arg("cat-file")
+        .arg("-t")
+        .arg(rev)
+        .current_dir(temp_dir.path())
+        .output()
+        .await?;
 
-            // Ensure that the revision required in the lockfile is actually present
-            let has_revision = Command::new("git")
-                .arg("cat-file")
-                .arg("-t")
-                .arg(rev)
-                .current_dir(temp_dir.path())
-                .output()
-                .await?;
-
-            if !has_revision.status.success()
-                || String::from_utf8(has_revision.stdout)
-                    .ok()
-                    .as_ref()
-                    .map(|s| s.as_ref())
-                    != Some("commit\n")
-            {
-                bail!(
-                    "git repo {} for {} does not contain revision {}",
-                    url,
-                    krate,
-                    rev
-                );
-            }
+    if !has_revision.status.success()
+        || String::from_utf8(has_revision.stdout)
+            .ok()
+            .as_ref()
+            .map(|s| s.as_ref())
+            != Some("commit\n")
+    {
+        error!(?rev, "revision not found");
+        bail!("revision not found");
+    }
 
     util::pack_tar(temp_dir.path())
         .instrument(tracing::debug_span!("tarballing", %url, %rev))
