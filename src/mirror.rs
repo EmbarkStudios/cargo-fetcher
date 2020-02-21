@@ -1,10 +1,8 @@
 use crate::{fetch, util, Ctx, Krate, Source};
 use anyhow::Error;
 use std::{convert::TryFrom, time::Duration};
-use tracing::{error, info};
-use tracing_attributes::instrument;
+use tracing_futures::Instrument;
 
-#[instrument]
 pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<usize, Error> {
     let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
     let canonicalized = util::Canonicalized::try_from(&url)?;

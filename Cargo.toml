@@ -39,7 +39,6 @@ tar = "0.4.26"
 tempfile = "3.1.0"
 toml = "0.5.6"
 tracing = "0.1.12"
-tracing-attributes = "0.1.6"
 tracing-futures = "0.2.2"
 tracing-subscriber = "0.2.1"
 url = "2.1.1"
@@ -77,3 +76,8 @@ name = "diff_cargo"
 path = "tests/diff_cargo.rs"
 required-features = ["s3_test"]
 
+[profile.dev.build-override]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 3

@@ -271,7 +271,6 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
- "tracing-attributes",
  "tracing-futures",
  "tracing-subscriber",
  "twox-hash",
