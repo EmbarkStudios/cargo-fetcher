@@ -1,6 +1,7 @@
 use crate::{fetch, util, Ctx, Krate, Source};
 use anyhow::Error;
 use std::{convert::TryFrom, time::Duration};
+use tracing::{debug, error, info};
 use tracing_futures::Instrument;
 
 pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<usize, Error> {
@@ -37,16 +38,22 @@ pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Res
         }
     }
 
-    let index = fetch::registry(canonicalized.as_ref()).await?;
+    let index = async {
+        let res = fetch::registry(canonicalized.as_ref()).await;
 
-    backend.upload(index, &krate).await
-}
+        if let Ok(ref buffer) = res {
+            debug!(size = buffer.len(), "crates.io index downloaded");
+        }
 
-#[instrument]
-pub async fn locked_crates(ctx: &Ctx) -> Result<usize, Error> {
-    info!("mirroring {} crates", ctx.krates.len());
+        res
+    }
+    .instrument(tracing::debug_span!("fetch"))
+    .await?;
 
-    info!("checking existing stored crates...");
+    backend
+        .upload(index, &krate)
+        .instrument(tracing::debug_span!("upload"))
+        .await
     let mut names = ctx.backend.list().await?;
 
     names.sort();
@@ -71,7 +78,11 @@ pub async fn locked_crates(ctx: &Ctx) -> Result<usize, Error> {
         return Ok(0);
     }
 
-    info!("uploading {} crates...", to_mirror.len());
+    info!(
+        "mirroring {} of {} crates",
+        to_mirror.len(),
+        ctx.krates.len()
+    );
 
     let client = &ctx.client;
     let backend = &ctx.backend;
@@ -86,14 +97,22 @@ pub async fn locked_crates(ctx: &Ctx) -> Result<usize, Error> {
                 let res: Result<usize, String> = match fetch::from_crates_io(&client, &krate).await
                 {
                     Err(e) => Err(format!("failed to retrieve {}: {}", krate, e)),
-                    Ok(buffer) => match backend.upload(buffer, &krate).await {
-                        Err(e) => Err(format!("failed to upload {}: {}", krate, e)),
-                        Ok(len) => Ok(len),
-                    },
+                    Ok(buffer) => {
+                        debug!(size = buffer.len(), "fetched");
+                        match backend
+                            .upload(buffer, &krate)
+                            .instrument(tracing::debug_span!("upload"))
+                            .await
+                        {
+                            Err(e) => Err(format!("failed to upload {}: {}", krate, e)),
+                            Ok(len) => Ok(len),
+                        }
+                    }
                 };
 
                 res
             }
+            .instrument(tracing::debug_span!("mirror", %krate))
         })
         .buffer_unordered(32);
 
@@ -102,7 +121,7 @@ pub async fn locked_crates(ctx: &Ctx) -> Result<usize, Error> {
             match res {
                 Ok(len) => acc + len,
                 Err(e) => {
-                    error!("{}", e);
+                    error!("{:#}", e);
                     acc
                 }
             }
