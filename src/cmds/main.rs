@@ -66,6 +66,9 @@ Possible values:
 * trace"
     )]
     log_level: LevelFilter,
+    /// Output log messages as json
+    #[structopt(long)]
+    json: bool,
     /// A snapshot of the registry index is also included when mirroring or syncing
     #[structopt(short, long = "include-index")]
     include_index: bool,
@@ -124,19 +127,15 @@ async fn real_main() -> Result<(), Error> {
     // if they want to trace other crates they can use the RUST_LOG env approach
     env_filter = env_filter.add_directive(args.log_level.into());
 
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(env_filter)
-        //.json()
-        .finish();
+    let subscriber = tracing_subscriber::FmtSubscriber::builder().with_env_filter(env_filter);
 
-    tracing::subscriber::set_global_default(subscriber)
-        .context("failed to set default subscriber")?;
-
-    tracing::trace!("trace");
-    tracing::debug!("debug");
-    tracing::info!("info");
-    tracing::warn!("warn");
-    tracing::error!("error");
+    if args.json {
+        tracing::subscriber::set_global_default(subscriber.json().finish())
+            .context("failed to set default subscriber")?;
+    } else {
+        tracing::subscriber::set_global_default(subscriber.finish())
+            .context("failed to set default subscriber")?;
+    };
 
     let location = cf::util::parse_cloud_location(&args.url)?;
     let backend = init_backend(location, args.credentials).await?;
