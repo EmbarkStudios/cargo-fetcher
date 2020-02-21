@@ -146,3 +146,14 @@ impl crate::Backend for S3Backend {
         self.prefix = prefix.to_owned();
     }
 }
+
+use std::fmt;
+
+impl fmt::Debug for S3Backend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("s3")
+            .field("bucket", &self.bucket)
+            .field("prefix", &self.prefix)
+            .finish()
+    }
+}
