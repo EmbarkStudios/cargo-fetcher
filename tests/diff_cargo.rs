@@ -1,5 +1,5 @@
-use walkdir::{DirEntry, WalkDir};
 use std::{cmp::Ordering, fs::File, path::Path};
+use walkdir::{DirEntry, WalkDir};
 
 #[cfg(unix)]
 fn perms(p: &std::fs::Permissions) -> u32 {
@@ -45,11 +45,10 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
     let a_base = a_base.as_ref();
     let b_base = b_base.as_ref();
 
-    let (a, b) = rayon::join(|| {
-        write_tree(a_base, a_walker)
-    }, || {
-        write_tree(b_base, b_walker)
-    });
+    let (a, b) = rayon::join(
+        || write_tree(a_base, a_walker),
+        || write_tree(b_base, b_walker),
+    );
 
     if a != b {
         let changeset = difference::Changeset::new(&a, &b, "\n");
@@ -62,8 +61,12 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
         // Only print the diffs
         for d in &changeset.diffs {
             match d {
-                difference::Difference::Add(dif) => write!(&mut w, "\x1b[92m{}\x1b[0m\n", dif).unwrap(),
-                difference::Difference::Rem(dif) => write!(&mut w, "\x1b[91m{}\x1b[0m\n", dif).unwrap(),
+                difference::Difference::Add(dif) => {
+                    write!(&mut w, "\x1b[92m{}\x1b[0m\n", dif).unwrap()
+                }
+                difference::Difference::Rem(dif) => {
+                    write!(&mut w, "\x1b[91m{}\x1b[0m\n", dif).unwrap()
+                }
                 _ => {}
             }
         }
@@ -86,15 +89,15 @@ fn compare_by_file_name(a: &DirEntry, b: &DirEntry) -> Ordering {
 }
 
 fn hash<P: AsRef<Path>>(file: P) -> u64 {
+    use std::{hash::Hasher, io::Read};
     use twox_hash::XxHash64 as xx;
-    use std::{io::Read, hash::Hasher};
 
     match File::open(file.as_ref()) {
         Ok(mut f) => {
             let mut xh = xx::with_seed(0);
 
             let mut chunk = [0; 8 * 1024];
-            
+
             loop {
                 let read = match f.read(&mut chunk) {
                     Ok(r) => r,
@@ -132,19 +135,22 @@ async fn diff_cargo() {
 
         s3_ctx.krates = cf::read_lock_file("tests/full/Cargo.lock").unwrap();
 
-        cf::mirror::registry_index(s3_ctx.backend.clone(), std::time::Duration::new(10, 0)).await.expect("failed to mirror index");
+        cf::mirror::registry_index(s3_ctx.backend.clone(), std::time::Duration::new(10, 0))
+            .await
+            .expect("failed to mirror index");
         cf::mirror::crates(&s3_ctx)
             .await
             .expect("failed to mirror crates");
 
         s3_ctx.prep_sync_dirs().expect("create base dirs");
-        cf::sync::crates(&s3_ctx)
-            .await.expect("synced crates");
-        cf::sync::registry_index(s3_ctx.root_dir, s3_ctx.backend.clone()).await.expect("failed to sync index");
+        cf::sync::crates(&s3_ctx).await.expect("synced crates");
+        cf::sync::registry_index(s3_ctx.root_dir, s3_ctx.backend.clone())
+            .await
+            .expect("failed to sync index");
     }
 
     let cargo_home = tempfile::TempDir::new().expect("failed to create tempdir");
-    
+
     // Fetch with cargo
     {
         let path = cargo_home.path().to_str().unwrap();
@@ -152,7 +158,8 @@ async fn diff_cargo() {
         std::process::Command::new("cargo")
             .env("CARGO_HOME", &path)
             .args(&["fetch", "--manifest-path", "tests/full/Cargo.toml"])
-            .status().unwrap();
+            .status()
+            .unwrap();
     }
 
     // Compare the outputs to ensure they match "exactly"
