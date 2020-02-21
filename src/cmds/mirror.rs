@@ -40,7 +40,6 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
             {
                 Ok(_) => {
                     info!("successfully mirrored crates.io index");
-                    panic!("OOPS");
                 }
                 Err(e) => error!("failed to mirror crates.io index: {:#}", e),
             }
@@ -52,7 +51,7 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
     });
 
     let (_index, _mirror) = tokio::join!(index, async move {
-        match mirror::locked_crates(&ctx).await {
+        match mirror::crates(&ctx).await {
             Ok(_) => {
                 info!("finished uploading crates");
             }

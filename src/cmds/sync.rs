@@ -25,16 +25,21 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<()
         info!("syncing crates.io index");
         match sync::registry_index(root, backend).await {
             Ok(_) => info!("successfully synced crates.io index"),
-            Err(e) => error!("failed to sync crates.io index: {}", e),
+            Err(e) => error!(err = ?e, "failed to sync crates.io index"),
         }
     });
 
     let (index, _sync) = tokio::join!(index, async move {
-        match sync::locked_crates(&ctx).await {
-            Ok(_) => {
-                info!("finished syncing crates");
+        match sync::crates(&ctx).await {
+            Ok(summary) => {
+                info!(
+                    bytes = summary.total_bytes,
+                    succeeded = summary.good,
+                    failed = summary.bad,
+                    "synced crates"
+                );
             }
-            Err(e) => error!("failed to sync crates: {}", e),
+            Err(e) => error!(err = ?e, "failed to sync crates"),
         }
     });
 

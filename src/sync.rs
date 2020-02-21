@@ -193,9 +193,7 @@ pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
             f.write_all(&data)?;
         }
 
-        // Decompress and splat the tar onto the filesystem
-        let buf_reader = data.reader();
-        let gz_decoder = flate2::read::GzDecoder::new(buf_reader);
+pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
 
         let mut src_path = src_dir.join(format!("{}", krate.local_id()));
         // Remove the .crate extension

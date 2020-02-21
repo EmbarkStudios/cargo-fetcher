@@ -54,6 +54,10 @@ pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Res
         .upload(index, &krate)
         .instrument(tracing::debug_span!("upload"))
         .await
+}
+
+pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
+    debug!("checking existing crates...");
     let mut names = ctx.backend.list().await?;
 
     names.sort();
