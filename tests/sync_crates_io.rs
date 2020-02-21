@@ -2,7 +2,8 @@ use anyhow::Context;
 use cargo_fetcher as cf;
 use cf::{Krate, Source};
 
-mod util;
+mod tutil;
+use tutil as util;
 
 #[tokio::test(threaded_scheduler)]
 async fn all_missing() {
@@ -35,26 +36,32 @@ async fn all_missing() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx)
+    cf::mirror::crates(&s3_ctx)
         .await
         .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx)
+        cf::sync::crates(&s3_ctx)
             .await
-            .expect("synced 3 crates"),
+            .expect("synced 3 crates")
+            .good,
         3,
     );
+
+    tracing::info!("synced crates");
 
     // Ensure the unmutated crates are in the cache directory
     {
         let cache_root = s3_ctx.root_dir.join(cf::sync::CACHE_DIR);
 
         for krate in &s3_ctx.krates {
-            let bytes =
-                std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
-                    .with_context(|| format!("{:#}", krate))
-                    .expect("can't read");
+            let bytes = {
+                let path = cache_root.join(format!("{}-{}.crate", krate.name, krate.version));
+
+                std::fs::read(&path)
+                    .with_context(|| format!("{:#} {}", krate, path.display()))
+                    .expect("can't read")
+            };
 
             match krate.source {
                 Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
@@ -106,7 +113,7 @@ async fn some_missing() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx)
+    cf::mirror::crates(&s3_ctx)
         .await
         .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
@@ -114,9 +121,10 @@ async fn some_missing() {
     let stored = s3_ctx.krates.clone();
     s3_ctx.krates = vec![stored[2].clone()];
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx)
+        cf::sync::crates(&s3_ctx)
             .await
-            .expect("synced 1 crate"),
+            .expect("synced 1 crate")
+            .good,
         1
     );
 
@@ -151,9 +159,10 @@ async fn some_missing() {
 
     s3_ctx.krates = stored;
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx)
+        cf::sync::crates(&s3_ctx)
             .await
-            .expect("synced 2 crates"),
+            .expect("synced 2 crates")
+            .good,
         2
     );
 
@@ -217,15 +226,16 @@ async fn none_missing() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx)
+    cf::mirror::crates(&s3_ctx)
         .await
         .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
 
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx)
+        cf::sync::crates(&s3_ctx)
             .await
-            .expect("synced 3 crate"),
+            .expect("synced 3 crate")
+            .good,
         3
     );
 
@@ -259,9 +269,10 @@ async fn none_missing() {
     }
 
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx)
+        cf::sync::crates(&s3_ctx)
             .await
-            .expect("synced 0 crates"),
+            .expect("synced 0 crates")
+            .total_bytes,
         0
     );
 

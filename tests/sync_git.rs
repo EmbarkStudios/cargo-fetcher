@@ -2,7 +2,8 @@ use anyhow::Context;
 use cargo_fetcher as cf;
 use cf::{Krate, Source};
 
-mod util;
+mod tutil;
+use tutil as util;
 
 macro_rules! git_source {
     ($url:expr) => {{
@@ -33,14 +34,15 @@ async fn multiple_from_same_repo() {
         },
     ];
 
-    cf::mirror::locked_crates(&s3_ctx)
+    cf::mirror::crates(&s3_ctx)
         .await
         .expect("failed to mirror crates");
     s3_ctx.prep_sync_dirs().expect("create base dirs");
     assert_eq!(
-        cf::sync::locked_crates(&s3_ctx)
+        cf::sync::crates(&s3_ctx)
             .await
-            .expect("synced 1 git source"),
+            .expect("synced 1 git source")
+            .good,
         1,
     );
 

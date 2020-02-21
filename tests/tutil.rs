@@ -3,7 +3,15 @@
 use cargo_fetcher as cf;
 
 pub async fn s3_ctx(bucket: &str, prefix: &str) -> cf::Ctx {
-    let _ = env_logger::builder().is_test(true).try_init();
+    use std::sync::Once;
+
+    static SUB: Once = Once::new();
+
+    SUB.call_once(|| {
+        let subscriber =
+            tracing_subscriber::FmtSubscriber::builder().with_max_level(tracing::Level::DEBUG);
+        tracing::subscriber::set_global_default(subscriber.finish()).unwrap();
+    });
 
     let backend = std::sync::Arc::new(
         cf::backends::s3::S3Backend::new(cf::S3Location {

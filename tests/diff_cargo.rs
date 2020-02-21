@@ -116,7 +116,8 @@ fn hash<P: AsRef<Path>>(file: P) -> u64 {
 
 use cargo_fetcher as cf;
 
-mod util;
+mod tutil;
+use tutil as util;
 
 #[tokio::test(threaded_scheduler)]
 #[ignore]
@@ -132,12 +133,12 @@ async fn diff_cargo() {
         s3_ctx.krates = cf::read_lock_file("tests/full/Cargo.lock").unwrap();
 
         cf::mirror::registry_index(s3_ctx.backend.clone(), std::time::Duration::new(10, 0)).await.expect("failed to mirror index");
-        cf::mirror::locked_crates(&s3_ctx)
+        cf::mirror::crates(&s3_ctx)
             .await
             .expect("failed to mirror crates");
 
         s3_ctx.prep_sync_dirs().expect("create base dirs");
-        cf::sync::locked_crates(&s3_ctx)
+        cf::sync::crates(&s3_ctx)
             .await.expect("synced crates");
         cf::sync::registry_index(s3_ctx.root_dir, s3_ctx.backend.clone()).await.expect("failed to sync index");
     }
