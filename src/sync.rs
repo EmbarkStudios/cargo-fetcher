@@ -1,8 +1,8 @@
 use crate::{util, Krate, Source};
 use anyhow::{Context, Error};
-use bytes::buf::BufExt;
 use std::{convert::TryFrom, io::Write, path::PathBuf};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
+use tracing_futures::Instrument;
 
 pub const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
 pub const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
@@ -57,11 +57,13 @@ pub async fn registry_index(root_dir: PathBuf, backend: crate::Storage) -> Resul
 
     let index_data = backend.fetch(&krate).await?;
 
-    let buf_reader = index_data.reader();
-    let zstd_decoder = zstd::Decoder::new(buf_reader)?;
-
-    if let Err((_, e)) = util::unpack_tar(zstd_decoder, index_path) {
-        error!("failed to unpack crates.io-index: {}", e);
+    if let Err(e) = tokio::task::spawn_blocking(move || {
+        util::unpack_tar(index_data, util::Encoding::Zstd, &index_path)
+    })
+    .instrument(tracing::debug_span!("unpack_tar"))
+    .await
+    {
+        error!(err = ?e, "failed to unpack crates.io-index");
     }
 
     Ok(())
@@ -74,21 +76,20 @@ async fn sync_git(
     data: bytes::Bytes,
     rev: &str,
 ) -> Result<(), Error> {
-    let buf_reader = data.reader();
-    let zstd_decoder = zstd::Decoder::new(buf_reader)?;
-
     let db_path = db_dir.join(format!("{}", krate.local_id()));
 
     // The path may already exist, so in that case just do a fetch
     if db_path.exists() {
-        debug!("fetching bare repo for {}", krate);
         crate::fetch::update_bare(krate, &db_path)
-            .await
-            .with_context(|| format!("unable to fetch into {}", db_path.display()))?;
+            .instrument(tracing::debug_span!("git_fetch"))
+            .await?;
     } else {
-        util::unpack_tar(zstd_decoder, &db_path)
-            .map_err(|(_, e)| e)
-            .with_context(|| format!("unable to unpack tar into {}", db_path.display()))?;
+        let unpack_path = db_path.clone();
+        tokio::task::spawn_blocking(move || {
+            util::unpack_tar(data, util::Encoding::Zstd, &unpack_path)
+        })
+        .instrument(tracing::debug_span!("unpack_tar"))
+        .await??;
     }
 
     let co_path = co_dir.join(format!("{}/{}", krate.local_id(), rev));
@@ -103,35 +104,107 @@ async fn sync_git(
     }
 
     // Do a checkout of the bare clone
-    debug!("checking out {} to {}", krate, co_path.display());
-    util::checkout(&db_path, &co_path, rev).await?;
+    util::checkout(&db_path, &co_path, rev)
+        .instrument(tracing::debug_span!("checkout"))
+        .await?;
+
     let ok = co_path.join(".cargo-ok");
-    // The non-git .cargo-ok has "ok" in it, however, the git ones, do not
+    // The non-git .cargo-ok has "ok" in it, however the git ones do not
     std::fs::File::create(&ok).with_context(|| ok.display().to_string())?;
-    //util::write_ok(&ok)?;
 
     Ok(())
 }
 
-pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
-    info!("synchronizing {} crates...", ctx.krates.len());
+use std::path::Path;
 
-    let root_dir = &ctx.root_dir;
+async fn sync_package(
+    cache_dir: &Path,
+    src_dir: &Path,
+    krate: &Krate,
+    data: bytes::Bytes,
+    chksum: &str,
+) -> Result<(), Error> {
+    util::validate_checksum(&data, chksum)?;
 
-    let cache_dir = root_dir.join(CACHE_DIR);
-    let src_dir = root_dir.join(SRC_DIR);
-    let git_db_dir = root_dir.join(GIT_DB_DIR);
-    let git_co_dir = root_dir.join(GIT_CO_DIR);
+    let packed_krate_path = cache_dir.join(format!("{}", krate.local_id()));
 
-    std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache/")?;
-    std::fs::create_dir_all(&src_dir).context("failed to create registry/src/")?;
-    std::fs::create_dir_all(&git_db_dir).context("failed to create git/db/")?;
-    std::fs::create_dir_all(&git_co_dir).context("failed to create git/checkouts/")?;
+    let pack_data = data.clone();
+    let packed_path = packed_krate_path.clone();
 
+    // Spawn a worker thread to write the original pack file to disk as we don't
+    // particularly care when it is done
+    let pack_write = tokio::task::spawn_blocking(move || {
+        let s = tracing::debug_span!("pack_write");
+        let _ = s.enter();
+        match std::fs::File::create(&packed_path) {
+            Ok(mut f) => {
+                let _ = f.set_len(pack_data.len() as u64);
+                f.write_all(&pack_data)?;
+                f.sync_all()?;
+
+                debug!(bytes = pack_data.len(), path = ?packed_path, "wrote pack file to disk");
+
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    });
+
+    let mut src_path = src_dir.join(format!("{}", krate.local_id()));
+
+    let unpack = tokio::task::spawn_blocking(move || {
+        // Remove the .crate extension
+        src_path.set_extension("");
+        let ok = src_path.join(".cargo-ok");
+
+        if !ok.exists() {
+            if src_path.exists() {
+                debug!("cleaning src/");
+                if let Err(e) = remove_dir_all::remove_dir_all(&src_path) {
+                    error!(err = ?e, "failed to remove src/");
+                    return Err(e.into());
+                }
+            }
+
+            // Crate tarballs already include the top level directory internally,
+            // so unpack in the top-level source directory
+            if let Err(e) = util::unpack_tar(data, util::Encoding::Gzip, src_path.parent().unwrap())
+            {
+                error!(err = ?e, "failed to unpack to src/");
+                return Err(e);
+            }
+
+            // Create the .cargo-ok file so that cargo doesn't suspect a thing
+            if let Err(e) = util::write_ok(&ok) {
+                // If this happens, cargo will just resync and recheckout the repo most likely
+                warn!(err = ?e, "failed to write .cargo-ok");
+            }
+        }
+
+        Ok(())
+    });
+
+    let unpack = tokio::task::spawn(unpack);
+
+    let (pack_write, unpack) = tokio::join!(pack_write, unpack);
+
+    if let Err(err) = pack_write {
+        error!(?err, path = ?packed_krate_path, "failed to write tarball to disk")
+    }
+
+    if let Err(err) = unpack {
+        error!(?err, "failed to unpack tarball to disk")
+    }
+
+    Ok(())
+}
+
+fn check_local<'a>(
+    ctx: &'a crate::Ctx,
+    cache_dir: &Path,
+    git_co_dir: &Path,
+) -> Result<Vec<&'a Krate>, Error> {
     let cache_iter = std::fs::read_dir(&cache_dir)?;
-
-    // TODO: Also check the untarred crates
-    info!("checking local cache for missing crates...");
 
     let mut cached_crates: Vec<String> = cache_iter
         .filter_map(|entry| {
@@ -174,53 +247,45 @@ pub async fn locked_crates(ctx: &crate::Ctx) -> Result<usize, Error> {
     to_sync.sort();
     to_sync.dedup();
 
+    Ok(to_sync)
+}
+
+#[derive(Debug)]
+pub struct Summary {
+    pub total_bytes: usize,
+    pub bad: u32,
+    pub good: u32,
+}
+
+pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
+    info!("synchronizing {} crates...", ctx.krates.len());
+
+    let root_dir = &ctx.root_dir;
+
+    let cache_dir = root_dir.join(CACHE_DIR);
+    let src_dir = root_dir.join(SRC_DIR);
+    let git_db_dir = root_dir.join(GIT_DB_DIR);
+    let git_co_dir = root_dir.join(GIT_CO_DIR);
+
+    std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache/")?;
+    std::fs::create_dir_all(&src_dir).context("failed to create registry/src/")?;
+    std::fs::create_dir_all(&git_db_dir).context("failed to create git/db/")?;
+    std::fs::create_dir_all(&git_co_dir).context("failed to create git/checkouts/")?;
+
+    // TODO: Also check the untarred crates
+    info!("checking local cache for missing crates...");
+    let to_sync = check_local(ctx, &cache_dir, &git_co_dir)?;
+
     if to_sync.is_empty() {
         info!("all crates already available on local disk");
-        return Ok(0);
+        return Ok(Summary {
+            total_bytes: 0,
+            good: 0,
+            bad: 0,
+        });
     }
 
     info!("synchronizing {} missing crates...", to_sync.len());
-
-    let sync_package = |krate: &Krate, data: bytes::Bytes, chksum: &str| -> Result<(), Error> {
-        util::validate_checksum(&data, chksum)?;
-
-        let packed_krate_path = cache_dir.join(format!("{}", krate.local_id()));
-
-        {
-            let mut f = std::fs::File::create(&packed_krate_path)
-                .with_context(|| packed_krate_path.display().to_string())?;
-            let _ = f.set_len(data.len() as u64);
-            f.write_all(&data)?;
-        }
-
-pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
-
-        let mut src_path = src_dir.join(format!("{}", krate.local_id()));
-        // Remove the .crate extension
-        src_path.set_extension("");
-        let ok = src_path.join(".cargo-ok");
-
-        if !ok.exists() {
-            if src_path.exists() {
-                debug!("cleaning src/ dir for {}", krate);
-                remove_dir_all::remove_dir_all(&src_path)
-                    .with_context(|| format!("unable to remove {}", src_path.display()))?;
-            }
-
-            debug!("unpacking {} to src/", krate);
-
-            // Crate tarballs already include the top level directory internally,
-            // so unpack in the top-level source directory
-            util::unpack_tar(gz_decoder, &src_dir).map_err(|(_, e)| e)?;
-
-            // Create the .cargo-ok file so that cargo doesn't suspect a thing
-            util::write_ok(&ok)?;
-        }
-
-        Ok(())
-    };
-
-    let num_syncs = to_sync.len();
 
     use futures::StreamExt;
 
@@ -230,38 +295,75 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
 
             let git_db_dir = git_db_dir.clone();
             let git_co_dir = git_co_dir.clone();
+            let cache_dir = cache_dir.clone();
+            let src_dir = src_dir.clone();
 
+            #[allow(clippy::cognitive_complexity)]
             async move {
-                match backend.fetch(krate).await {
-                    Err(e) => Err(format!("failed to download {}: {}", krate, e)),
-                    Ok(krate_data) => match &krate.source {
-                        Source::CratesIo(ref chksum) => sync_package(krate, krate_data, chksum)
-                            .map_err(|e| {
-                                format!("unable to synchronize (crates.io) {}: {}", krate, e)
-                            }),
-                        Source::Git { rev, .. } => {
-                            sync_git(git_db_dir, git_co_dir, krate, krate_data, rev)
-                                .await
-                                .map_err(|e| {
-                                    format!("unable to synchronize (git) {}: {}", krate, e)
-                                })
-                        }
-                    },
+                match backend
+                    .fetch(krate)
+                    .instrument(tracing::debug_span!("download"))
+                    .await
+                {
+                    Err(e) => {
+                        error!(err = ?e, "failed to download");
+                        return Err(e);
+                    }
+                    Ok(krate_data) => {
+                        let len = krate_data.len();
+                        match &krate.source {
+                            Source::CratesIo(ref chksum) => {
+                                if let Err(e) =
+                                    sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
+                                        .instrument(tracing::debug_span!("package"))
+                                        .await
+                                {
+                                    error!(err = ?e, "failed to splat package");
+                                    return Err(e);
+                                }
+                            }
+                            Source::Git { rev, .. } => {
+                                if let Err(e) =
+                                    sync_git(git_db_dir, git_co_dir, krate, krate_data, rev)
+                                        .instrument(tracing::debug_span!("git"))
+                                        .await
+                                {
+                                    error!(err = ?e, "failed to splat git repo");
+                                    return Err(e);
+                                }
+                            }
+                        };
+
+                        Ok(len)
+                    }
                 }
             }
+            .instrument(tracing::debug_span!("sync", %krate))
         })
         .buffer_unordered(32);
 
-    bodies
-        .for_each(|res| async move {
-            match res {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("{}", e);
+    let summary = bodies
+        .fold(
+            Summary {
+                total_bytes: 0,
+                bad: 0,
+                good: 0,
+            },
+            |mut acc, res| async move {
+                match res {
+                    Ok(len) => {
+                        acc.good += 1;
+                        acc.total_bytes += len;
+                    }
+                    Err(_) => {
+                        acc.bad += 1;
+                    }
                 }
-            }
-        })
+
+                acc
+            },
+        )
         .await;
 
-    Ok(num_syncs)
+    Ok(summary)
 }
