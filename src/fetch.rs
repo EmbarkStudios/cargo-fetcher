@@ -101,10 +101,10 @@ pub async fn via_git(krate: &Krate) -> Result<Bytes, Error> {
                 );
             }
 
-            tracing::debug_span!("tarballing", %url, %rev)
-                .in_scope(|| tarball(temp_dir.path()))
-                .await
-        }
+    util::pack_tar(temp_dir.path())
+        .instrument(tracing::debug_span!("tarballing", %url, %rev))
+        .await
+}
 
 pub async fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
     let rev = match &krate.source {
@@ -195,92 +195,7 @@ pub async fn registry(url: &url::Url) -> Result<Bytes, Error> {
     std::fs::File::create(temp_dir.path().join(".last-updated"))
         .context("failed to create .last-updated")?;
 
-    tarball(temp_dir.path()).await
-}
-
-#[instrument]
-async fn tarball(path: &std::path::Path) -> Result<Bytes, Error> {
-    // If we don't allocate adequate space in our output buffer, things
-    // go very poorly for everyone involved
-    let mut estimated_size = 0;
-    const TAR_HEADER_SIZE: u64 = 512;
-    for entry in walkdir::WalkDir::new(path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        estimated_size += TAR_HEADER_SIZE;
-        if let Ok(md) = entry.metadata() {
-            estimated_size += md.len();
-
-            // Add write permissions to all files, this is to
-            // get around an issue where unpacking tar files on
-            // Windows will result in errors if there are read-only
-            // directories
-            let mut perms = md.permissions();
-            perms.set_readonly(false);
-            std::fs::set_permissions(entry.path(), perms)?;
-        }
-    }
-
-    use std::{
-        io,
-        pin::Pin,
-        task::{Context, Poll},
-    };
-
-    struct Writer<W: io::Write> {
-        encoder: zstd::Encoder<W>,
-    }
-
-    impl<W> futures::io::AsyncWrite for Writer<W>
-    where
-        W: io::Write + Send + std::marker::Unpin,
-    {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            _: &mut Context<'_>,
-            buf: &[u8],
-        ) -> Poll<io::Result<usize>> {
-            let w = self.get_mut(); //unsafe { self.get_unchecked_mut() };
-            Poll::Ready(io::Write::write(&mut w.encoder, buf))
-        }
-
-        fn poll_write_vectored(
-            self: Pin<&mut Self>,
-            _: &mut Context<'_>,
-            bufs: &[io::IoSlice<'_>],
-        ) -> Poll<io::Result<usize>> {
-            let w = unsafe { self.get_unchecked_mut() };
-            Poll::Ready(io::Write::write_vectored(&mut w.encoder, bufs))
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-            let w = unsafe { self.get_unchecked_mut() };
-            Poll::Ready(io::Write::flush(&mut w.encoder))
-        }
-
-        fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-            self.poll_flush(cx)
-        }
-    }
-
-    //let out_buffer = BytesMut::with_capacity(estimated_size as usize);
-    //let buf_writer = out_buffer.writer();
-
-    let out_buffer = Vec::with_capacity(estimated_size as usize);
-    let buf_writer = std::io::Cursor::new(out_buffer);
-
-    let zstd_encoder = zstd::Encoder::new(buf_writer, 9)?;
-
-    let mut archiver = async_tar::Builder::new(Writer {
-        encoder: zstd_encoder,
-    });
-    archiver.append_dir_all(".", path).await?;
-    archiver.finish().await?;
-
-    let writer = archiver.into_inner().await?;
-    let buf_writer = writer.encoder.finish()?;
-    let out_buffer = buf_writer.into_inner();
-
-    Ok(Bytes::from(out_buffer))
+    util::pack_tar(temp_dir.path())
+        .instrument(tracing::debug_span!("tarball"))
+        .await
 }

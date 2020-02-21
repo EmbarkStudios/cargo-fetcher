@@ -4,6 +4,7 @@ use std::{
     hash::{Hash, Hasher, SipHasher},
     path::{Path, PathBuf},
 };
+use tracing::debug;
 use url::Url;
 
 fn to_hex(num: u64) -> String {
@@ -178,17 +179,55 @@ pub async fn convert_response(
     Ok(builder.body(body)?)
 }
 
-pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
-    stream: R,
-    dir: P,
-) -> Result<R, (R, Error)> {
-    let mut archive_reader = tar::Archive::new(stream);
+#[derive(Clone, Copy)]
+pub(crate) enum Encoding {
+    Gzip,
+    Zstd,
+}
 
-    let dir = dir.as_ref();
+use bytes::Bytes;
+use std::{
+    io,
+    pin::Pin,
+    task::{Context as TaskCtx, Poll},
+};
+
+pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Result<(), Error> {
+    enum Decoder<R: io::Read + io::BufRead> {
+        Gzip(flate2::read::GzDecoder<R>),
+        Zstd(zstd::Decoder<R>),
+    }
+
+    impl<R> io::Read for Decoder<R>
+    where
+        R: io::Read + io::BufRead,
+    {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match self {
+                Self::Gzip(gz) => gz.read(buf),
+                Self::Zstd(zstd) => zstd.read(buf),
+            }
+        }
+    }
+
+    use bytes::buf::BufExt;
+    let buf_reader = buffer.reader();
+
+    let decoder = match encoding {
+        Encoding::Gzip => {
+            // zstd::Decoder automatically wraps the Read(er) in a BufReader, so do
+            // that explicitly for gzip so the types match
+            let buf_reader = std::io::BufReader::new(buf_reader);
+            Decoder::Gzip(flate2::read::GzDecoder::new(buf_reader))
+        }
+        Encoding::Zstd => Decoder::Zstd(zstd::Decoder::new(buf_reader)?),
+    };
+
+    let mut archive_reader = tar::Archive::new(decoder);
 
     if let Err(e) = archive_reader.unpack(dir) {
         // Attempt to remove anything that may have been written so that we
-        // _hopefully_ don't actually mess up cargo
+        // _hopefully_ don't mess up cargo itself
         if dir.exists() {
             if let Err(e) = remove_dir_all::remove_dir_all(dir) {
                 tracing::error!(
@@ -199,13 +238,99 @@ pub(crate) fn unpack_tar<R: std::io::Read, P: AsRef<Path>>(
             }
         }
 
-        return Err((
-            archive_reader.into_inner(),
-            anyhow!("failed to unpack: {:#?}", e),
-        ));
+        return Err(e).context("failed to unpack");
     }
 
-    Ok(archive_reader.into_inner())
+    Ok(())
+}
+
+pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
+    // If we don't allocate adequate space in our output buffer, things
+    // go very poorly for everyone involved
+    let mut estimated_size = 0;
+    const TAR_HEADER_SIZE: u64 = 512;
+    for entry in walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        estimated_size += TAR_HEADER_SIZE;
+        if let Ok(md) = entry.metadata() {
+            estimated_size += md.len();
+
+            // Add write permissions to all files, this is to
+            // get around an issue where unpacking tar files on
+            // Windows will result in errors if there are read-only
+            // directories
+            let mut perms = md.permissions();
+            perms.set_readonly(false);
+            std::fs::set_permissions(entry.path(), perms)?;
+        }
+    }
+
+    struct Writer<W: io::Write> {
+        encoder: zstd::Encoder<W>,
+        original: usize,
+    }
+
+    impl<W> futures::io::AsyncWrite for Writer<W>
+    where
+        W: io::Write + Send + std::marker::Unpin,
+    {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut TaskCtx<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            let w = self.get_mut();
+            w.original += buf.len();
+            Poll::Ready(io::Write::write(&mut w.encoder, buf))
+        }
+
+        fn poll_write_vectored(
+            self: Pin<&mut Self>,
+            _: &mut TaskCtx<'_>,
+            bufs: &[io::IoSlice<'_>],
+        ) -> Poll<io::Result<usize>> {
+            let w = self.get_mut();
+            Poll::Ready(io::Write::write_vectored(&mut w.encoder, bufs))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut TaskCtx<'_>) -> Poll<io::Result<()>> {
+            let w = self.get_mut();
+            Poll::Ready(io::Write::flush(&mut w.encoder))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, cx: &mut TaskCtx<'_>) -> Poll<io::Result<()>> {
+            self.poll_flush(cx)
+        }
+    }
+
+    use bytes::buf::BufMutExt;
+
+    let out_buffer = bytes::BytesMut::with_capacity(estimated_size as usize);
+    let buf_writer = out_buffer.writer();
+
+    let zstd_encoder = zstd::Encoder::new(buf_writer, 9)?;
+
+    let mut archiver = async_tar::Builder::new(Writer {
+        encoder: zstd_encoder,
+        original: 0,
+    });
+    archiver.append_dir_all(".", path).await?;
+    archiver.finish().await?;
+
+    let writer = archiver.into_inner().await?;
+    let buf_writer = writer.encoder.finish()?;
+    let out_buffer = buf_writer.into_inner();
+
+    debug!(
+        input = writer.original,
+        output = out_buffer.len(),
+        ratio = (out_buffer.len() as f64 / writer.original as f64 * 100.0) as u32,
+        "compressed"
+    );
+
+    Ok(out_buffer.freeze())
 }
 
 // All of cargo's checksums are currently SHA256
