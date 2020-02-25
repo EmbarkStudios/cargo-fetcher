@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Async (almost) all the things!
-- Replaced log/env_logger with [tracing](https://github.com/tokio-rs/tracing)*
+- Replaced log/env_logger with [tracing](https://github.com/tokio-rs/tracing)
 
 ## [0.6.1] - 2019-11-14
 ### Fixed
