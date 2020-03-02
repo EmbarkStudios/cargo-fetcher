@@ -23,9 +23,6 @@ deny = [
     { name = "dirs-sys" },
 ]
 skip = [
-    # crossbeam et all use an outdated autocfg
-    { name = "autocfg", version = "=0.1.7" },
-
     # rustls uses an old version of base64
     { name = "base64", version = "=0.10.1" },
 
@@ -39,7 +36,8 @@ skip = [
     { name = "winapi", version = "=0.2.8" },
 ]
 skip-tree = [
-
+    # rusoto_core uses an older version of hyper :(
+    { name = "rusoto_core", version = "0.43.0-beta.1" },
 ]
 
 [licenses]
