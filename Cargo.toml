@@ -46,7 +46,7 @@ walkdir = "2.3.1"
 zstd = "0.5.1+zstd.1.4.4"
 
 [dependencies.tokio]
-version = "0.2.11"
+version = "0.2.13"
 features = ["rt-threaded", "rt-util", "blocking", "process", "macros"]
 
 [features]
