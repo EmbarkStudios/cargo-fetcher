@@ -108,7 +108,7 @@ jobs:
 
   release:
     name: Release
-    needs: [test, test-minio, deny-check]
+    needs: [test, deny-check]
     if: startsWith(github.ref, 'refs/tags/')
     strategy:
       matrix:
