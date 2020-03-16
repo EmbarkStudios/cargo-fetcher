@@ -16,7 +16,7 @@ name = "cargo-fetcher"
 path = "src/cmds/main.rs"
 
 [dependencies]
-anyhow = "1.0.26"
+anyhow = "1.0.27"
 async-tar = "0.1.1"
 async-trait = "0.1.24"
 bytes = "0.5.4"
