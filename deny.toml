@@ -19,13 +19,10 @@ deny = [
     { name = "openssl" },
     { name = "openssl-sys" },
 
-    # dirs is ridiculously heavyweight for what it does
-    { name = "dirs-sys" },
+    # dirs is ridiculously heavyweight for what it does...sigh rusoto
+    #{ name = "dirs-sys" },
 ]
 skip = [
-    # rustls uses an old version of base64
-    { name = "base64", version = "=0.10.1" },
-
     # mio-named-pipes brings in 2 versions of miow
     { name = "miow", version = "=0.2.1" },
 
