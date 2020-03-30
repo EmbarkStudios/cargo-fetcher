@@ -18,7 +18,7 @@ path = "src/cmds/main.rs"
 [dependencies]
 anyhow = "1.0.26"
 async-tar = "0.1.1"
-async-trait = "0.1.24"
+async-trait = "0.1.27"
 bytes = "0.5.4"
 chrono = "0.4.10"
 app_dirs2 = "2.0.4"
