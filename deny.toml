@@ -26,9 +26,6 @@ skip = [
     # mio-named-pipes brings in 2 versions of miow
     { name = "miow", version = "=0.2.1" },
 
-    # chrono uses an old version of time
-    { name = "time", version = "=0.1.42" },
-
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },
 ]
