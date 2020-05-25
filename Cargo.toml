@@ -35,7 +35,7 @@ serde = { version = "1.0.104", features = ["derive"] }
 structopt = "0.3.9"
 tame-gcs = { version = "0.7.0", optional = true }
 tame-oauth = { version = "0.4.2", features = ["gcp"], optional = true }
-tar = "0.4.26"
+tar = "0.4.28"
 tempfile = "3.1.0"
 toml = "0.5.6"
 tracing = "0.1.12"
