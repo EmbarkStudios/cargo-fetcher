@@ -31,7 +31,7 @@ reqwest = { version = "0.10.1", default-features = false, features = ["rustls-tl
 ring = "0.16.11"
 rusoto_core = { version = "0.43.0-beta.1", default-features = false, features = ["rustls"], optional = true }
 rusoto_s3 = { version = "0.43.0-beta.1", default-features = false, features = ["rustls"], optional = true }
-serde = { version = "1.0.104", features = ["derive"] }
+serde = { version = "1.0.111", features = ["derive"] }
 structopt = "0.3.9"
 tame-gcs = { version = "0.7.0", optional = true }
 tame-oauth = { version = "0.4.2", features = ["gcp"], optional = true }
