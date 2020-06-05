@@ -16,12 +16,13 @@ macro_rules! git_source {
 
 #[tokio::test(threaded_scheduler)]
 async fn multiple_from_same_repo() {
-    let mut s3_ctx = util::s3_ctx("sync-multi-git", "multi-git/").await;
+    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
 
-    let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    s3_ctx.root_dir = missing_root.path().to_owned();
+    let missing_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    fs_ctx.root_dir = missing_root.path().to_owned();
 
-    s3_ctx.krates = vec![
+    fs_ctx.krates = vec![
         Krate {
             name: "alsa-sys".to_owned(),
             version: "0.1.1".to_owned(),
@@ -34,12 +35,12 @@ async fn multiple_from_same_repo() {
         },
     ];
 
-    cf::mirror::crates(&s3_ctx)
+    cf::mirror::crates(&fs_ctx)
         .await
         .expect("failed to mirror crates");
-    s3_ctx.prep_sync_dirs().expect("create base dirs");
+    fs_ctx.prep_sync_dirs().expect("create base dirs");
     assert_eq!(
-        cf::sync::crates(&s3_ctx)
+        cf::sync::crates(&fs_ctx)
             .await
             .expect("synced 1 git source")
             .good,
@@ -51,7 +52,7 @@ async fn multiple_from_same_repo() {
 
     // Ensure there is a db for cpal
     {
-        let db_root = s3_ctx.root_dir.join(cf::sync::GIT_DB_DIR);
+        let db_root = fs_ctx.root_dir.join(cf::sync::GIT_DB_DIR);
 
         let cpal_root = db_root.join(format!("cpal-{}", ident));
         assert!(cpal_root.exists(), "unable to find cpal db");
@@ -79,7 +80,7 @@ async fn multiple_from_same_repo() {
 
     // Ensure cpal is checked out
     {
-        let co_root = s3_ctx.root_dir.join(cf::sync::GIT_CO_DIR);
+        let co_root = fs_ctx.root_dir.join(cf::sync::GIT_CO_DIR);
 
         let cpal_root = co_root.join(format!("cpal-{}", ident));
         assert!(cpal_root.exists(), "unable to find cpal checkout");

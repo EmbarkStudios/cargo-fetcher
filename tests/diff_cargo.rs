@@ -125,26 +125,27 @@ use tutil as util;
 #[tokio::test(threaded_scheduler)]
 #[ignore]
 async fn diff_cargo() {
-    let mut s3_ctx = util::s3_ctx("diff", "multi-git/").await;
+    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
 
     let fetcher_root = tempfile::TempDir::new().expect("failed to create tempdir");
 
     // Synchronize with cargo-fetcher
     {
-        s3_ctx.root_dir = fetcher_root.path().to_owned();
+        fs_ctx.root_dir = fetcher_root.path().to_owned();
 
-        s3_ctx.krates = cf::read_lock_file("tests/full/Cargo.lock").unwrap();
+        fs_ctx.krates = cf::read_lock_file("tests/full/Cargo.lock").unwrap();
 
-        cf::mirror::registry_index(s3_ctx.backend.clone(), std::time::Duration::new(10, 0))
+        cf::mirror::registry_index(fs_ctx.backend.clone(), std::time::Duration::new(10, 0))
             .await
             .expect("failed to mirror index");
-        cf::mirror::crates(&s3_ctx)
+        cf::mirror::crates(&fs_ctx)
             .await
             .expect("failed to mirror crates");
 
-        s3_ctx.prep_sync_dirs().expect("create base dirs");
-        cf::sync::crates(&s3_ctx).await.expect("synced crates");
-        cf::sync::registry_index(s3_ctx.root_dir, s3_ctx.backend.clone())
+        fs_ctx.prep_sync_dirs().expect("create base dirs");
+        cf::sync::crates(&fs_ctx).await.expect("synced crates");
+        cf::sync::registry_index(fs_ctx.root_dir, fs_ctx.backend.clone())
             .await
             .expect("failed to sync index");
     }

@@ -60,7 +60,7 @@ default = []
 fs = ["sha2", "async-std", "serde_json", "digest", "hex"]
 gcs = ["tame-gcs", "tame-oauth"]
 s3 = ["rusoto_core", "rusoto_s3"]
-s3_test = ["s3"]
+fs_test = ["fs"]
 
 [dev-dependencies]
 difference = "2.0.0"
@@ -71,17 +71,17 @@ walkdir = "2.3.1"
 [[test]]
 name = "sync_crates_io"
 path = "tests/sync_crates_io.rs"
-required-features = ["s3_test"]
+required-features = ["fs_test"]
 
 [[test]]
 name = "sync_git"
 path = "tests/sync_git.rs"
-required-features = ["s3_test"]
+required-features = ["fs_test"]
 
 [[test]]
 name = "diff_cargo"
 path = "tests/diff_cargo.rs"
-required-features = ["s3_test"]
+required-features = ["fs_test"]
 
 [profile.dev.build-override]
 opt-level = 0

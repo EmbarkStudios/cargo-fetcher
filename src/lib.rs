@@ -84,14 +84,12 @@ impl<'de> Deserialize<'de> for UrlWrapper {
             where
                 E: serde::de::Error,
             {
-                url::Url::parse(v)
-                    .map(|url| UrlWrapper(url))
-                    .map_err(|err| {
-                        serde::de::Error::invalid_value(
-                            serde::de::Unexpected::Str(&format!("{:?}: {}", v, err)),
-                            &"A url",
-                        )
-                    })
+                url::Url::parse(v).map(UrlWrapper).map_err(|err| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(&format!("{:?}: {}", v, err)),
+                        &"A url",
+                    )
+                })
             }
         }
 

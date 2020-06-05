@@ -4,8 +4,6 @@ use anyhow::Error;
 use async_std::{fs, io, stream::StreamExt};
 use bytes::Bytes;
 use digest::{Digest as DigestTrait, FixedOutput};
-use serde;
-use serde_json;
 use sha2::Sha256;
 
 use std::{convert::Into, fmt, path::PathBuf, str, time};
