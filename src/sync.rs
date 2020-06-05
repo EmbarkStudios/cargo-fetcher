@@ -45,11 +45,12 @@ pub async fn registry_index(root_dir: PathBuf, backend: crate::Storage) -> Resul
     let canonicalized = util::Canonicalized::try_from(&url)?;
     let ident = canonicalized.ident();
 
+    let url: url::Url = canonicalized.into();
     let krate = Krate {
         name: "crates.io-index".to_owned(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: canonicalized.into(),
+            url: url.into(),
             ident,
             rev: String::new(),
         },

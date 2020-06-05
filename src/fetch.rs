@@ -24,7 +24,7 @@ pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Err
 
                 Ok(content)
             }
-            Source::Git { url, rev, .. } => via_git(url, rev).await,
+            Source::Git { url, rev, .. } => via_git(&url.clone().into(), rev).await,
         }
     }
     .instrument(tracing::debug_span!("fetch"))
