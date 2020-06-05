@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Added
+- [PR#92](https://github.com/EmbarkStudios/cargo-fetcher/pull/92) added support for a local filesystem backend. Thanks [@cosmicexplorer](https://github.com/cosmicexplorer)!
+
 ## [0.7.0] - 2020-02-21
 ### Added
 - Cargo's v2 Cargo.lock format is now supported

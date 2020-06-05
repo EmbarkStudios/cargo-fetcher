@@ -36,6 +36,12 @@ The `s3` feature enables the use of [Amazon S3](https://aws.amazon.com/s3/) as a
 * Must provide a url to the `-u | --url` parameter, it must of the form `http(s)?://<bucket>.s3(-<region>).<host>(/<prefix>)?`
 * Must provide AWS credentials by the default mechanism(s) described [here](https://github.com/rusoto/rusoto/blob/master/AWS-CREDENTIALS.md)
 
+### `fs`
+
+The `fs` feature enables use of a folder on a local disk to store crates to and fetch crates from.
+
+* Must provide a url to the `-u | --url` parameter with the `file:` scheme
+
 ## Examples
 
 This is an example from our CI for an internal project.
