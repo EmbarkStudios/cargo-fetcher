@@ -7,12 +7,13 @@ use tutil as util;
 
 #[tokio::test(threaded_scheduler)]
 async fn all_missing() {
-    let mut s3_ctx = util::s3_ctx("sync-all", "missing/").await;
+    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    s3_ctx.root_dir = missing_root.path().to_owned();
+    fs_ctx.root_dir = missing_root.path().to_owned();
 
-    s3_ctx.krates = vec![
+    fs_ctx.krates = vec![
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
@@ -36,12 +37,12 @@ async fn all_missing() {
         },
     ];
 
-    cf::mirror::crates(&s3_ctx)
+    cf::mirror::crates(&fs_ctx)
         .await
         .expect("failed to mirror crates");
-    s3_ctx.prep_sync_dirs().expect("create base dirs");
+    fs_ctx.prep_sync_dirs().expect("create base dirs");
     assert_eq!(
-        cf::sync::crates(&s3_ctx)
+        cf::sync::crates(&fs_ctx)
             .await
             .expect("synced 3 crates")
             .good,
@@ -52,9 +53,9 @@ async fn all_missing() {
 
     // Ensure the unmutated crates are in the cache directory
     {
-        let cache_root = s3_ctx.root_dir.join(cf::sync::CACHE_DIR);
+        let cache_root = fs_ctx.root_dir.join(cf::sync::CACHE_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             let bytes = {
                 let path = cache_root.join(format!("{}-{}.crate", krate.name, krate.version));
 
@@ -73,9 +74,9 @@ async fn all_missing() {
 
     // Ensure the crates are unpacked
     {
-        let src_root = s3_ctx.root_dir.join(cf::sync::SRC_DIR);
+        let src_root = fs_ctx.root_dir.join(cf::sync::SRC_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             let path = src_root.join(format!("{}-{}/Cargo.toml", krate.name, krate.version));
             assert!(path.exists(), "didn't find unpacked {}", path.display());
         }
@@ -84,12 +85,13 @@ async fn all_missing() {
 
 #[tokio::test(threaded_scheduler)]
 async fn some_missing() {
-    let mut s3_ctx = util::s3_ctx("sync-some", "some_missing/").await;
+    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    s3_ctx.root_dir = missing_root.path().to_owned();
+    fs_ctx.root_dir = missing_root.path().to_owned();
 
-    s3_ctx.krates = vec![
+    fs_ctx.krates = vec![
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
@@ -113,15 +115,15 @@ async fn some_missing() {
         },
     ];
 
-    cf::mirror::crates(&s3_ctx)
+    cf::mirror::crates(&fs_ctx)
         .await
         .expect("failed to mirror crates");
-    s3_ctx.prep_sync_dirs().expect("create base dirs");
+    fs_ctx.prep_sync_dirs().expect("create base dirs");
 
-    let stored = s3_ctx.krates.clone();
-    s3_ctx.krates = vec![stored[2].clone()];
+    let stored = fs_ctx.krates.clone();
+    fs_ctx.krates = vec![stored[2].clone()];
     assert_eq!(
-        cf::sync::crates(&s3_ctx)
+        cf::sync::crates(&fs_ctx)
             .await
             .expect("synced 1 crate")
             .good,
@@ -130,9 +132,9 @@ async fn some_missing() {
 
     // Ensure the unmutated crates are in the cache directory
     {
-        let cache_root = s3_ctx.root_dir.join(cf::sync::CACHE_DIR);
+        let cache_root = fs_ctx.root_dir.join(cf::sync::CACHE_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             let bytes =
                 std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
                     .with_context(|| format!("{:#}", krate))
@@ -148,18 +150,18 @@ async fn some_missing() {
 
     // Ensure the crates are unpacked
     {
-        let src_root = s3_ctx.root_dir.join(cf::sync::SRC_DIR);
+        let src_root = fs_ctx.root_dir.join(cf::sync::SRC_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             assert!(src_root
                 .join(format!("{}-{}/Cargo.toml", krate.name, krate.version))
                 .exists());
         }
     }
 
-    s3_ctx.krates = stored;
+    fs_ctx.krates = stored;
     assert_eq!(
-        cf::sync::crates(&s3_ctx)
+        cf::sync::crates(&fs_ctx)
             .await
             .expect("synced 2 crates")
             .good,
@@ -168,9 +170,9 @@ async fn some_missing() {
 
     // Ensure the unmutated crates are in the cache directory
     {
-        let cache_root = s3_ctx.root_dir.join(cf::sync::CACHE_DIR);
+        let cache_root = fs_ctx.root_dir.join(cf::sync::CACHE_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             let bytes =
                 std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
                     .with_context(|| format!("{:#}", krate))
@@ -186,9 +188,9 @@ async fn some_missing() {
 
     // Ensure the crates are unpacked
     {
-        let src_root = s3_ctx.root_dir.join(cf::sync::SRC_DIR);
+        let src_root = fs_ctx.root_dir.join(cf::sync::SRC_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             let path = src_root.join(format!("{}-{}/Cargo.toml", krate.name, krate.version));
             assert!(path.exists(), "didn't find unpacked {}", path.display());
         }
@@ -197,12 +199,13 @@ async fn some_missing() {
 
 #[tokio::test(threaded_scheduler)]
 async fn none_missing() {
-    let mut s3_ctx = util::s3_ctx("sync-none", "none_missing/").await;
+    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    s3_ctx.root_dir = missing_root.path().to_owned();
+    fs_ctx.root_dir = missing_root.path().to_owned();
 
-    s3_ctx.krates = vec![
+    fs_ctx.krates = vec![
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
@@ -226,13 +229,13 @@ async fn none_missing() {
         },
     ];
 
-    cf::mirror::crates(&s3_ctx)
+    cf::mirror::crates(&fs_ctx)
         .await
         .expect("failed to mirror crates");
-    s3_ctx.prep_sync_dirs().expect("create base dirs");
+    fs_ctx.prep_sync_dirs().expect("create base dirs");
 
     assert_eq!(
-        cf::sync::crates(&s3_ctx)
+        cf::sync::crates(&fs_ctx)
             .await
             .expect("synced 3 crate")
             .good,
@@ -241,9 +244,9 @@ async fn none_missing() {
 
     // Ensure the unmutated crates are in the cache directory
     {
-        let cache_root = s3_ctx.root_dir.join(cf::sync::CACHE_DIR);
+        let cache_root = fs_ctx.root_dir.join(cf::sync::CACHE_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             let bytes =
                 std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
                     .with_context(|| format!("{:#}", krate))
@@ -259,9 +262,9 @@ async fn none_missing() {
 
     // Ensure the crates are unpacked
     {
-        let src_root = s3_ctx.root_dir.join(cf::sync::SRC_DIR);
+        let src_root = fs_ctx.root_dir.join(cf::sync::SRC_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             assert!(src_root
                 .join(format!("{}-{}/Cargo.toml", krate.name, krate.version))
                 .exists());
@@ -269,7 +272,7 @@ async fn none_missing() {
     }
 
     assert_eq!(
-        cf::sync::crates(&s3_ctx)
+        cf::sync::crates(&fs_ctx)
             .await
             .expect("synced 0 crates")
             .total_bytes,
@@ -278,9 +281,9 @@ async fn none_missing() {
 
     // Ensure the unmutated crates are in the cache directory
     {
-        let cache_root = s3_ctx.root_dir.join(cf::sync::CACHE_DIR);
+        let cache_root = fs_ctx.root_dir.join(cf::sync::CACHE_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             let bytes =
                 std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
                     .with_context(|| format!("{:#}", krate))
@@ -296,9 +299,9 @@ async fn none_missing() {
 
     // Ensure the crates are unpacked
     {
-        let src_root = s3_ctx.root_dir.join(cf::sync::SRC_DIR);
+        let src_root = fs_ctx.root_dir.join(cf::sync::SRC_DIR);
 
-        for krate in &s3_ctx.krates {
+        for krate in &fs_ctx.krates {
             let path = src_root.join(format!("{}-{}/Cargo.toml", krate.name, krate.version));
             assert!(path.exists(), "didn't find unpacked {}", path.display());
         }

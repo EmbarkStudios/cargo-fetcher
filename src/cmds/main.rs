@@ -107,6 +107,10 @@ async fn init_backend(
         }
         #[cfg(not(feature = "s3"))]
         cf::CloudLocation::S3(_) => anyhow::bail!("S3 backend not enabled"),
+        #[cfg(feature = "fs")]
+        cf::CloudLocation::Fs(loc) => Ok(Arc::new(cf::backends::fs::FSBackend::new(loc).await?)),
+        #[cfg(not(feature = "fs"))]
+        cf::CloudLocation::Fs(_) => anyhow::bail!("filesystem backend not enabled"),
     }
 }
 
@@ -137,7 +141,8 @@ async fn real_main() -> Result<(), Error> {
             .context("failed to set default subscriber")?;
     };
 
-    let location = cf::util::parse_cloud_location(&args.url)?;
+    let cloud_location = cf::util::CloudLocationUrl::from_url(args.url.clone())?;
+    let location = cf::util::parse_cloud_location(&cloud_location)?;
     let backend = init_backend(location, args.credentials).await?;
 
     let krates =

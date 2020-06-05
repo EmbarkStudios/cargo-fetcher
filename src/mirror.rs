@@ -15,7 +15,7 @@ pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Res
         name: "crates.io-index".to_owned(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: canonicalized.as_ref().clone(),
+            url: canonicalized.as_ref().clone().into(),
             ident,
             rev: String::new(),
         },

@@ -445,7 +445,32 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
     }
 }
 
-pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error> {
+pub struct CloudLocationUrl {
+    pub url: Url,
+    pub path: Option<PathBuf>,
+}
+
+impl CloudLocationUrl {
+    pub fn from_url(url: Url) -> Result<Self, Error> {
+        match url.scheme() {
+            "file" => {
+                let path = url.to_file_path().map_err(|()| {
+                    Error::msg(format!("failed to parse file path from url {:?}", url))
+                })?;
+                Ok(CloudLocationUrl {
+                    url,
+                    path: Some(path),
+                })
+            }
+            _ => Ok(CloudLocationUrl { url, path: None }),
+        }
+    }
+}
+
+pub fn parse_cloud_location(
+    cloud_url: &CloudLocationUrl,
+) -> Result<crate::CloudLocation<'_>, Error> {
+    let CloudLocationUrl { url, path } = cloud_url;
     match url.scheme() {
         #[cfg(feature = "gcs")]
         "gs" => {
@@ -468,6 +493,15 @@ pub fn parse_cloud_location(url: &Url) -> Result<crate::CloudLocation<'_>, Error
         "gs" => {
             anyhow::bail!("GCS support was not enabled, you must compile with the 'gcs' feature")
         }
+        #[cfg(feature = "fs")]
+        "file" => {
+            let path = path.as_ref().unwrap();
+            Ok(crate::CloudLocation::Fs(crate::FilesystemLocation { path }))
+        }
+        #[cfg(not(feature = "fs"))]
+        "file" => anyhow::bail!(
+            "filesystem support was not enabled, you must compile with the 'fs' feature"
+        ),
         "http" | "https" => {
             let s3 = parse_s3_url(url).context("failed to parse s3 url")?;
 

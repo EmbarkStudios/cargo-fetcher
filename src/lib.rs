@@ -2,9 +2,10 @@
 #![warn(rust_2018_idioms)]
 
 use anyhow::Error;
+use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::BTreeMap,
-    convert::TryFrom,
+    convert::{From, Into, TryFrom},
     fmt,
     path::{Path, PathBuf},
     sync::Arc,
@@ -17,7 +18,7 @@ pub mod mirror;
 pub mod sync;
 pub mod util;
 
-#[derive(serde::Deserialize)]
+#[derive(Deserialize)]
 struct Package {
     name: String,
     version: String,
@@ -27,7 +28,7 @@ struct Package {
     checksum: Option<String>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Deserialize)]
 struct LockContents {
     package: Vec<Package>,
     /// V2 lock format doesn't have a metadata section
@@ -35,11 +36,73 @@ struct LockContents {
     metadata: BTreeMap<String, String>,
 }
 
+///
+/// NB: This exists purely to make Source be able to auto-derive Serialize and Deserialize!
+///
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+pub struct UrlWrapper(Url);
+
+impl From<Url> for UrlWrapper {
+    fn from(url: Url) -> Self {
+        Self(url)
+    }
+}
+
+impl Into<Url> for UrlWrapper {
+    fn into(self) -> Url {
+        self.0
+    }
+}
+
+impl Serialize for UrlWrapper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut obj = serializer.serialize_struct("UrlWrapper", 1)?;
+        obj.serialize_field("url", &format!("{}", self.0))?;
+        obj.end()
+    }
+}
+
+// TODO: figure out how to avoid all this boilerplate implementing Deserialize!
+impl<'de> Deserialize<'de> for UrlWrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct UrlWrapperVisitor;
+
+        impl<'de> Visitor<'de> for UrlWrapperVisitor {
+            type Value = UrlWrapper;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("struct UrlWrapper")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                url::Url::parse(v).map(UrlWrapper).map_err(|err| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(&format!("{:?}: {}", v, err)),
+                        &"A url",
+                    )
+                })
+            }
+        }
+
+        const FIELDS: &[&str] = &["url"];
+        deserializer.deserialize_struct("UrlWrapper", FIELDS, UrlWrapperVisitor)
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
 pub enum Source {
     CratesIo(String),
     Git {
-        url: Url,
+        url: UrlWrapper,
         rev: String,
         ident: String,
     },
@@ -69,8 +132,9 @@ impl Source {
         let canonicalized = util::Canonicalized::try_from(url)?;
         let ident = canonicalized.ident();
 
+        let url: Url = canonicalized.into();
         Ok(Source::Git {
-            url: canonicalized.into(),
+            url: url.into(),
             ident,
             rev: rev.to_owned(),
         })
@@ -84,7 +148,7 @@ impl Source {
     }
 }
 
-#[derive(Ord, Eq, Clone, Debug)]
+#[derive(Ord, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
@@ -170,9 +234,14 @@ pub struct S3Location<'a> {
     pub prefix: &'a str,
 }
 
+pub struct FilesystemLocation<'a> {
+    pub path: &'a Path,
+}
+
 pub enum CloudLocation<'a> {
     Gcs(GcsLocation<'a>),
     S3(S3Location<'a>),
+    Fs(FilesystemLocation<'a>),
 }
 
 pub type Storage = Arc<dyn Backend + Sync + Send>;
