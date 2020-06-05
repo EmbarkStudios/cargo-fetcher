@@ -8,7 +8,11 @@ targets = [
 [advisories]
 unmaintained = "deny"
 ignore = [
+    # spin is deprecated, but still used by rustls
     "RUSTSEC-2019-0031",
+    # net2 is deprecated, but it's used by mio, which is still stuck on winapi
+    # 0.2, so we'll just wait a few years for that to be updated
+    "RUSTSEC-2020-0016",
 ]
 
 [bans]
