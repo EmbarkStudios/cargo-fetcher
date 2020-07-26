@@ -511,6 +511,23 @@ pub fn parse_cloud_location(
                 anyhow::bail!("S3 support was not enabled, you must compile with the 's3' feature")
             }
         }
+        #[cfg(feature = "blob")]
+        "blob" => {
+            let container = url.domain().context("url doesn't contain a container")?;
+            let prefix = if !url.path().is_empty() {
+                &url.path()[1..]
+            } else {
+                url.path()
+            };
+            Ok(crate::CloudLocation::Blob(crate::BlobLocation {
+                prefix,
+                container,
+            }))
+        }
+        #[cfg(not(feature = "blob"))]
+        "blob" => {
+            anyhow::bail!("Blob support was not enabled, you must compile with the 'blob' feature")
+        }
         scheme => anyhow::bail!("the scheme '{}' is not supported", scheme),
     }
 }

@@ -50,6 +50,10 @@ tracing-subscriber = "0.2.1"
 url = "2.1.1"
 walkdir = "2.3.1"
 zstd = "0.5.1"
+azure_sdk_core      	= { version = "0.43.6" , optional = true}
+azure_sdk_storage_core  = { version = "0.44.3" , optional = true}
+azure_sdk_storage_blob  = { version = "0.45.2" , optional = true}
+md5                     = { version = "0.7", optional = true}
 
 [dependencies.tokio]
 version = "0.2.13"
@@ -61,6 +65,7 @@ fs = ["sha2", "async-std", "serde_json", "digest", "hex"]
 gcs = ["tame-gcs", "tame-oauth"]
 s3 = ["rusoto_core", "rusoto_s3"]
 fs_test = ["fs"]
+blob = ["azure_sdk_core", "azure_sdk_storage_core", "azure_sdk_storage_blob", "md5"]
 
 [dev-dependencies]
 difference = "2.0.0"
