@@ -74,8 +74,10 @@ impl crate::Backend for BLOBBackend {
             .context("failed to list objects")?;
         Ok(list
             .incomplete_vector
-            .iter()
-            .map(|o| o.name.clone())
+            .vector
+            .into_iter()
+            .filter(|o| o.name.starts_with(&self.prefix))
+            .map(|o| o.name)
             .collect())
     }
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
