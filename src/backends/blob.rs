@@ -4,7 +4,6 @@ use azure_sdk_core::prelude::*;
 use azure_sdk_storage_blob::prelude::*;
 use azure_sdk_storage_core::{client, key_client::KeyClient};
 use bytes::Bytes;
-use md5;
 
 #[derive(Debug)]
 pub struct BLOBBackend {
@@ -75,8 +74,8 @@ impl crate::Backend for BLOBBackend {
             .context("failed to list objects")?;
         Ok(list
             .incomplete_vector
-            .into_iter()
-            .filter_map(|o| Some(o.name.clone()))
+            .iter()
+            .map(|o| o.name.clone())
             .collect())
     }
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
