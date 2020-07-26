@@ -51,7 +51,7 @@ impl crate::Backend for BLOBBackend {
             .put_block_blob()
             .with_container_name(&self.container)
             .with_blob_name(&self.make_key(krate))
-            .with_content_type("text/plain")
+            .with_content_type("application/x-tar")
             .with_body(&source[..])
             .with_content_md5(&digest[..])
             .finalize()
