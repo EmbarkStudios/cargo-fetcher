@@ -127,7 +127,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target ${{ matrix.target }} --features=gcs,s3,fs
+          args: --release --target ${{ matrix.target }} --features=gcs,s3,fs,blob
       - name: Package
         shell: bash
         run: |
