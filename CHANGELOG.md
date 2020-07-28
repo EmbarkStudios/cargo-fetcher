@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Added
+- [PR#109](https://github.com/EmbarkStudios/cargo-fetcher/pull/109) added support for Azure Blob storage, under the `blob` feature flag. Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
+
 ## [0.8.0] - 2020-06-05
 ### Added
 - [PR#92](https://github.com/EmbarkStudios/cargo-fetcher/pull/92) added support for a local filesystem backend. Thanks [@cosmicexplorer](https://github.com/cosmicexplorer)!
