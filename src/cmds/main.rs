@@ -114,7 +114,7 @@ async fn init_backend(
         #[cfg(feature = "blob")]
         cf::CloudLocation::Blob(loc) => {
             let account =
-                std::env::var("STORAGE_ACCOUNT").expect("Set env variable STORAGE_ACCOUNT first!");
+                std::env::var("STORAGE_ACCOUNT").context("Set env variable STORAGE_ACCOUNT first!")?;
             let master_key = std::env::var("STORAGE_MASTER_KEY")
                 .expect("Set env variable STORAGE_MASTER_KEY first!");
             Ok(Arc::new(
