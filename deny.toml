@@ -27,8 +27,8 @@ deny = [
     #{ name = "dirs-sys" },
 ]
 skip = [
-    # rustls uses an old base64
-    { name = "base64", version = "=0.11.0" },
+    # clap still uses an old ansi_term
+    { name = "ansi_term", version = "=0.11.0" },
 
     # mio-named-pipes brings in 2 versions of miow
     { name = "miow", version = "=0.2.1" },
@@ -38,6 +38,10 @@ skip = [
 
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },
+]
+skip-tree = [
+    # azure_sdk_core uses an old version of rustls/hyper/tokio
+    { name = "hyper-rustls", version = "0.20.0" },
 ]
 
 [licenses]
