@@ -3,7 +3,7 @@ use crate::Krate;
 use anyhow::Error;
 use async_std::{fs, io, stream::StreamExt};
 use bytes::Bytes;
-use digest::{Digest as DigestTrait, FixedOutput};
+use digest::Digest as DigestTrait;
 use sha2::Sha256;
 
 use std::{convert::Into, fmt, path::PathBuf, str, time};
@@ -16,8 +16,8 @@ struct Fingerprint([u8; FINGERPRINT_SIZE]);
 impl Fingerprint {
     fn digest(bytes: &[u8]) -> Self {
         let mut hasher = Sha256::default();
-        hasher.input(bytes);
-        Self::from_sha256_bytes(&hasher.fixed_result())
+        hasher.update(bytes);
+        Self::from_sha256_bytes(&hasher.finalize())
     }
 
     fn from_sha256_bytes(sha256_bytes: &[u8]) -> Self {

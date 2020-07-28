@@ -79,8 +79,13 @@ impl crate::Backend for BLOBBackend {
             .incomplete_vector
             .vector
             .into_iter()
-            .filter(|o| o.name.starts_with(&self.prefix))
-            .map(|o| o.name)
+            .filter_map(|o| {
+                if o.name.starts_with(&self.prefix) {
+                    Some(o.name)
+                } else {
+                    None
+                }
+            })
             .collect())
     }
 
