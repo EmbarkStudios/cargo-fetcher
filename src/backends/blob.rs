@@ -61,6 +61,7 @@ impl crate::Backend for BLOBBackend {
             .context("failed to upload object")?;
         Ok(len)
     }
+
     async fn list(&self) -> Result<Vec<String>, Error> {
         let list = self
             .client
