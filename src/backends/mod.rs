@@ -6,3 +6,6 @@ pub mod s3;
 
 #[cfg(feature = "fs")]
 pub mod fs;
+
+#[cfg(feature = "blob")]
+pub mod blob;
