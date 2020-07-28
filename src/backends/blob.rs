@@ -45,6 +45,7 @@ impl crate::Backend for BLOBBackend {
             .context("failed to fetch object")?;
         Ok(response.data.into())
     }
+
     async fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
         let len = source.len();
         let digest = md5::compute(&source[..]);
