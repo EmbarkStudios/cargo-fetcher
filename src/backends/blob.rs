@@ -95,6 +95,7 @@ impl crate::Backend for BLOBBackend {
             .context("failed to get index blob")?;
         Ok(b.blob.last_modified)
     }
+
     fn set_prefix(&mut self, prefix: &str) {
         self.prefix = prefix.to_owned();
     }
