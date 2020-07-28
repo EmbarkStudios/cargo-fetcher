@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.9.0] - 2020-07-28
 ### Added
 - [PR#109](https://github.com/EmbarkStudios/cargo-fetcher/pull/109) added support for Azure Blob storage, under the `blob` feature flag. Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
 
@@ -80,7 +81,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.8.0...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.9.0...HEAD
+[0.9.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.8.0...0.9.0
 [0.8.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.7.0...0.8.0
 [0.7.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.6.1...0.7.0
 [0.6.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.6.0...0.6.1
