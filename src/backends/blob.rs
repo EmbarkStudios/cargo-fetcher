@@ -25,6 +25,7 @@ impl BLOBBackend {
             client,
         })
     }
+
     #[inline]
     fn make_key(&self, krate: &Krate) -> String {
         format!("{}{}", self.prefix, krate.cloud_id())
