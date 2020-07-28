@@ -83,6 +83,7 @@ impl crate::Backend for BLOBBackend {
             .map(|o| o.name)
             .collect())
     }
+
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
         let b = self
             .client
