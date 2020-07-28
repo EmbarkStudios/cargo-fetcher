@@ -113,8 +113,8 @@ async fn init_backend(
         cf::CloudLocation::Fs(_) => anyhow::bail!("filesystem backend not enabled"),
         #[cfg(feature = "blob")]
         cf::CloudLocation::Blob(loc) => {
-            let account =
-                std::env::var("STORAGE_ACCOUNT").context("Set env variable STORAGE_ACCOUNT first!")?;
+            let account = std::env::var("STORAGE_ACCOUNT")
+                .context("Set env variable STORAGE_ACCOUNT first!")?;
             let master_key = std::env::var("STORAGE_MASTER_KEY")
                 .context("Set env variable STORAGE_MASTER_KEY first!")?;
             Ok(Arc::new(
