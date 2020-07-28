@@ -44,7 +44,7 @@ The `fs` feature enables use of a folder on a local disk to store crates to and 
 
 ### `blob`
 
-The `blob` feature enables the use of [Azure Storage Blob ](https://azure.microsoft.com/services/storage/blobs/) as a backend.
+The `blob` feature enables the use of [Azure Blob storage](https://azure.microsoft.com/services/storage/blobs/) as a backend.
 
 * Must provide a url to the `-u | --url` parameter, it must of the form `blob://<container_name>(/<prefix>)?`
 * Must provide [Azure Storage Account](https://docs.microsoft.com/en-us/azure/storage/common/storage-account-overview) via the environment variables `STORAGE_ACCOUNT` and `STORAGE_MASTER_KEY` described [here](https://docs.microsoft.com/azure/storage/common/storage-account-keys-manage?tabs=azure-portal).
