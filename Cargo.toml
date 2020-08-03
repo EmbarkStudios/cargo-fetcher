@@ -48,7 +48,7 @@ tame-oauth = { version = "0.4.2", features = ["gcp"], optional = true }
 tar = "0.4.26"
 tempfile = "3.1.0"
 toml = "0.5.6"
-tracing = "0.1.12"
+tracing = "0.1.18"
 tracing-futures = "0.2.2"
 tracing-subscriber = "0.2.1"
 url = "2.1.1"
