@@ -62,9 +62,9 @@ checksum = "6b602bfe940d21c130f3895acd65221e8a61270debe89d628b9cb4e3ccb8569b"
 
 [[package]]
 name = "app_dirs2"
-version = "2.2.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61912c7296ce152237814d106efbd66d9ab7df35c42581ea3341eb38ecc6cefc"
+checksum = "a213127e3ec94ab7b7397a23ca4649c0494b8ed576b3fcf834a6569bde87512e"
 dependencies = [
  "jni",
  "ndk-glue",
