@@ -2291,9 +2291,9 @@ dependencies = [
 
 [[package]]
 name = "tame-gcs"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a310af5dce8d2971d1a22765d51fb42fc66be7f72dbb098c67949e4f2aa42d24"
+checksum = "185fa431ff79f21a50c735445eaea4ae01fe46e75db15948dfc0a6b49089cfdb"
 dependencies = [
  "base64 0.12.3",
  "bytes",
