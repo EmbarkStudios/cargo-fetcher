@@ -1,12 +1,15 @@
 use crate::{fetch, util, Ctx, Krate, Source};
 use anyhow::Error;
+use cargo::core::SourceId;
+use cargo::util::config::Config;
 use std::{convert::TryFrom, time::Duration};
 use tracing::{debug, error, info};
 use tracing_futures::Instrument;
 
 pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<usize, Error> {
-    let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
-    let canonicalized = util::Canonicalized::try_from(&url)?;
+    let cfg = Config::default()?;
+    let crates_io_url = SourceId::crates_io(&cfg)?.url().clone();
+    let canonicalized = util::Canonicalized::try_from(&crates_io_url)?;
     let ident = canonicalized.ident();
 
     // Create a fake krate for the index, we don't have to worry about clashing

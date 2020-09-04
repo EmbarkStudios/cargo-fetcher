@@ -1,3 +1,4 @@
+#![type_length_limit = "8388608"]
 extern crate cargo_fetcher as cf;
 
 use anyhow::{anyhow, Context, Error};
