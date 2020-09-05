@@ -1,5 +1,7 @@
 use crate::{fetch, util, Ctx, Krate, Source};
+use anyhow::Context;
 use anyhow::Error;
+use std::path::Path;
 use std::{convert::TryFrom, time::Duration};
 use tracing::{debug, error, info};
 use tracing_futures::Instrument;
@@ -21,6 +23,7 @@ pub async fn registry_index(
     let ident = canonicalized.ident();
 
     let url: url::Url = canonicalized.into();
+    let url4index = url.clone();
     let path = Path::new(url.path());
     let name = if path.ends_with(".git") {
         path.file_stem().context("failed to get registry name")?
@@ -36,7 +39,7 @@ pub async fn registry_index(
         ),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: canonicalized.as_ref().clone().into(),
+            url: url.into(),
             ident,
             rev: String::new(),
         },
@@ -60,7 +63,7 @@ pub async fn registry_index(
     }
 
     let index = async {
-        let res = fetch::registry(canonicalized.as_ref()).await;
+        let res = fetch::registry(&url4index).await;
 
         if let Ok(ref buffer) = res {
             debug!(size = buffer.len(), "crates.io index downloaded");
