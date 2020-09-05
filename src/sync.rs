@@ -12,10 +12,21 @@ pub const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
 
-pub async fn registry_index(root_dir: PathBuf, backend: crate::Storage) -> Result<(), Error> {
-    let u = url::Url::parse(CRATES_IO_URL)?;
-    let ident = util::Canonicalized::try_from(&u)?.ident();
-    let index_path = root_dir.join(INDEX_PATH).join(ident);
+pub async fn registry_index(
+    root_dir: PathBuf,
+    backend: crate::Storage,
+    registry_url: Option<util::Canonicalized>,
+) -> Result<(), Error> {
+    let canonicalized = match registry_url {
+        Some(u) => u,
+        None => {
+            let u = url::Url::parse(CRATES_IO_URL)?;
+            util::Canonicalized::try_from(&u)?
+        }
+    };
+    let ident = canonicalized.ident();
+
+    let index_path = root_dir.join(INDEX_PATH).join(ident.clone());
     std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
 
     // Just skip the index if the git directory already exists,
@@ -45,13 +56,18 @@ pub async fn registry_index(root_dir: PathBuf, backend: crate::Storage) -> Resul
         }
     }
 
-    let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
-    let canonicalized = util::Canonicalized::try_from(&url)?;
-    let ident = canonicalized.ident();
-
     let url: url::Url = canonicalized.into();
+    let path = Path::new(url.path());
+    let name = if path.ends_with(".git") {
+        path.file_stem().context("failed to get registry name")?
+    } else {
+        path.file_name().context("failed to get registry name")?
+    };
     let krate = Krate {
-        name: "crates.io-index".to_owned(),
+        name: String::from(
+            name.to_str()
+                .context("failed conversion from OsStr to String")?,
+        ),
         version: "1.0.0".to_owned(),
         source: Source::Git {
             url: url.into(),

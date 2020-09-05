@@ -23,7 +23,7 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<()
         }
 
         info!("syncing crates.io index");
-        match sync::registry_index(root, backend).await {
+        match sync::registry_index(root, backend, None).await {
             Ok(_) => info!("successfully synced crates.io index"),
             Err(e) => error!(err = ?e, "failed to sync crates.io index"),
         }
