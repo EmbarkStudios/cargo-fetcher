@@ -1,21 +1,39 @@
 use crate::{fetch, util, Ctx, Krate, Source};
 use anyhow::Error;
-use cargo::core::SourceId;
-use cargo::util::config::Config;
 use std::{convert::TryFrom, time::Duration};
 use tracing::{debug, error, info};
 use tracing_futures::Instrument;
 
-pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<usize, Error> {
-    let cfg = Config::default()?;
-    let crates_io_url = SourceId::crates_io(&cfg)?.url().clone();
-    let canonicalized = util::Canonicalized::try_from(&crates_io_url)?;
+pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
+
+pub async fn registry_index(
+    backend: crate::Storage,
+    max_stale: Duration,
+    registry_url: Option<util::Canonicalized>,
+) -> Result<usize, Error> {
+    let canonicalized = match registry_url {
+        Some(u) => u,
+        None => {
+            let u = url::Url::parse(CRATES_IO_URL)?;
+            util::Canonicalized::try_from(&u)?
+        }
+    };
     let ident = canonicalized.ident();
 
+    let url: url::Url = canonicalized.into();
+    let path = Path::new(url.path());
+    let name = if path.ends_with(".git") {
+        path.file_stem().context("failed to get registry name")?
+    } else {
+        path.file_name().context("failed to get registry name")?
+    };
     // Create a fake krate for the index, we don't have to worry about clashing
     // since we use a `.` which is not an allowed character in crate names
     let krate = Krate {
-        name: "crates.io-index".to_owned(),
+        name: String::from(
+            name.to_str()
+                .context("failed conversion from OsStr to String")?,
+        ),
         version: "1.0.0".to_owned(),
         source: Source::Git {
             url: canonicalized.as_ref().clone().into(),

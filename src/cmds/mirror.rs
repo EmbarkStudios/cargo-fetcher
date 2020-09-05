@@ -34,7 +34,7 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
         }
 
         if let Err(e) = tokio::task::spawn_local(async move {
-            match mirror::registry_index(backend, args.max_stale)
+            match mirror::registry_index(backend, args.max_stale, None)
                 .instrument(tracing::info_span!("index"))
                 .await
             {
