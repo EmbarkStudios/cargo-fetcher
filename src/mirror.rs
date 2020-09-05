@@ -1,26 +1,18 @@
+use crate::util::Canonicalized;
 use crate::{fetch, util, Ctx, Krate, Source};
 use anyhow::Context;
 use anyhow::Error;
 use std::path::Path;
-use std::{convert::TryFrom, time::Duration};
+use std::time::Duration;
 use tracing::{debug, error, info};
 use tracing_futures::Instrument;
-
-pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
 
 pub async fn registry_index(
     backend: crate::Storage,
     max_stale: Duration,
-    registry_url: Option<util::Canonicalized>,
+    registry_url: Option<Canonicalized>,
 ) -> Result<usize, Error> {
-    let canonicalized = match registry_url {
-        Some(u) => u,
-        None => {
-            let u = url::Url::parse(CRATES_IO_URL)?;
-            util::Canonicalized::try_from(&u)?
-        }
-    };
-    let ident = canonicalized.ident();
+    let (canonicalized, ident) = util::decode_registry_url(registry_url)?;
 
     let url: url::Url = canonicalized.into();
     let url4index = url.clone();

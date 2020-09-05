@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Context, Error};
+use std::convert::TryFrom;
 #[allow(deprecated)]
 use std::{
     hash::{Hash, Hasher, SipHasher},
@@ -6,6 +7,8 @@ use std::{
 };
 use tracing::debug;
 use url::Url;
+
+pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
 
 fn to_hex(num: u64) -> String {
     const CHARS: &[u8] = b"0123456789abcdef";
@@ -653,4 +656,18 @@ mod test {
         assert_eq!(loc.host, "amazonaws.com");
         assert_eq!(loc.prefix, "some_prefix/");
     }
+}
+
+pub fn decode_registry_url(
+    registry_url: Option<Canonicalized>,
+) -> Result<(Canonicalized, String), Error> {
+    let canonicalized = match registry_url {
+        Some(u) => u,
+        None => {
+            let u = url::Url::parse(CRATES_IO_URL)?;
+            Canonicalized::try_from(&u)?
+        }
+    };
+    let ident = canonicalized.ident();
+    Ok((canonicalized, ident))
 }
