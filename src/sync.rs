@@ -1,13 +1,15 @@
 use crate::util::Canonicalized;
 use crate::{util, Krate, Source};
 use anyhow::{Context, Error};
-use std::{convert::TryFrom, io::Write, path::PathBuf};
+use std::{io::Write, path::PathBuf};
 use tracing::{debug, error, info, warn};
 use tracing_futures::Instrument;
 
 pub const INDEX_PATH: &str = "registry/index";
 pub const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
+pub const CACHE_PATH: &str = "registry/cache";
 pub const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
+pub const SRC_PATH: &str = "registry/src";
 pub const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
@@ -326,6 +328,16 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                     Ok(krate_data) => {
                         let len = krate_data.len();
                         match &krate.source {
+                            Source::Registry(reg, chksum) => {
+                                if let Err(e) =
+                                    sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
+                                        .instrument(tracing::debug_span!("package"))
+                                        .await
+                                {
+                                    error!(err = ?e, "failed to splat package");
+                                    return Err(e);
+                                }
+                            }
                             Source::CratesIo(ref chksum) => {
                                 if let Err(e) =
                                     sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)

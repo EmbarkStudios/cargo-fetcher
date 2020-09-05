@@ -25,6 +25,21 @@ pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Err
                 Ok(content)
             }
             Source::Git { url, rev, .. } => via_git(&url.clone().into(), rev).await,
+            Source::Registry(registry_url, chksum) => {
+                // TODO: get the dl of registry
+                let url = format!(
+                    "https://static.crates.io/crates/{}/{}-{}.crate",
+                    krate.name, krate.name, krate.version
+                );
+
+                let response = client.get(&url).send().await?.error_for_status()?;
+                let res = util::convert_response(response).await?;
+                let content = res.into_body();
+
+                util::validate_checksum(&content, &chksum)?;
+
+                Ok(content)
+            }
         }
     }
     .instrument(tracing::debug_span!("fetch"))

@@ -100,6 +100,7 @@ impl<'de> Deserialize<'de> for UrlWrapper {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
 pub enum Source {
+    Registry(String, String),
     CratesIo(String),
     Git {
         url: UrlWrapper,
@@ -191,6 +192,7 @@ impl fmt::Display for Krate {
         let typ = match &self.source {
             Source::CratesIo(_) => "crates.io",
             Source::Git { .. } => "git",
+            Source::Registry(..) => "alternate registry",
         };
 
         write!(f, "{}-{}({})", self.name, self.version, typ)
@@ -206,6 +208,8 @@ impl<'a> fmt::Display for LocalId<'a> {
         match &self.inner.source {
             Source::CratesIo(_) => write!(f, "{}-{}.crate", self.inner.name, self.inner.version),
             Source::Git { ident, .. } => write!(f, "{}", &ident),
+            // TODO: havn't make sure
+            Source::Registry(_, _) => write!(f, "{}-{}.crate", self.inner.name, self.inner.version),
         }
     }
 }
@@ -219,6 +223,8 @@ impl<'a> fmt::Display for CloudId<'a> {
         match &self.inner.source {
             Source::CratesIo(chksum) => write!(f, "{}", chksum),
             Source::Git { ident, rev, .. } => write!(f, "{}-{}", ident, rev),
+            // TODO: havn't make sure
+            Source::Registry(_, chksum) => write!(f, "{}", chksum),
         }
     }
 }
@@ -345,6 +351,29 @@ pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error>
                     }
 
                     lookup.clear();
+                }
+            }
+        } else if source.starts_with("registry+") {
+            match p.checksum {
+                Some(chksum) => krates.push(Krate {
+                    name: p.name,
+                    version: p.version,
+                    source: Source::Registry(source.to_owned(), chksum),
+                }),
+                None => {
+                    write!(
+                        &mut lookup,
+                        "checksum {} {} ({})",
+                        p.name, p.version, source
+                    )
+                    .unwrap();
+                    if let Some(chksum) = locks.metadata.remove(&lookup) {
+                        krates.push(Krate {
+                            name: p.name,
+                            version: p.version,
+                            source: Source::Registry(source.to_owned(), chksum),
+                        })
+                    }
                 }
             }
         } else {
