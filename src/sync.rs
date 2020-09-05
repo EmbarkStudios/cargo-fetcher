@@ -4,6 +4,8 @@ use std::{convert::TryFrom, io::Write, path::PathBuf};
 use tracing::{debug, error, info, warn};
 use tracing_futures::Instrument;
 
+pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
+pub const INDEX_PATH: &str = "registry/index";
 pub const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
 pub const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
 pub const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
@@ -11,7 +13,9 @@ pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
 
 pub async fn registry_index(root_dir: PathBuf, backend: crate::Storage) -> Result<(), Error> {
-    let index_path = root_dir.join(INDEX_DIR);
+    let u = url::Url::parse(CRATES_IO_URL)?;
+    let ident = util::Canonicalized::try_from(&u)?.ident();
+    let index_path = root_dir.join(INDEX_PATH).join(ident);
     std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
 
     // Just skip the index if the git directory already exists,
