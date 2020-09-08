@@ -5,6 +5,7 @@ use anyhow::Error;
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::BTreeMap,
+    collections::HashMap,
     convert::{From, Into, TryFrom},
     fmt,
     path::{Path, PathBuf},
@@ -17,6 +18,19 @@ mod fetch;
 pub mod mirror;
 pub mod sync;
 pub mod util;
+
+#[derive(Deserialize)]
+struct CargoConfig {
+    registries: Option<HashMap<String, Registry>>,
+}
+
+#[derive(Deserialize)]
+pub struct Registry {
+    index: String,
+    token: Option<String>,
+    dl: Option<String>,
+    api: Option<String>,
+}
 
 #[derive(Deserialize)]
 struct Package {
@@ -304,6 +318,25 @@ pub trait Backend: fmt::Debug {
     async fn list(&self) -> Result<Vec<String>, Error>;
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
     fn set_prefix(&mut self, prefix: &str);
+}
+
+pub fn read_cargo_config<P: AsRef<Path>>(
+    config_path: P,
+) -> Result<Option<HashMap<String, Registry>>, Error> {
+    let config: CargoConfig = {
+        let config_contents = std::fs::read_to_string(config_path)?;
+        toml::from_str(&config_contents)?
+    };
+    match config.registries {
+        None => Ok(None),
+        Some(r) => {
+            let mut registries = HashMap::new();
+            for (_, reg) in r.into_iter() {
+                registries.insert(reg.index.clone(), reg);
+            }
+            Ok(Some(registries))
+        }
+    }
 }
 
 pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
