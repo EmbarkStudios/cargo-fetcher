@@ -1,6 +1,7 @@
 #![warn(clippy::all)]
 #![warn(rust_2018_idioms)]
 
+use crate::util::Canonicalized;
 use anyhow::{Context, Error};
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
@@ -357,7 +358,7 @@ pub fn read_cargo_config<P: AsRef<Path>>(
 pub fn read_lock_file<P: AsRef<Path>>(
     lock_path: P,
     registries: Option<HashMap<String, Registry>>,
-) -> Result<(Vec<Krate>, Vec<String>), Error> {
+) -> Result<(Vec<Krate>, Vec<Canonicalized>), Error> {
     use std::fmt::Write;
     use tracing::{error, trace};
 
@@ -369,7 +370,7 @@ pub fn read_lock_file<P: AsRef<Path>>(
     let mut lookup = String::with_capacity(128);
     let mut krates = Vec::with_capacity(locks.package.len());
 
-    let mut registries_url_map = HashMap::new();
+    let mut registries_url_map: HashMap<String, Canonicalized> = HashMap::new();
     for p in locks.package {
         let source = match p.source.as_ref() {
             Some(s) => s,
@@ -380,7 +381,8 @@ pub fn read_lock_file<P: AsRef<Path>>(
         };
 
         if source == "registry+https://github.com/rust-lang/crates.io-index" {
-            registries_url_map.insert(source.clone(), 1);
+            let c = Canonicalized::try_from(&Url::parse(source)?)?;
+            registries_url_map.insert(source.clone(), c);
             match p.checksum {
                 Some(chksum) => krates.push(Krate {
                     name: p.name,
@@ -407,7 +409,8 @@ pub fn read_lock_file<P: AsRef<Path>>(
                 }
             }
         } else if source.starts_with("registry+") {
-            registries_url_map.insert(source.clone(), 1);
+            let c = Canonicalized::try_from(&Url::parse(source)?)?;
+            registries_url_map.insert(source.clone(), c);
             let regs = registries.clone().context(format!(
                 "failed to find the registry {} in cargo config file",
                 source
@@ -467,6 +470,9 @@ pub fn read_lock_file<P: AsRef<Path>>(
         }
     }
 
-    let registry_urls = registries_url_map.into_iter().map(|(u, _)| u).collect();
+    let registry_urls = registries_url_map
+        .into_iter()
+        .map(|(_url, curl)| curl)
+        .collect();
     Ok((krates, registry_urls))
 }
