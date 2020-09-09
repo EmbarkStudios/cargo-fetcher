@@ -1,7 +1,7 @@
 #![warn(clippy::all)]
 #![warn(rust_2018_idioms)]
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::BTreeMap,
@@ -24,12 +24,24 @@ struct CargoConfig {
     registries: Option<HashMap<String, Registry>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Ord, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct Registry {
     index: String,
     token: Option<String>,
     dl: Option<String>,
     api: Option<String>,
+}
+
+impl PartialEq for Registry {
+    fn eq(&self, b: &Self) -> bool {
+        self.index.eq(&b.index)
+    }
+}
+
+impl PartialOrd for Registry {
+    fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
+        self.index.partial_cmp(&b.index)
+    }
 }
 
 #[derive(Deserialize)]
@@ -114,7 +126,7 @@ impl<'de> Deserialize<'de> for UrlWrapper {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
 pub enum Source {
-    Registry(String, String),
+    Registry(Registry, String),
     CratesIo(String),
     Git {
         url: UrlWrapper,
@@ -332,14 +344,17 @@ pub fn read_cargo_config<P: AsRef<Path>>(
         Some(r) => {
             let mut registries = HashMap::new();
             for (_, reg) in r.into_iter() {
-                registries.insert(reg.index.clone(), reg);
+                registries.insert(format!("registry+{}", reg.index), reg);
             }
             Ok(Some(registries))
         }
     }
 }
 
-pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
+pub fn read_lock_file<P: AsRef<Path>>(
+    lock_path: P,
+    registries: Option<HashMap<String, Registry>>,
+) -> Result<Vec<Krate>, Error> {
     use std::fmt::Write;
     use tracing::{error, trace};
 
@@ -387,11 +402,19 @@ pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error>
                 }
             }
         } else if source.starts_with("registry+") {
+            let regs = registries.clone().context(format!(
+                "failed to find the registry {} in cargo config file",
+                source
+            ))?;
+            let reg = regs.get(source).context(format!(
+                "failed to find the registry {} in cargo config file",
+                source
+            ))?;
             match p.checksum {
                 Some(chksum) => krates.push(Krate {
                     name: p.name,
                     version: p.version,
-                    source: Source::Registry(source.to_owned(), chksum),
+                    source: Source::Registry(reg.clone(), chksum),
                 }),
                 None => {
                     write!(
@@ -404,7 +427,7 @@ pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error>
                         krates.push(Krate {
                             name: p.name,
                             version: p.version,
-                            source: Source::Registry(source.to_owned(), chksum),
+                            source: Source::Registry(reg.clone(), chksum),
                         })
                     }
                 }

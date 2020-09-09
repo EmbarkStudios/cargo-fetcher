@@ -158,8 +158,11 @@ async fn real_main() -> Result<(), Error> {
     let location = cf::util::parse_cloud_location(&cloud_location)?;
     let backend = init_backend(location, args.credentials).await?;
 
-    let krates =
-        cf::read_lock_file(args.lock_file).context("failed to get crates from lock file")?;
+    let p = cf::util::determine_cargo_root(None)?.join("config.toml");
+    let registries = cf::read_cargo_config(p)?;
+
+    let krates = cf::read_lock_file(args.lock_file, registries)
+        .context("failed to get crates from lock file")?;
 
     match args.cmd {
         Command::Mirror(margs) => {
