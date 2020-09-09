@@ -161,7 +161,7 @@ async fn real_main() -> Result<(), Error> {
     let p = cf::util::determine_cargo_root(None)?.join("config.toml");
     let registries = cf::read_cargo_config(p)?;
 
-    let krates = cf::read_lock_file(args.lock_file, registries)
+    let (krates, registries_url) = cf::read_lock_file(args.lock_file, registries)
         .context("failed to get crates from lock file")?;
 
     match args.cmd {

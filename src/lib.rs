@@ -354,7 +354,7 @@ pub fn read_cargo_config<P: AsRef<Path>>(
 pub fn read_lock_file<P: AsRef<Path>>(
     lock_path: P,
     registries: Option<HashMap<String, Registry>>,
-) -> Result<Vec<Krate>, Error> {
+) -> Result<(Vec<Krate>, Vec<String>), Error> {
     use std::fmt::Write;
     use tracing::{error, trace};
 
@@ -366,6 +366,7 @@ pub fn read_lock_file<P: AsRef<Path>>(
     let mut lookup = String::with_capacity(128);
     let mut krates = Vec::with_capacity(locks.package.len());
 
+    let mut registries_url_map = HashMap::new();
     for p in locks.package {
         let source = match p.source.as_ref() {
             Some(s) => s,
@@ -376,6 +377,7 @@ pub fn read_lock_file<P: AsRef<Path>>(
         };
 
         if source == "registry+https://github.com/rust-lang/crates.io-index" {
+            registries_url_map.insert(source.clone(), 1);
             match p.checksum {
                 Some(chksum) => krates.push(Krate {
                     name: p.name,
@@ -402,6 +404,7 @@ pub fn read_lock_file<P: AsRef<Path>>(
                 }
             }
         } else if source.starts_with("registry+") {
+            registries_url_map.insert(source.clone(), 1);
             let regs = registries.clone().context(format!(
                 "failed to find the registry {} in cargo config file",
                 source
@@ -461,5 +464,6 @@ pub fn read_lock_file<P: AsRef<Path>>(
         }
     }
 
-    Ok(krates)
+    let registry_urls = registries_url_map.into_iter().map(|(u, _)| u).collect();
+    Ok((krates, registry_urls))
 }
