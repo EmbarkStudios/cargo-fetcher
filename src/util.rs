@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 #[allow(deprecated)]
 use std::{
+    fmt,
     hash::{Hash, Hasher, SipHasher},
     path::{Path, PathBuf},
 };
@@ -53,6 +54,7 @@ fn short_hash<H: Hash>(hashable: &H) -> String {
     to_hex(hash_u64(hashable))
 }
 
+#[derive(Clone)]
 pub struct Canonicalized(Url);
 
 impl Canonicalized {
@@ -67,6 +69,12 @@ impl Canonicalized {
         let ident = if ident == "" { "_empty" } else { ident };
 
         format!("{}-{}", ident, short_hash(&self.0))
+    }
+}
+
+impl fmt::Display for Canonicalized {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_ref())
     }
 }
 

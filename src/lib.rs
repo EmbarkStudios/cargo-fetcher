@@ -292,7 +292,7 @@ pub struct Ctx {
     pub client: reqwest::Client,
     pub backend: Storage,
     pub krates: Vec<Krate>,
-    pub registries_url: Vec<String>,
+    pub registries_url: Vec<Canonicalized>,
     pub root_dir: PathBuf,
 }
 
@@ -301,7 +301,7 @@ impl Ctx {
         root_dir: Option<PathBuf>,
         backend: Storage,
         krates: Vec<Krate>,
-        registries_url: Vec<String>,
+        registries_url: Vec<Canonicalized>,
     ) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::builder().build()?,

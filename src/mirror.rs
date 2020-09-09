@@ -2,10 +2,43 @@ use crate::util::Canonicalized;
 use crate::{fetch, util, Ctx, Krate, Source};
 use anyhow::Context;
 use anyhow::Error;
+use futures::StreamExt;
 use std::path::Path;
 use std::time::Duration;
 use tracing::{debug, error, info};
 use tracing_futures::Instrument;
+
+pub async fn registries_index(
+    backend: crate::Storage,
+    max_stale: Duration,
+    registries_url: Vec<Canonicalized>,
+) -> Result<usize, Error> {
+    let bytes = futures::stream::iter(registries_url)
+        .map(|url| {
+            let backend = backend.clone();
+            let u = url.clone();
+            async move {
+                let res: Result<usize, Error> = registry_index(backend, max_stale, Some(url))
+                    .instrument(tracing::debug_span!("upload registry"))
+                    .await;
+                res
+            }
+            .instrument(tracing::debug_span!("mirror registry", %u))
+        })
+        .buffer_unordered(32);
+    let total_bytes = bytes
+        .fold(0usize, |acc, res| async move {
+            match res {
+                Ok(a) => a + acc,
+                Err(e) => {
+                    error!("{:#}", e);
+                    acc
+                }
+            }
+        })
+        .await;
+    Ok(total_bytes)
+}
 
 pub async fn registry_index(
     backend: crate::Storage,
@@ -106,8 +139,6 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
 
     let client = &ctx.client;
     let backend = &ctx.backend;
-
-    use futures::StreamExt;
 
     let bodies = futures::stream::iter(to_mirror)
         .map(|krate| {
