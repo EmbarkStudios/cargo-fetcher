@@ -166,12 +166,13 @@ async fn real_main() -> Result<(), Error> {
 
     match args.cmd {
         Command::Mirror(margs) => {
-            let ctx = cf::Ctx::new(None, backend, krates).context("failed to create context")?;
+            let ctx = cf::Ctx::new(None, backend, krates, registries_url)
+                .context("failed to create context")?;
             mirror::cmd(ctx, args.include_index, margs).await
         }
         Command::Sync(sargs) => {
             let root_dir = cf::util::determine_cargo_root(sargs.cargo_root.as_ref())?;
-            let ctx = cf::Ctx::new(Some(root_dir), backend, krates)
+            let ctx = cf::Ctx::new(Some(root_dir), backend, krates, registries_url)
                 .context("failed to create context")?;
             sync::cmd(ctx, args.include_index, sargs).await
         }

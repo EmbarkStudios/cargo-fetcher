@@ -291,6 +291,7 @@ pub struct Ctx {
     pub client: reqwest::Client,
     pub backend: Storage,
     pub krates: Vec<Krate>,
+    pub registries_url: Vec<String>,
     pub root_dir: PathBuf,
 }
 
@@ -299,11 +300,13 @@ impl Ctx {
         root_dir: Option<PathBuf>,
         backend: Storage,
         krates: Vec<Krate>,
+        registries_url: Vec<String>,
     ) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::builder().build()?,
             backend,
             krates,
+            registries_url,
             root_dir: root_dir.unwrap_or_else(|| PathBuf::from(".")),
         })
     }
