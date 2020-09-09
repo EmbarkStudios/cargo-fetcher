@@ -114,8 +114,7 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
             let client = &client;
             let backend = backend.clone();
             async move {
-                let res: Result<usize, String> = match fetch::from_crates_io(&client, &krate).await
-                {
+                let res: Result<usize, String> = match fetch::from_registry(&client, &krate).await {
                     Err(e) => Err(format!("failed to retrieve {}: {}", krate, e)),
                     Ok(buffer) => {
                         debug!(size = buffer.len(), "fetched");
