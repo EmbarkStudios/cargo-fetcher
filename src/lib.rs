@@ -169,7 +169,11 @@ impl Source {
     }
 
     pub(crate) fn is_git(&self) -> bool {
-        !matches!(self, Source::CratesIo(_))
+        match self {
+            Source::CratesIo(_) => false,
+            Source::Registry(_, _) => false,
+            _ => true,
+        }
     }
 }
 
