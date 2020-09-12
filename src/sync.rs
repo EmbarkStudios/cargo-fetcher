@@ -1,6 +1,7 @@
 use crate::util::Canonicalized;
 use crate::{util, Krate, Source};
 use anyhow::{Context, Error};
+use futures::StreamExt;
 use std::{io::Write, path::PathBuf};
 use tracing::{debug, error, info, warn};
 use tracing_futures::Instrument;
@@ -13,6 +14,38 @@ pub const SRC_PATH: &str = "registry/src";
 pub const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
 pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
+
+pub async fn registries_index(
+    root_dir: PathBuf,
+    backend: crate::Storage,
+    registries_url: Vec<Canonicalized>,
+) -> Result<(), Error> {
+    let resu = futures::stream::iter(registries_url)
+        .map(|url| {
+            let root_dir = root_dir.clone();
+            let backend = backend.clone();
+            async move {
+                let res: Result<(), Error> = registry_index(root_dir, backend, Some(url))
+                    .instrument(tracing::debug_span!("download registry"))
+                    .await;
+                res
+            }
+            .instrument(tracing::debug_span!("sync registry"))
+        })
+        .buffer_unordered(32);
+    let total_resu = resu
+        .fold((), |u, res| async move {
+            match res {
+                Ok(a) => a,
+                Err(e) => {
+                    error!("{:#}", e);
+                    u
+                }
+            }
+        })
+        .await;
+    Ok(total_resu)
+}
 
 pub async fn registry_index(
     root_dir: PathBuf,

@@ -16,16 +16,17 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<()
 
     let root = ctx.root_dir.clone();
     let backend = ctx.backend.clone();
+    let registries_url = ctx.registries_url.clone();
 
     let index = tokio::task::spawn(async move {
         if !include_index {
             return;
         }
 
-        info!("syncing crates.io index");
-        match sync::registry_index(root, backend, None).await {
-            Ok(_) => info!("successfully synced crates.io index"),
-            Err(e) => error!(err = ?e, "failed to sync crates.io index"),
+        info!("syncing registries index");
+        match sync::registries_index(root, backend, registries_url).await {
+            Ok(_) => info!("successfully synced registries index"),
+            Err(e) => error!(err = ?e, "failed to sync registries index"),
         }
     });
 
