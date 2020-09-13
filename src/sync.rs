@@ -2,9 +2,11 @@ use crate::util::Canonicalized;
 use crate::{util, Krate, Source};
 use anyhow::{Context, Error};
 use futures::StreamExt;
+use std::convert::TryFrom;
 use std::{io::Write, path::PathBuf};
 use tracing::{debug, error, info, warn};
 use tracing_futures::Instrument;
+use url::Url;
 
 pub const INDEX_PATH: &str = "registry/index";
 pub const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
@@ -309,21 +311,27 @@ pub struct Summary {
 pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
     info!("synchronizing {} crates...", ctx.krates.len());
 
-    let root_dir = &ctx.root_dir;
+    let mut total_to_sync = Vec::new();
 
-    let cache_dir = root_dir.join(CACHE_DIR);
-    let src_dir = root_dir.join(SRC_DIR);
+    let root_dir = &ctx.root_dir;
     let git_db_dir = root_dir.join(GIT_DB_DIR);
     let git_co_dir = root_dir.join(GIT_CO_DIR);
 
-    std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache/")?;
-    std::fs::create_dir_all(&src_dir).context("failed to create registry/src/")?;
-    std::fs::create_dir_all(&git_db_dir).context("failed to create git/db/")?;
-    std::fs::create_dir_all(&git_co_dir).context("failed to create git/checkouts/")?;
+    for url in ctx.registries_url.iter() {
+        let (_, ident) = util::decode_registry_url(Some(url.clone()))?;
+        let cache_dir = root_dir.join(CACHE_PATH).join(ident.clone());
+        let src_dir = root_dir.join(SRC_PATH).join(ident.clone());
+        std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache/")?;
+        std::fs::create_dir_all(&src_dir).context("failed to create registry/src/")?;
+        std::fs::create_dir_all(&git_db_dir).context("failed to create git/db/")?;
+        std::fs::create_dir_all(&git_co_dir).context("failed to create git/checkouts/")?;
 
-    // TODO: Also check the untarred crates
-    info!("checking local cache for missing crates...");
-    let to_sync = check_local(ctx, &cache_dir, &git_co_dir)?;
+        // TODO: Also check the untarred crates
+        info!("checking local cache for missing crates...");
+        let mut to_sync = check_local(ctx, &cache_dir, &git_co_dir)?;
+        total_to_sync.append(&mut to_sync);
+    }
+    let to_sync = total_to_sync;
 
     if to_sync.is_empty() {
         info!("all crates already available on local disk");
@@ -336,16 +344,12 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
 
     info!("synchronizing {} missing crates...", to_sync.len());
 
-    use futures::StreamExt;
-
     let bodies = futures::stream::iter(to_sync)
         .map(|krate| {
             let backend = ctx.backend.clone();
 
             let git_db_dir = git_db_dir.clone();
             let git_co_dir = git_co_dir.clone();
-            let cache_dir = cache_dir.clone();
-            let src_dir = src_dir.clone();
 
             #[allow(clippy::cognitive_complexity)]
             async move {
@@ -362,6 +366,11 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                         let len = krate_data.len();
                         match &krate.source {
                             Source::Registry(reg, chksum) => {
+                                let u = Url::parse(&reg.index).unwrap();
+                                let cu = Canonicalized::try_from(&u).unwrap();
+                                let (_, ident) = util::decode_registry_url(Some(cu))?;
+                                let cache_dir = root_dir.join(CACHE_PATH).join(ident.clone());
+                                let src_dir = root_dir.join(SRC_PATH).join(ident.clone());
                                 if let Err(e) =
                                     sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
                                         .instrument(tracing::debug_span!("package"))
@@ -372,6 +381,8 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                                 }
                             }
                             Source::CratesIo(ref chksum) => {
+                                let cache_dir = root_dir.join(CACHE_DIR);
+                                let src_dir = root_dir.join(SRC_DIR);
                                 if let Err(e) =
                                     sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
                                         .instrument(tracing::debug_span!("package"))
