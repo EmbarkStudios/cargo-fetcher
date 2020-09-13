@@ -1,8 +1,4 @@
 use anyhow::{anyhow, bail, Context, Error};
-use cargo::core::SourceId;
-use cargo::sources::registry::RegistrySource;
-use cargo::util::config::Config;
-use std::collections::HashSet;
 use std::convert::TryFrom;
 #[allow(deprecated)]
 use std::{
@@ -682,16 +678,4 @@ pub fn decode_registry_url(
     };
     let ident = canonicalized.ident();
     Ok((canonicalized, ident))
-}
-
-pub fn dl_from(registry_url: &str) -> Result<String, Error> {
-    let cfg = Config::default()?;
-    cfg.acquire_package_cache_lock()?;
-    let source_id = SourceId::from_url(&url::Url::parse(registry_url)?.to_string())?;
-    let mut r = RegistrySource::remote(source_id, &HashSet::new(), &cfg);
-    let a = r
-        .config()?
-        .context("failed to get alt registry with None")?
-        .dl;
-    Ok(a)
 }
