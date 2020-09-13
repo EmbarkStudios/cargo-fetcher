@@ -341,14 +341,16 @@ pub trait Backend: fmt::Debug {
     fn set_prefix(&mut self, prefix: &str);
 }
 
-pub fn read_cargo_config<P: AsRef<Path>>(
-    config_path: P,
-) -> Result<Option<HashMap<String, Registry>>, Error> {
+pub fn read_cargo_config(config_path: &Path) -> Result<Option<HashMap<String, Registry>>, Error> {
     let config: CargoConfig = {
         let config_contents = match std::fs::read_to_string(config_path) {
             Ok(s) => s,
             Err(e) => {
-                info!("failed to read cargo config: {}", e);
+                info!(
+                    "failed to read cargo config({}): {}",
+                    config_path.display(),
+                    e
+                );
                 return Ok(None);
             }
         };
