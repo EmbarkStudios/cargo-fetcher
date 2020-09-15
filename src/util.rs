@@ -46,7 +46,7 @@ fn hash_u64<H: Hash>(hashable: H) -> u64 {
     hasher.finish()
 }
 
-fn short_hash<H: Hash>(hashable: &H) -> String {
+pub fn short_hash<H: Hash>(hashable: &H) -> String {
     to_hex(hash_u64(hashable))
 }
 

@@ -5,6 +5,8 @@ use crate::util::Canonicalized;
 use anyhow::{Context, Error};
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
+    hash::Hash,
+    hash::Hasher,
     collections::BTreeMap,
     collections::HashMap,
     convert::{From, Into, TryFrom},
@@ -32,6 +34,24 @@ pub struct Registry {
     token: Option<String>,
     dl: Option<String>,
     api: Option<String>,
+}
+
+impl Registry {
+    // https://github.com/rust-lang/cargo/blob/master/src/cargo/sources/registry/mod.rs#L403-L407 blame f1e26ed3238f933fda177f06e913a70d8929dd6d
+    pub fn short_name(&self) -> Result<String, Error> {
+        let hash = util::short_hash(self);
+        let ident = Url::parse(&self.index).context(format!("failed parse {} into url::Url", self.index))?.host_str().unwrap_or("").to_string();
+        Ok(format!("{}-{}", ident, hash))
+    }
+}
+
+impl Hash for Registry {
+    fn hash<S: Hasher>(&self, into: &mut S) {
+        // https://github.com/rust-lang/cargo/blob/master/src/cargo/core/source/source_id.rs#L536 blame 6f29fb76fcb9a3acc5068a9b39708837ef9eb47d
+        2usize.hash(into);
+        // https://github.com/rust-lang/cargo/blob/master/src/cargo/core/source/source_id.rs#L542 blame b691f1e4c5dd7449c3ab3cf1da3a061a2f3d5599
+        self.index.hash(into);
+    }
 }
 
 impl PartialEq for Registry {
