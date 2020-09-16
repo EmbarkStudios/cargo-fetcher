@@ -1,5 +1,4 @@
-use crate::util::Canonicalized;
-use crate::{fetch, util, Ctx, Krate, Source};
+use crate::{fetch, Ctx, Krate, Registry, Source};
 use anyhow::Context;
 use anyhow::Error;
 use futures::StreamExt;
@@ -11,19 +10,19 @@ use tracing_futures::Instrument;
 pub async fn registries_index(
     backend: crate::Storage,
     max_stale: Duration,
-    registries_url: Vec<Canonicalized>,
+    registries: Vec<Registry>,
 ) -> Result<usize, Error> {
-    let bytes = futures::stream::iter(registries_url)
-        .map(|url| {
+    let bytes = futures::stream::iter(registries)
+        .map(|registry| {
             let backend = backend.clone();
-            let u = url.clone();
+            let index = registry.index.clone();
             async move {
-                let res: Result<usize, Error> = registry_index(backend, max_stale, Some(url))
+                let res: Result<usize, Error> = registry_index(backend, max_stale, &registry)
                     .instrument(tracing::debug_span!("upload registry"))
                     .await;
                 res
             }
-            .instrument(tracing::debug_span!("mirror registry", %u))
+            .instrument(tracing::debug_span!("mirror registry", %index))
         })
         .buffer_unordered(32);
     let total_bytes = bytes
@@ -43,12 +42,11 @@ pub async fn registries_index(
 pub async fn registry_index(
     backend: crate::Storage,
     max_stale: Duration,
-    registry_url: Option<Canonicalized>,
+    registry: &Registry,
 ) -> Result<usize, Error> {
-    let (canonicalized, ident) = util::decode_registry_url(registry_url)?;
+    let url = url::Url::parse(&registry.index)?;
+    let ident = registry.short_name()?;
 
-    let url: url::Url = canonicalized.into();
-    let url4index = url.clone();
     let path = Path::new(url.path());
     let name = if path.ends_with(".git") {
         path.file_stem().context("failed to get registry name")?
@@ -64,7 +62,7 @@ pub async fn registry_index(
         ),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: url.into(),
+            url: url.clone().into(),
             ident,
             rev: String::new(),
         },
@@ -88,7 +86,7 @@ pub async fn registry_index(
     }
 
     let index = async {
-        let res = fetch::registry(&url4index).await;
+        let res = fetch::registry(&url).await;
 
         if let Ok(ref buffer) = res {
             debug!(size = buffer.len(), "crates.io index downloaded");

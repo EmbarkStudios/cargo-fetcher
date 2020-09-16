@@ -1,16 +1,15 @@
 #![warn(clippy::all)]
 #![warn(rust_2018_idioms)]
 
-use crate::util::Canonicalized;
 use anyhow::{Context, Error};
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
-    hash::Hash,
-    hash::Hasher,
     collections::BTreeMap,
     collections::HashMap,
     convert::{From, Into, TryFrom},
     fmt,
+    hash::Hash,
+    hash::Hasher,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -40,7 +39,11 @@ impl Registry {
     // https://github.com/rust-lang/cargo/blob/master/src/cargo/sources/registry/mod.rs#L403-L407 blame f1e26ed3238f933fda177f06e913a70d8929dd6d
     pub fn short_name(&self) -> Result<String, Error> {
         let hash = util::short_hash(self);
-        let ident = Url::parse(&self.index).context(format!("failed parse {} into url::Url", self.index))?.host_str().unwrap_or("").to_string();
+        let ident = Url::parse(&self.index)
+            .context(format!("failed parse {} into url::Url", self.index))?
+            .host_str()
+            .unwrap_or("")
+            .to_string();
         Ok(format!("{}-{}", ident, hash))
     }
 }
@@ -317,7 +320,7 @@ pub struct Ctx {
     pub client: reqwest::Client,
     pub backend: Storage,
     pub krates: Vec<Krate>,
-    pub registries_url: Vec<Canonicalized>,
+    pub registries_url: Vec<Registry>,
     pub root_dir: PathBuf,
 }
 
@@ -326,7 +329,7 @@ impl Ctx {
         root_dir: Option<PathBuf>,
         backend: Storage,
         krates: Vec<Krate>,
-        registries_url: Vec<Canonicalized>,
+        registries_url: Vec<Registry>,
     ) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::builder().build()?,
@@ -361,7 +364,7 @@ pub trait Backend: fmt::Debug {
     fn set_prefix(&mut self, prefix: &str);
 }
 
-pub fn read_cargo_config(config_path: &Path) -> Result<Option<HashMap<String, Registry>>, Error> {
+pub fn read_cargo_config(config_path: &Path) -> Result<HashMap<String, Registry>, Error> {
     let config: CargoConfig = {
         let config_contents = match std::fs::read_to_string(config_path) {
             Ok(s) => s,
@@ -371,27 +374,27 @@ pub fn read_cargo_config(config_path: &Path) -> Result<Option<HashMap<String, Re
                     config_path.display(),
                     e
                 );
-                return Ok(None);
+                return Ok(HashMap::new());
             }
         };
         toml::from_str(&config_contents)?
     };
+    let mut registries = HashMap::new();
     match config.registries {
-        None => Ok(None),
+        None => Ok(registries),
         Some(r) => {
-            let mut registries = HashMap::new();
             for (_, reg) in r.into_iter() {
                 registries.insert(format!("registry+{}", reg.index), reg);
             }
-            Ok(Some(registries))
+            Ok(registries)
         }
     }
 }
 
 pub fn read_lock_file<P: AsRef<Path>>(
     lock_path: P,
-    registries: Option<HashMap<String, Registry>>,
-) -> Result<(Vec<Krate>, Vec<Canonicalized>), Error> {
+    mut registries: HashMap<String, Registry>,
+) -> Result<(Vec<Krate>, Vec<Registry>), Error> {
     use std::fmt::Write;
 
     let mut locks: LockContents = {
@@ -402,7 +405,7 @@ pub fn read_lock_file<P: AsRef<Path>>(
     let mut lookup = String::with_capacity(128);
     let mut krates = Vec::with_capacity(locks.package.len());
 
-    let mut registries_url_map: HashMap<String, Canonicalized> = HashMap::new();
+    let mut registries_url: Vec<String> = Vec::new();
     for p in locks.package {
         let source = match p.source.as_ref() {
             Some(s) => s,
@@ -413,8 +416,17 @@ pub fn read_lock_file<P: AsRef<Path>>(
         };
 
         if source == "registry+https://github.com/rust-lang/crates.io-index" {
-            let c = Canonicalized::try_from(&Url::parse(source)?)?;
-            registries_url_map.insert(source.clone(), c);
+            registries_url.push(source.clone());
+            let s = Registry {
+                index: source
+                    .strip_prefix("registry+")
+                    .context(format!("failed get index from source ({})", source))?
+                    .to_owned(),
+                token: None,
+                dl: None,
+                api: None,
+            };
+            registries.entry(source.clone()).or_insert(s);
             match p.checksum {
                 Some(chksum) => krates.push(Krate {
                     name: p.name,
@@ -441,21 +453,15 @@ pub fn read_lock_file<P: AsRef<Path>>(
                 }
             }
         } else if source.starts_with("registry+") {
-            let c = Canonicalized::try_from(&Url::parse(source)?)?;
-            registries_url_map.insert(source.clone(), c);
-            let regs = registries.clone().context(format!(
-                "failed to find the registry {} in cargo config file",
-                source
-            ))?;
-            let reg = regs.get(source).context(format!(
-                "failed to find the registry {} in cargo config file",
-                source
-            ))?;
+            registries_url.push(source.clone());
+            let registry = registries
+                .get(source)
+                .context(format!("failed to find the registry {}", source))?;
             match p.checksum {
                 Some(chksum) => krates.push(Krate {
                     name: p.name,
                     version: p.version,
-                    source: Source::Registry(reg.clone(), chksum),
+                    source: Source::Registry(registry.clone(), chksum),
                 }),
                 None => {
                     write!(
@@ -468,7 +474,7 @@ pub fn read_lock_file<P: AsRef<Path>>(
                         krates.push(Krate {
                             name: p.name,
                             version: p.version,
-                            source: Source::Registry(reg.clone(), chksum),
+                            source: Source::Registry(registry.clone(), chksum),
                         })
                     }
                 }
@@ -502,9 +508,19 @@ pub fn read_lock_file<P: AsRef<Path>>(
         }
     }
 
-    let registry_urls = registries_url_map
+    let registry_urls = registries_url
         .into_iter()
-        .map(|(_url, curl)| curl)
+        .map(|url| {
+            registries
+                .get(&url)
+                .unwrap_or(&Registry {
+                    index: url,
+                    api: None,
+                    dl: None,
+                    token: None,
+                })
+                .clone()
+        })
         .collect();
     Ok((krates, registry_urls))
 }
