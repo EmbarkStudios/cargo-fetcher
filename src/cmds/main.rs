@@ -1,4 +1,4 @@
-#![type_length_limit = "18958749"]
+#![type_length_limit = r#"18961884"#]
 
 extern crate cargo_fetcher as cf;
 
