@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{cmp::Ordering, fs::File, path::Path};
 use walkdir::{DirEntry, WalkDir};
 
@@ -134,18 +135,28 @@ async fn diff_cargo() {
     {
         fs_ctx.root_dir = fetcher_root.path().to_owned();
 
-        fs_ctx.krates = cf::read_lock_file("tests/full/Cargo.lock").unwrap();
-
-        cf::mirror::registry_index(fs_ctx.backend.clone(), std::time::Duration::new(10, 0))
-            .await
-            .expect("failed to mirror index");
+        let (the_krates, _) = cf::read_lock_file("tests/full/Cargo.lock", HashMap::new()).unwrap();
+        fs_ctx.krates = the_krates;
+        let the_registry = cf::Registry::new(
+            "https://github.com/rust-lang/crates.io-index".to_owned(),
+            None,
+            None,
+            None,
+        );
+        cf::mirror::registry_index(
+            fs_ctx.backend.clone(),
+            std::time::Duration::new(10, 0),
+            &the_registry,
+        )
+        .await
+        .expect("failed to mirror index");
         cf::mirror::crates(&fs_ctx)
             .await
             .expect("failed to mirror crates");
 
         fs_ctx.prep_sync_dirs().expect("create base dirs");
         cf::sync::crates(&fs_ctx).await.expect("synced crates");
-        cf::sync::registry_index(fs_ctx.root_dir, fs_ctx.backend.clone())
+        cf::sync::registry_index(fs_ctx.root_dir, fs_ctx.backend.clone(), &the_registry)
             .await
             .expect("failed to sync index");
     }

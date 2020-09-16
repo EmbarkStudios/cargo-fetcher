@@ -36,6 +36,19 @@ pub struct Registry {
 }
 
 impl Registry {
+    pub fn new(
+        index: String,
+        token: Option<String>,
+        dl: Option<String>,
+        api: Option<String>,
+    ) -> Registry {
+        Registry {
+            index,
+            token,
+            dl,
+            api,
+        }
+    }
     // https://github.com/rust-lang/cargo/blob/master/src/cargo/sources/registry/mod.rs#L403-L407 blame f1e26ed3238f933fda177f06e913a70d8929dd6d
     pub fn short_name(&self) -> Result<String, Error> {
         let hash = util::short_hash(self);

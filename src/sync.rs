@@ -20,11 +20,11 @@ pub async fn registries_index(
     registries: Vec<Registry>,
 ) -> Result<(), Error> {
     let resu = futures::stream::iter(registries)
-        .map(|url| {
+        .map(|registry| {
             let root_dir = root_dir.clone();
             let backend = backend.clone();
             async move {
-                let res: Result<(), Error> = registry_index(root_dir, backend, url)
+                let res: Result<(), Error> = registry_index(root_dir, backend, &registry)
                     .instrument(tracing::debug_span!("download registry"))
                     .await;
                 res
@@ -32,24 +32,23 @@ pub async fn registries_index(
             .instrument(tracing::debug_span!("sync registry"))
         })
         .buffer_unordered(32);
-    let total_resu = resu
-        .fold((), |u, res| async move {
-            match res {
-                Ok(a) => a,
-                Err(e) => {
-                    error!("{:#}", e);
-                    u
-                }
+    resu.fold((), |u, res| async move {
+        match res {
+            Ok(a) => a,
+            Err(e) => {
+                error!("{:#}", e);
+                u
             }
-        })
-        .await;
-    Ok(total_resu)
+        }
+    })
+    .await;
+    Ok(())
 }
 
 pub async fn registry_index(
     root_dir: PathBuf,
     backend: crate::Storage,
-    registry: Registry,
+    registry: &Registry,
 ) -> Result<(), Error> {
     let ident = registry.short_name()?;
 
