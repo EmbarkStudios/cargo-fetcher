@@ -8,5 +8,5 @@ pub async fn fs_ctx(root: PathBuf) -> cf::Ctx {
             .await
             .expect("failed to create fs backend"),
     );
-    cf::Ctx::new(None, backend, Vec::new()).expect("failed to create context")
+    cf::Ctx::new(None, backend, Vec::new(), Vec::new()).expect("failed to create context")
 }

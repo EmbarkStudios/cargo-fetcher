@@ -160,20 +160,20 @@ async fn real_main() -> Result<(), Error> {
     let backend = init_backend(location, args.credentials).await?;
 
     let p = cf::util::determine_cargo_root(None)?.join("config.toml");
-    let registries = cf::read_cargo_config(&p)?;
+    let registries_map = cf::read_cargo_config(&p)?;
 
-    let (krates, registries_url) = cf::read_lock_file(args.lock_file, registries)
+    let (krates, registries_vec) = cf::read_lock_file(args.lock_file, registries_map)
         .context("failed to get crates from lock file")?;
 
     match args.cmd {
         Command::Mirror(margs) => {
-            let ctx = cf::Ctx::new(None, backend, krates, registries_url)
+            let ctx = cf::Ctx::new(None, backend, krates, registries_vec)
                 .context("failed to create context")?;
             mirror::cmd(ctx, args.include_index, margs).await
         }
         Command::Sync(sargs) => {
             let root_dir = cf::util::determine_cargo_root(sargs.cargo_root.as_ref())?;
-            let ctx = cf::Ctx::new(Some(root_dir), backend, krates, registries_url)
+            let ctx = cf::Ctx::new(Some(root_dir), backend, krates, registries_vec)
                 .context("failed to create context")?;
             sync::cmd(ctx, args.include_index, sargs).await
         }

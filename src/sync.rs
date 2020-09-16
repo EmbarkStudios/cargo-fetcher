@@ -314,7 +314,8 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
     let git_db_dir = root_dir.join(GIT_DB_DIR);
     let git_co_dir = root_dir.join(GIT_CO_DIR);
 
-    for url in ctx.registries_url.iter() {
+    for url in ctx.registries.iter() {
+        // let (_, ident) = util::decode_registry_url(Some(url.clone()))?;
         let ident = url.short_name()?;
         let cache_dir = root_dir.join(CACHE_PATH).join(ident.clone());
         let src_dir = root_dir.join(SRC_PATH).join(ident.clone());

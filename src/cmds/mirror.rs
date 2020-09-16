@@ -28,7 +28,7 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
     let backend = ctx.backend.clone();
 
     let local = tokio::task::LocalSet::new();
-    let regs = ctx.registries_url.to_vec();
+    let regs = ctx.registries.to_vec();
     let index = local.run_until(async move {
         if !include_index {
             return;
