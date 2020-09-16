@@ -429,17 +429,18 @@ pub fn read_lock_file<P: AsRef<Path>>(
         };
 
         if source == "registry+https://github.com/rust-lang/crates.io-index" {
-            registries_url.push(source.clone());
-            let s = Registry {
-                index: source
-                    .strip_prefix("registry+")
-                    .context(format!("failed get index from source ({})", source))?
-                    .to_owned(),
-                token: None,
-                dl: None,
-                api: None,
-            };
-            registries.entry(source.clone()).or_insert(s);
+            registries.entry(source.clone()).or_insert_with(|| {
+                registries_url.push(source.clone());
+                Registry {
+                    index: source
+                        .strip_prefix("registry+")
+                        .unwrap_or("https://github.com/rust-lang/crates.io-index")
+                        .to_owned(),
+                    token: None,
+                    dl: None,
+                    api: None,
+                }
+            });
             match p.checksum {
                 Some(chksum) => krates.push(Krate {
                     name: p.name,
@@ -520,6 +521,8 @@ pub fn read_lock_file<P: AsRef<Path>>(
             }
         }
     }
+    registries_url.sort();
+    registries_url.dedup();
 
     let registry_urls = registries_url
         .into_iter()

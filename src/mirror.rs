@@ -77,8 +77,8 @@ pub async fn registry_index(
 
             if now - last_updated < max_dur {
                 info!(
-                    "crates.io-index was last updated {}, skipping update as it less than {:?} old",
-                    last_updated, max_stale
+                    "the registry ({}) was last updated {}, skipping update as it less than {:?} old",
+                    url, last_updated, max_stale
                 );
                 return Ok(0);
             }
