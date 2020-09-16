@@ -1,6 +1,6 @@
 use anyhow::Context;
 use cargo_fetcher as cf;
-use cf::{Krate, Source};
+use cf::{Krate, Registry, Source};
 
 mod tutil;
 use tutil as util;
@@ -8,7 +8,13 @@ use tutil as util;
 #[tokio::test(threaded_scheduler)]
 async fn all_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
+    let registries = vec![Registry::new(
+        "https://github.com/rust-lang/crates.io-index".to_owned(),
+        None,
+        None,
+        None,
+    )];
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
     fs_ctx.root_dir = missing_root.path().to_owned();
@@ -86,7 +92,13 @@ async fn all_missing() {
 #[tokio::test(threaded_scheduler)]
 async fn some_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
+    let registries = vec![Registry::new(
+        "https://github.com/rust-lang/crates.io-index".to_owned(),
+        None,
+        None,
+        None,
+    )];
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
     fs_ctx.root_dir = missing_root.path().to_owned();
@@ -200,7 +212,13 @@ async fn some_missing() {
 #[tokio::test(threaded_scheduler)]
 async fn none_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
+    let registries = vec![Registry::new(
+        "https://github.com/rust-lang/crates.io-index".to_owned(),
+        None,
+        None,
+        None,
+    )];
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
     fs_ctx.root_dir = missing_root.path().to_owned();

@@ -17,7 +17,7 @@ macro_rules! git_source {
 #[tokio::test(threaded_scheduler)]
 async fn multiple_from_same_repo() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), Vec::new()).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to create tempdir");
     fs_ctx.root_dir = missing_root.path().to_owned();

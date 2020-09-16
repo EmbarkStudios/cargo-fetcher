@@ -127,7 +127,13 @@ use tutil as util;
 #[ignore]
 async fn diff_cargo() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
+    let registries = vec![cf::Registry::new(
+        "https://github.com/rust-lang/crates.io-index".to_owned(),
+        None,
+        None,
+        None,
+    )];
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
 
     let fetcher_root = tempfile::TempDir::new().expect("failed to create tempdir");
 
