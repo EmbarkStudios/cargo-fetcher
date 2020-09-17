@@ -22,7 +22,7 @@ pub async fn registries_index(
                     .await;
                 res
             }
-            .instrument(tracing::debug_span!("mirror registry", %index))
+            .instrument(tracing::debug_span!("mirror registries", %index))
         })
         .buffer_unordered(32);
     let total_bytes = bytes
