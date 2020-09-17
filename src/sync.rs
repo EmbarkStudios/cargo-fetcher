@@ -365,18 +365,6 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                                     return Err(e);
                                 }
                             }
-                            Source::CratesIo(ref chksum) => {
-                                let cache_dir = root_dir.join(CACHE_DIR);
-                                let src_dir = root_dir.join(SRC_DIR);
-                                if let Err(e) =
-                                    sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
-                                        .instrument(tracing::debug_span!("package"))
-                                        .await
-                                {
-                                    error!(err = ?e, "failed to splat package");
-                                    return Err(e);
-                                }
-                            }
                             Source::Git { rev, .. } => {
                                 if let Err(e) =
                                     sync_git(git_db_dir, git_co_dir, krate, krate_data, rev)

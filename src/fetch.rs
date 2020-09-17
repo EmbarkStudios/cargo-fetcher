@@ -10,20 +10,6 @@ use tracing_futures::Instrument;
 pub async fn from_registry(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     async {
         match &krate.source {
-            Source::CratesIo(chksum) => {
-                let url = format!(
-                    "https://static.crates.io/crates/{}/{}-{}.crate",
-                    krate.name, krate.name, krate.version
-                );
-
-                let response = client.get(&url).send().await?.error_for_status()?;
-                let res = util::convert_response(response).await?;
-                let content = res.into_body();
-
-                util::validate_checksum(&content, &chksum)?;
-
-                Ok(content)
-            }
             Source::Git { url, rev, .. } => via_git(&url.clone().into(), rev).await,
             Source::Registry(registry, chksum) => {
                 let dl = registry
