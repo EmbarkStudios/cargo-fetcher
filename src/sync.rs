@@ -83,17 +83,8 @@ pub async fn registry_index(
     }
 
     let url = url::Url::parse(&registry.index)?;
-    let path = Path::new(url.path());
-    let name = if path.ends_with(".git") {
-        path.file_stem().context("failed to get registry name")?
-    } else {
-        path.file_name().context("failed to get registry name")?
-    };
     let krate = Krate {
-        name: String::from(
-            name.to_str()
-                .context("failed conversion from OsStr to String")?,
-        ),
+        name: ident.clone(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
             url: url.into(),

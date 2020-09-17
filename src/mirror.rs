@@ -1,8 +1,6 @@
 use crate::{fetch, Ctx, Krate, Registry, Source};
-use anyhow::Context;
 use anyhow::Error;
 use futures::StreamExt;
-use std::path::Path;
 use std::time::Duration;
 use tracing::{debug, error, info};
 use tracing_futures::Instrument;
@@ -47,19 +45,10 @@ pub async fn registry_index(
     let url = url::Url::parse(&registry.index)?;
     let ident = registry.short_name()?;
 
-    let path = Path::new(url.path());
-    let name = if path.ends_with(".git") {
-        path.file_stem().context("failed to get registry name")?
-    } else {
-        path.file_name().context("failed to get registry name")?
-    };
     // Create a fake krate for the index, we don't have to worry about clashing
     // since we use a `.` which is not an allowed character in crate names
     let krate = Krate {
-        name: String::from(
-            name.to_str()
-                .context("failed conversion from OsStr to String")?,
-        ),
+        name: ident.clone(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
             url: url.clone().into(),
