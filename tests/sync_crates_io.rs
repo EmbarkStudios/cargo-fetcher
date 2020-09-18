@@ -8,12 +8,13 @@ use tutil as util;
 #[tokio::test(threaded_scheduler)]
 async fn all_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registries = vec![Registry::new(
+    let registry = Registry::new(
         "https://github.com/rust-lang/crates.io-index".to_owned(),
         None,
+        Some("https://crates.io/api/v1/crates".to_owned()),
         None,
-        None,
-    )];
+    );
+    let registries = vec![registry.clone()];
     let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
@@ -23,21 +24,24 @@ async fn all_missing() {
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b".to_owned(),
             ),
         },
         Krate {
             name: "base64".to_owned(),
             version: "0.10.1".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e".to_owned(),
             ),
         },
         Krate {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a".to_owned(),
             ),
         },
@@ -71,8 +75,10 @@ async fn all_missing() {
             };
 
             match krate.source {
-                Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                Source::Registry(_, ref chksum) => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
+                // Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                //     .expect("failed to validate checksum"),
                 _ => unreachable!(),
             }
         }
@@ -92,12 +98,13 @@ async fn all_missing() {
 #[tokio::test(threaded_scheduler)]
 async fn some_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registries = vec![Registry::new(
+    let registry = Registry::new(
         "https://github.com/rust-lang/crates.io-index".to_owned(),
         None,
+        Some("https://crates.io/api/v1/crates".to_owned()),
         None,
-        None,
-    )];
+    );
+    let registries = vec![registry.clone()];
     let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
@@ -107,21 +114,24 @@ async fn some_missing() {
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b".to_owned(),
             ),
         },
         Krate {
             name: "base64".to_owned(),
             version: "0.10.1".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e".to_owned(),
             ),
         },
         Krate {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a".to_owned(),
             ),
         },
@@ -153,7 +163,9 @@ async fn some_missing() {
                     .expect("can't read");
 
             match krate.source {
-                Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                // Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                //     .expect("failed to validate checksum"),
+                Source::Registry(_, ref chksum) => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
                 _ => unreachable!(),
             }
@@ -191,7 +203,9 @@ async fn some_missing() {
                     .expect("can't read");
 
             match krate.source {
-                Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                // Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                //     .expect("failed to validate checksum"),
+                Source::Registry(_, ref chksum) => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
                 _ => unreachable!(),
             }
@@ -212,12 +226,13 @@ async fn some_missing() {
 #[tokio::test(threaded_scheduler)]
 async fn none_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registries = vec![Registry::new(
+    let registry = Registry::new(
         "https://github.com/rust-lang/crates.io-index".to_owned(),
         None,
+        Some("https://crates.io/api/v1/crates".to_owned()),
         None,
-        None,
-    )];
+    );
+    let registries = vec![registry.clone()];
     let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
@@ -227,21 +242,24 @@ async fn none_missing() {
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b".to_owned(),
             ),
         },
         Krate {
             name: "base64".to_owned(),
             version: "0.10.1".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e".to_owned(),
             ),
         },
         Krate {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
-            source: Source::CratesIo(
+            source: Source::Registry(
+                registry.clone(),
                 "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a".to_owned(),
             ),
         },
@@ -271,7 +289,9 @@ async fn none_missing() {
                     .expect("can't read");
 
             match krate.source {
-                Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                // Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                //     .expect("failed to validate checksum"),
+                Source::Registry(_, ref chksum) => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
                 _ => unreachable!(),
             }
@@ -308,7 +328,9 @@ async fn none_missing() {
                     .expect("can't read");
 
             match krate.source {
-                Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                // Source::CratesIo(ref chksum) => cf::util::validate_checksum(&bytes, chksum)
+                //     .expect("failed to validate checksum"),
+                Source::Registry(_, ref chksum) => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
                 _ => unreachable!(),
             }

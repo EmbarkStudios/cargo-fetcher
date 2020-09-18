@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::{cmp::Ordering, fs::File, path::Path};
 use walkdir::{DirEntry, WalkDir};
 
@@ -141,7 +140,7 @@ async fn diff_cargo() {
     {
         fs_ctx.root_dir = fetcher_root.path().to_owned();
 
-        let (the_krates, _) = cf::read_lock_file("tests/full/Cargo.lock", HashMap::new()).unwrap();
+        let (the_krates, _) = cf::read_lock_file("tests/full/Cargo.lock", Vec::new()).unwrap();
         fs_ctx.krates = the_krates;
         let the_registry = cf::Registry::new(
             "https://github.com/rust-lang/crates.io-index".to_owned(),
