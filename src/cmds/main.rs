@@ -1,3 +1,4 @@
+// Workaround for issue that was exacerbated by rust 1.46.0
 #![type_length_limit = r#"18961884"#]
 
 extern crate cargo_fetcher as cf;
