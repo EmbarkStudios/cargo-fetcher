@@ -9,6 +9,7 @@ use tracing::debug;
 use url::Url;
 
 pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
+pub const CRATES_IO_DL: &str = "https://crates.io/api/v1/crates";
 
 fn to_hex(num: u64) -> String {
     const CHARS: &[u8] = b"0123456789abcdef";

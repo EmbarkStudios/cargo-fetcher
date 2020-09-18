@@ -413,7 +413,7 @@ pub fn read_lock_file<P: AsRef<Path>>(
     let mut lookup = String::with_capacity(128);
     let mut krates = Vec::with_capacity(locks.package.len());
 
-    let mut registries_to_sync: Vec<Registry> = Vec::new();
+    let mut registries_to_sync: Vec<Registry> = Vec::with_capacity(krates.len());
     for p in locks.package {
         let source = match p.source.as_ref() {
             Some(s) => s,
@@ -423,53 +423,28 @@ pub fn read_lock_file<P: AsRef<Path>>(
             }
         };
 
-        if source == "registry+https://github.com/rust-lang/crates.io-index" {
-            let registry = Registry::new(
-                source
-                    .strip_prefix("registry+")
-                    .unwrap_or("https://github.com/rust-lang/crates.io-index")
-                    .to_owned(),
-                None,
-                Some("https://crates.io/api/v1/crates".to_owned()),
-                None,
-            );
-            registries_to_sync.push(registry.clone());
-            match p.checksum {
-                Some(chksum) => krates.push(Krate {
-                    name: p.name,
-                    version: p.version,
-                    source: Source::Registry(registry, chksum),
-                }),
-                None => {
-                    write!(
-                        &mut lookup,
-                        "checksum {} {} (registry+https://github.com/rust-lang/crates.io-index)",
-                        p.name, p.version
-                    )
-                    .unwrap();
-
-                    if let Some(chksum) = locks.metadata.remove(&lookup) {
-                        krates.push(Krate {
-                            name: p.name,
-                            version: p.version,
-                            source: Source::Registry(registry, chksum),
-                        })
-                    }
-
-                    lookup.clear();
+        if source.starts_with("registry+") {
+            let registry = if source.ends_with(util::CRATES_IO_URL) {
+                match registries.binary_search_by(|r| source.ends_with(&r.index).cmp(&true)) {
+                    Ok(i) => registries[i].clone(),
+                    Err(_) => Registry::new(
+                        util::CRATES_IO_URL.to_owned(),
+                        None,
+                        Some(util::CRATES_IO_DL.to_owned()),
+                        None,
+                    ),
                 }
-            }
-        } else if source.starts_with("registry+") {
-            let i = match registries.binary_search_by(|r| source.ends_with(&r.index).cmp(&true)) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err(anyhow::Error::msg(format!(
-                        "failed to find the registry {}",
-                        source
-                    )))
+            } else {
+                match registries.binary_search_by(|r| source.ends_with(&r.index).cmp(&true)) {
+                    Ok(i) => registries[i].clone(),
+                    Err(_) => {
+                        return Err(anyhow::Error::msg(format!(
+                            "failed to find the registry {}",
+                            source
+                        )))
+                    }
                 }
             };
-            let registry = registries[i].clone();
             registries_to_sync.push(registry.clone());
             match p.checksum {
                 Some(chksum) => krates.push(Krate {
@@ -491,6 +466,7 @@ pub fn read_lock_file<P: AsRef<Path>>(
                             source: Source::Registry(registry.clone(), chksum),
                         })
                     }
+                    lookup.clear();
                 }
             }
         } else {
