@@ -87,7 +87,7 @@ pub async fn registry_index(
         name: ident.clone(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: url.into(),
+            url,
             ident,
             rev: String::new(),
         },

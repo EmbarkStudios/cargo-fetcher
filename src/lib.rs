@@ -2,7 +2,7 @@
 #![warn(rust_2018_idioms)]
 
 use anyhow::{Context, Error};
-use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     collections::HashMap,
@@ -100,73 +100,11 @@ struct LockContents {
     metadata: BTreeMap<String, String>,
 }
 
-///
-/// NB: This exists purely to make Source be able to auto-derive Serialize and Deserialize!
-///
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
-pub struct UrlWrapper(Url);
-
-impl From<Url> for UrlWrapper {
-    fn from(url: Url) -> Self {
-        Self(url)
-    }
-}
-
-impl Into<Url> for UrlWrapper {
-    fn into(self) -> Url {
-        self.0
-    }
-}
-
-impl Serialize for UrlWrapper {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut obj = serializer.serialize_struct("UrlWrapper", 1)?;
-        obj.serialize_field("url", &format!("{}", self.0))?;
-        obj.end()
-    }
-}
-
-// TODO: figure out how to avoid all this boilerplate implementing Deserialize!
-impl<'de> Deserialize<'de> for UrlWrapper {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct UrlWrapperVisitor;
-
-        impl<'de> Visitor<'de> for UrlWrapperVisitor {
-            type Value = UrlWrapper;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("struct UrlWrapper")
-            }
-
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                url::Url::parse(v).map(UrlWrapper).map_err(|err| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Str(&format!("{:?}: {}", v, err)),
-                        &"A url",
-                    )
-                })
-            }
-        }
-
-        const FIELDS: &[&str] = &["url"];
-        deserializer.deserialize_struct("UrlWrapper", FIELDS, UrlWrapperVisitor)
-    }
-}
-
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
 pub enum Source {
     Registry(Registry, String),
     Git {
-        url: UrlWrapper,
+        url: Url,
         rev: String,
         ident: String,
     },
@@ -198,7 +136,7 @@ impl Source {
 
         let url: Url = canonicalized.into();
         Ok(Source::Git {
-            url: url.into(),
+            url,
             ident,
             rev: rev.to_owned(),
         })

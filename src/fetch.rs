@@ -10,7 +10,7 @@ use tracing_futures::Instrument;
 pub async fn from_registry(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     async {
         match &krate.source {
-            Source::Git { url, rev, .. } => via_git(&url.clone().into(), rev).await,
+            Source::Git { url, rev, .. } => via_git(&url.clone(), rev).await,
             Source::Registry(registry, chksum) => {
                 let dl = registry
                     .dl
