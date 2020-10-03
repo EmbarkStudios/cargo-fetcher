@@ -20,43 +20,43 @@ anyhow = "1.0"
 app_dirs2 = "2.0"
 async-tar = "0.2"
 async-trait = "0.1"
-async-std = { version = "1.6.0", optional = true }
+async-std = { version = "1.6", optional = true }
 azure_sdk_core = { version = "0.43", optional = true }
 azure_sdk_storage_blob = { version = "0.45", optional = true }
 azure_sdk_storage_core = { version = "0.44", optional = true }
-bytes = "0.5.4"
-chrono = "0.4.10"
+bytes = "0.5"
+chrono = "0.4"
 digest = { version = "0.9", optional = true }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
-futures = { version = "0.3.4" }
-futures-util = { version = "0.3.4", features = ["async-await-macro"] }
-hex = { version = "0.4.2", optional = true }
-http = "0.2.0"
+futures = { version = "0.3" }
+futures-util = { version = "0.3", features = ["async-await-macro"] }
+hex = { version = "0.4", optional = true }
+http = "0.2"
 md5 = { version = "0.7", optional = true }
-rayon = "1.3.0"
+rayon = "1.3"
 remove_dir_all = "0.6"
-reqwest = { version = "0.10.1", default-features = false, features = ["rustls-tls"] }
-ring = "0.16.11"
+reqwest = { version = "0.10", default-features = false, features = ["rustls-tls"] }
+ring = "0.16"
 rusoto_core = { version = "0.45", default-features = false, features = ["rustls"], optional = true }
 rusoto_s3 = { version = "0.45", default-features = false, features = ["rustls"], optional = true }
-serde = { version = "1.0.104", features = ["derive"] }
-serde_json = { version = "1.0.1", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", optional = true }
 sha2 = { version = "0.9", optional = true }
-structopt = "0.3.9"
-tame-gcs = { version = "0.8.0", optional = true }
-tame-oauth = { version = "0.4.2", features = ["gcp"], optional = true }
-tar = "0.4.26"
-tempfile = "3.1.0"
-toml = "0.5.6"
-tracing = "0.1.12"
-tracing-futures = "0.2.2"
-tracing-subscriber = "0.2.1"
-url = { version = "2.1.1", features = ["serde"] }
-walkdir = "2.3.1"
-zstd = "0.5.1"
+structopt = "0.3"
+tame-gcs = { version = "0.8", optional = true }
+tame-oauth = { version = "0.4", features = ["gcp"], optional = true }
+tar = "0.4"
+tempfile = "3.1"
+toml = "0.5"
+tracing = "0.1"
+tracing-futures = "0.2"
+tracing-subscriber = "0.2"
+url = { version = "2.1", features = ["serde"] }
+walkdir = "2.3"
+zstd = "0.5"
 
 [dependencies.tokio]
-version = "0.2.13"
+version = "0.2"
 features = ["rt-threaded", "rt-util", "blocking", "process", "macros"]
 
 [features]
@@ -68,10 +68,10 @@ fs_test = ["fs"]
 blob = ["azure_sdk_core", "azure_sdk_storage_core", "azure_sdk_storage_blob", "md5"]
 
 [dev-dependencies]
-difference = "2.0.0"
-tempfile = "3.1.0"
-twox-hash = "1.5.0"
-walkdir = "2.3.1"
+difference = "2.0"
+tempfile = "3.1"
+twox-hash = "1.5"
+walkdir = "2.3"
 
 [[test]]
 name = "sync_crates_io"
