@@ -25,7 +25,7 @@ azure_sdk_core = { version = "0.43", optional = true }
 azure_sdk_storage_blob = { version = "0.45", optional = true }
 azure_sdk_storage_core = { version = "0.44", optional = true }
 bytes = "0.5.4"
-chrono = "0.4.10"
+chrono = "0.4.19"
 digest = { version = "0.9", optional = true }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
 futures = { version = "0.3.4" }
