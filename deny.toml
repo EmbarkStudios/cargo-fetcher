@@ -7,12 +7,17 @@ targets = [
 
 [advisories]
 unmaintained = "deny"
+unsound = "deny"
 ignore = [
-    # spin is deprecated, but still used by rustls
-    "RUSTSEC-2019-0031",
     # net2 is deprecated, but it's used by mio, which is still stuck on winapi
     # 0.2, so we'll just wait a few years for that to be updated
     "RUSTSEC-2020-0016",
+    # failure unsoundness, still used by azure
+    "RUSTSEC-2019-0036",
+    # failure is unmaintained
+    "RUSTSEC-2020-0036",
+    # dirs is umaintained still used by rusoto
+    "RUSTSEC-2020-0053",
 ]
 
 [bans]
@@ -30,11 +35,17 @@ skip = [
     # clap still uses an old ansi_term
     { name = "ansi_term", version = "=0.11.0" },
 
+    # async-tar uses an older version (at least the one we use)
+    { name = "crossbeam-utils", version = "=0.7.2" },
+
     # mio-named-pipes brings in 2 versions of miow
     { name = "miow", version = "=0.2.1" },
 
+    # tempfile uses an older version
+    { name = "remove_dir_all", version = "=0.5.3" },
+
     # chrono!? uses and old version of time
-    { name = "time", version = "=0.1.43" },
+    { name = "time", version = "=0.1.44" },
 
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },
