@@ -141,14 +141,11 @@ impl Source {
     }
 
     pub(crate) fn is_git(&self) -> bool {
-        match self {
-            Source::CratesIo(_) => false,
-            _ => true,
-        }
+        !matches!(self, Source::CratesIo(_))
     }
 }
 
-#[derive(Ord, Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
@@ -160,6 +157,12 @@ pub struct Krate {
 //         visitor.record_debug(key, self)
 //     }
 // }
+
+impl Ord for Krate {
+    fn cmp(&self, b: &Self) -> std::cmp::Ordering {
+        self.source.cmp(&b.source)
+    }
+}
 
 impl PartialOrd for Krate {
     fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
