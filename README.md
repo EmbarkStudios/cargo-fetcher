@@ -1,10 +1,11 @@
 # 🎁 cargo-fetcher
 
-[![Build Status](https://github.com/EmbarkStudios/cargo-fetcher/workflows/CI/badge.svg)](https://github.com/EmbarkStudios/cargo-fetcher/actions?workflow=CI)
+[![Embark](https://img.shields.io/badge/embark-open%20source-blueviolet.svg)](https://embark.dev)
+[![Embark](https://img.shields.io/badge/discord-ark-%237289da.svg?logo=discord)](https://discord.gg/dAuKfZS)
 [![Crates.io](https://img.shields.io/crates/v/cargo-fetcher.svg)](https://crates.io/crates/cargo-fetcher)
 [![Docs](https://docs.rs/cargo-fetcher/badge.svg)](https://docs.rs/cargo-fetcher)
-[![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v1.4%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
-[![Embark](https://img.shields.io/badge/embark-open%20source-blueviolet.svg)](http://embark.games)
+[![dependency status](https://deps.rs/repo/github/EmbarkStudios/cargo-fetcher/status.svg)](https://deps.rs/repo/github/EmbarkStudios/cargo-fetcher)
+[![Build Status](https://github.com/EmbarkStudios/cargo-fetcher/workflows/CI/badge.svg)](https://github.com/EmbarkStudios/cargo-fetcher/actions?workflow=CI)
 
 Alternative to `cargo fetch` for use in CI or other "clean" environments that you want to quickly bootstrap
 with the necessary crates to compile/test etc your project(s).
@@ -80,6 +81,8 @@ All 3 build jobs take **3-4s** each to do `cargo fetcher --include-index mirror`
 do `cargo fetch --target x86_64-unknown-linux-gnu`.
 
 ## Contributing
+
+[![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v1.4-ff69b4.svg)](../CODE_OF_CONDUCT.md)
 
 We welcome community contributions to this project.
 
