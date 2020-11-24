@@ -401,8 +401,8 @@ fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
             if part.starts_with("s3") && region.is_none() {
                 let rgn = &part[2..];
 
-                if rgn.starts_with('-') {
-                    region = Some((&rgn[1..], part.len()));
+                if let Some(r) = rgn.strip_prefix('-') {
+                    region = Some((r, part.len()));
                 } else {
                     region = Some(("us-east-1", part.len()));
                 }

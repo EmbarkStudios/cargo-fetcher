@@ -35,8 +35,8 @@ skip = [
     # clap still uses an old ansi_term
     { name = "ansi_term", version = "=0.11.0" },
 
-    # async-tar uses an older version (at least the one we use)
-    { name = "crossbeam-utils", version = "=0.7.2" },
+    # so many crates
+    { name = "base64", version = "=0.12.3" },
 
     # mio-named-pipes brings in 2 versions of miow
     { name = "miow", version = "=0.2.1" },
@@ -49,6 +49,9 @@ skip = [
 
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },
+
+    # TODO: update tame-gcs
+    { name = "serde_urlencoded", version = "=0.6.1" },
 ]
 skip-tree = [
     # azure_sdk_core uses an old version of rustls/hyper/tokio
