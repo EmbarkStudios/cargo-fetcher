@@ -308,7 +308,7 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                 {
                     Err(e) => {
                         error!(err = ?e, "failed to download");
-                        return Err(e);
+                        Err(e)
                     }
                     Ok(krate_data) => {
                         let len = krate_data.len();
