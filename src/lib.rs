@@ -27,7 +27,7 @@ struct CargoConfig {
     registries: Option<HashMap<String, Registry>>,
 }
 
-#[derive(Ord, Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct Registry {
     index: String,
     token: Option<String>,
@@ -42,13 +42,16 @@ impl Registry {
         dl: Option<String>,
         api: Option<String>,
     ) -> Registry {
-        Registry {
+        Self {
             index,
             token,
             dl,
             api,
         }
     }
+}
+
+impl Registry {
     // https://github.com/rust-lang/cargo/blob/master/src/cargo/sources/registry/mod.rs#L403-L407 blame f1e26ed3238f933fda177f06e913a70d8929dd6d
     pub fn short_name(&self) -> Result<String, Error> {
         let hash = util::short_hash(self);
@@ -76,9 +79,15 @@ impl PartialEq for Registry {
     }
 }
 
+impl Ord for Registry {
+    fn cmp(&self, b: &Self) -> std::cmp::Ordering {
+        self.index.cmp(&b.index)
+    }
+}
+
 impl PartialOrd for Registry {
     fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
-        self.index.partial_cmp(&b.index)
+        Some(self.cmp(b))
     }
 }
 
@@ -143,10 +152,7 @@ impl Source {
     }
 
     pub(crate) fn is_git(&self) -> bool {
-        match self {
-            Source::Registry(_, _) => false,
-            _ => true,
-        }
+        !matches!(self, Source::Registry(_, _))
     }
 }
 
@@ -310,31 +316,96 @@ pub trait Backend: fmt::Debug {
     fn set_prefix(&mut self, prefix: &str);
 }
 
-pub fn read_cargo_config(config_path: &Path) -> Result<Vec<Registry>, Error> {
-    let config: CargoConfig = {
-        let config_contents = match std::fs::read_to_string(config_path) {
-            Ok(s) => s,
-            Err(e) => {
-                info!(
-                    "failed to read cargo config({}): {}",
-                    config_path.display(),
-                    e
-                );
-                return Ok(Vec::new());
-            }
-        };
-        toml::from_str(&config_contents)?
-    };
-    let mut registries = Vec::new();
-    match config.registries {
-        None => Ok(registries),
-        Some(h) => {
-            for (_, reg) in h.into_iter() {
-                registries.push(reg)
-            }
-            Ok(registries)
+/// Reads all of the custom registries configured in cargo config files.
+///
+/// Gathers all of the available .cargo/config(.toml) files, then applies
+/// them in reverse order, as the more local ones override the ones higher
+/// up in the hierarchy
+///
+/// See https://doc.rust-lang.org/cargo/reference/config.html
+pub fn read_cargo_config(mut cargo_home_path: PathBuf, dir: PathBuf) -> Result<Vec<Registry>, Error> {
+    let mut configs = Vec::new();
+
+    fn read_config_dir(dir: &mut PathBuf) -> Option<PathBuf> {
+        // Check for config before config.toml, same as cargo does
+        dir.push("config");
+
+        if !dir.exists() {
+            dir.set_extension("toml");
+        }
+
+        if dir.exists() {
+            let ret = dir.clone();
+            dir.pop();
+            Some(ret)
+        } else {
+            dir.pop();
+            None
         }
     }
+
+    let mut dir = dir.canonicalize()?;
+
+    for _ in 0..dir.ancestors().count() {
+        dir.push(".cargo");
+
+        if !dir.exists() {
+            dir.pop();
+            dir.pop();
+            continue;
+        }
+
+        if let Some(config) = read_config_dir(&mut dir) {
+            configs.push(config);
+        }
+
+        dir.pop();
+        dir.pop();
+    }
+
+    if let Some(home_config) = read_config_dir(&mut cargo_home_path) {
+        configs.push(home_config);
+    }
+
+    let mut regs = HashMap::new();
+
+    for config_path in configs.iter().rev() {
+        let config: CargoConfig = {
+            let config_contents = match std::fs::read_to_string(config_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!(
+                        "failed to read cargo config({}): {}",
+                        config_path.display(),
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            match toml::from_str(&config_contents) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    error!(
+                        "failed to deserialize cargo config({}): {}",
+                        config_path.display(),
+                        e
+                    );
+                    continue;
+                }
+            }
+        };
+
+        if let Some(registries) = config.registries {
+            for (name, value) in registries {
+                if regs.insert(name, value).is_some() {
+                    info!("registry overriden");
+                }
+            }
+        }
+    }
+
+    Ok(regs.into_iter().map(|(_, v)| v).collect())
 }
 
 pub fn read_lock_file<P: AsRef<Path>>(

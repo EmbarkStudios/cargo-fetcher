@@ -154,18 +154,10 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
 }
 
 pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error> {
-    let root_dir = explicit
-        .cloned()
-        .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
-        .or_else(|| {
-            app_dirs2::data_root(app_dirs2::AppDataType::UserConfig)
-                .map(|hd| hd.join(".cargo"))
-                .ok()
-        });
-
-    let root_dir = root_dir.context("unable to determine cargo root")?;
-
-    Ok(root_dir)
+    match explicit {
+        Some(exp) => home::cargo_home_with_cwd(exp).context("failed to retrieve cargo home"),
+        None => home::cargo_home().context("failed to retrieve cargo home for cwd"),
+    }
 }
 
 pub async fn convert_response(
@@ -481,7 +473,7 @@ impl CloudLocationUrl {
 pub fn parse_cloud_location(
     cloud_url: &CloudLocationUrl,
 ) -> Result<crate::CloudLocation<'_>, Error> {
-    let CloudLocationUrl { url, path } = cloud_url;
+    let CloudLocationUrl { url, path: _path } = cloud_url;
     match url.scheme() {
         #[cfg(feature = "gcs")]
         "gs" => {
@@ -506,7 +498,7 @@ pub fn parse_cloud_location(
         }
         #[cfg(feature = "fs")]
         "file" => {
-            let path = path.as_ref().unwrap();
+            let path = _path.as_ref().unwrap();
             Ok(crate::CloudLocation::Fs(crate::FilesystemLocation { path }))
         }
         #[cfg(not(feature = "fs"))]
@@ -619,6 +611,13 @@ mod test {
         let ident = canonicalized.ident();
 
         assert_eq!(ident, "cpal-a7ffd7cabefac714");
+    }
+
+    #[test]
+    fn gets_proper_registry_ident() {
+        let crates_io = Url::parse("https://github.com/rust-lang/crates.io-index").unwrap();
+        let canonicalized = Canonicalized::try_from(&crates_io).unwrap();
+        assert_eq!("github.com-1ecc6299db9ec823", canonicalized.ident());
     }
 
     #[test]

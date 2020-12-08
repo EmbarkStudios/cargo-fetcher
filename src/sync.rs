@@ -5,12 +5,9 @@ use std::{io::Write, path::PathBuf};
 use tracing::{debug, error, info, warn};
 use tracing_futures::Instrument;
 
-pub const INDEX_PATH: &str = "registry/index";
-pub const INDEX_DIR: &str = "registry/index/github.com-1ecc6299db9ec823";
-pub const CACHE_PATH: &str = "registry/cache";
-pub const CACHE_DIR: &str = "registry/cache/github.com-1ecc6299db9ec823";
-pub const SRC_PATH: &str = "registry/src";
-pub const SRC_DIR: &str = "registry/src/github.com-1ecc6299db9ec823";
+pub const INDEX_DIR: &str = "registry/index";
+pub const CACHE_DIR: &str = "registry/cache";
+pub const SRC_DIR: &str = "registry/src";
 pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
 
@@ -19,12 +16,12 @@ pub async fn registries_index(
     backend: crate::Storage,
     registries: Vec<Registry>,
 ) -> Result<(), Error> {
+    let root_dir = &root_dir;
     let resu = futures::stream::iter(registries)
         .map(|registry| {
-            let root_dir = root_dir.clone();
             let backend = backend.clone();
             async move {
-                let res: Result<(), Error> = registry_index(root_dir, backend, &registry)
+                let res: Result<(), Error> = registry_index(root_dir, backend, registry)
                     .instrument(tracing::debug_span!("download registry"))
                     .await;
                 res
@@ -46,13 +43,13 @@ pub async fn registries_index(
 }
 
 pub async fn registry_index(
-    root_dir: PathBuf,
+    root_dir: &Path,
     backend: crate::Storage,
-    registry: &Registry,
+    registry: Registry,
 ) -> Result<(), Error> {
     let ident = registry.short_name()?;
 
-    let index_path = root_dir.join(INDEX_PATH).join(ident.clone());
+    let index_path = root_dir.join(INDEX_DIR).join(ident.clone());
     std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
 
     // Just skip the index if the git directory already exists,
@@ -306,8 +303,8 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
 
     for url in ctx.registries.iter() {
         let ident = url.short_name()?;
-        let cache_dir = root_dir.join(CACHE_PATH).join(ident.clone());
-        let src_dir = root_dir.join(SRC_PATH).join(ident.clone());
+        let cache_dir = root_dir.join(CACHE_DIR).join(ident.clone());
+        let src_dir = root_dir.join(SRC_DIR).join(ident.clone());
         std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache/")?;
         std::fs::create_dir_all(&src_dir).context("failed to create registry/src/")?;
         std::fs::create_dir_all(&git_db_dir).context("failed to create git/db/")?;
@@ -354,8 +351,8 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                         match &krate.source {
                             Source::Registry(reg, chksum) => {
                                 let ident = reg.short_name()?;
-                                let cache_dir = root_dir.join(CACHE_PATH).join(ident.clone());
-                                let src_dir = root_dir.join(SRC_PATH).join(ident.clone());
+                                let cache_dir = root_dir.join(CACHE_DIR).join(ident.clone());
+                                let src_dir = root_dir.join(SRC_DIR).join(ident.clone());
                                 if let Err(e) =
                                     sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
                                         .instrument(tracing::debug_span!("package"))

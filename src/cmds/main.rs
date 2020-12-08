@@ -160,8 +160,25 @@ async fn real_main() -> Result<(), Error> {
     let location = cf::util::parse_cloud_location(&cloud_location)?;
     let backend = init_backend(location, args.credentials).await?;
 
-    let p = cf::util::determine_cargo_root(None)?.join("config.toml");
-    let registries_map = cf::read_cargo_config(&p)?;
+    // Note that unlike cargo (since we require a Cargo.lock), we don't use the
+    // current directory as the root when resolving cargo configurations, but
+    // rather the directory in which the lockfile is located
+    let root_dir = if args.lock_file.is_relative() {
+        let mut root_dir = std::env::current_dir().context("unable to acquire current directory")?.join(&args.lock_file);
+        root_dir.pop();
+        root_dir
+    } else {
+        let mut root_dir = args.lock_file.clone();
+        root_dir.pop();
+        root_dir
+    };
+
+    let cargo_root = cf::util::determine_cargo_root(Some(&root_dir)).context("failed to determine $CARGO_HOME")?;
+
+    let registries_map = cf::read_cargo_config(
+        cargo_root.clone(),
+        root_dir,
+    )?;
 
     let (krates, registries_vec) = cf::read_lock_file(args.lock_file, registries_map)
         .context("failed to get crates from lock file")?;
@@ -173,8 +190,7 @@ async fn real_main() -> Result<(), Error> {
             mirror::cmd(ctx, args.include_index, margs).await
         }
         Command::Sync(sargs) => {
-            let root_dir = cf::util::determine_cargo_root(sargs.cargo_root.as_ref())?;
-            let ctx = cf::Ctx::new(Some(root_dir), backend, krates, registries_vec)
+            let ctx = cf::Ctx::new(Some(cargo_root), backend, krates, registries_vec)
                 .context("failed to create context")?;
             sync::cmd(ctx, args.include_index, sargs).await
         }

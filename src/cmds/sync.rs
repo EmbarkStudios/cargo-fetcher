@@ -1,14 +1,9 @@
 use anyhow::Error;
 use cf::{sync, Ctx};
-use std::path::PathBuf;
 use tracing::{error, info};
 
 #[derive(structopt::StructOpt)]
 pub struct Args {
-    /// The root path for cargo. This defaults to either
-    /// CARGO_HOME or HOME/.cargo.
-    #[structopt(short, long = "cargo-root", parse(from_os_str))]
-    pub cargo_root: Option<PathBuf>,
 }
 
 pub(crate) async fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<(), Error> {
