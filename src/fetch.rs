@@ -12,11 +12,7 @@ pub async fn from_registry(client: &Client, krate: &Krate) -> Result<Bytes, Erro
         match &krate.source {
             Source::Git { url, rev, .. } => via_git(&url.clone(), rev).await,
             Source::Registry(registry, chksum) => {
-                let dl = registry
-                    .dl
-                    .as_ref()
-                    .context(format!("failed get dl from registry({})", registry.index))?;
-                let url = format!("{}/{}/{}/download", dl, krate.name, krate.version);
+                let url = registry.get_url(krate);
 
                 // TODO use token in private registry
                 let response = client.get(&url).send().await?.error_for_status()?;

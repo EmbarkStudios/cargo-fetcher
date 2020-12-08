@@ -23,6 +23,7 @@ pub async fn registries_index(
             .instrument(tracing::debug_span!("mirror registries", %index))
         })
         .buffer_unordered(32);
+
     let total_bytes = bytes
         .fold(0usize, |acc, res| async move {
             match res {
@@ -34,6 +35,7 @@ pub async fn registries_index(
             }
         })
         .await;
+
     Ok(total_bytes)
 }
 
@@ -53,7 +55,7 @@ pub async fn registry_index(
         source: Source::Git {
             url: url.clone(),
             ident,
-            rev: String::new(),
+            rev: "feedc0de".to_owned(),
         },
     };
 
@@ -78,7 +80,7 @@ pub async fn registry_index(
         let res = fetch::registry(&url).await;
 
         if let Ok(ref buffer) = res {
-            debug!(size = buffer.len(), "crates.io index downloaded");
+            debug!(size = buffer.len(), "{} index downloaded", url);
         }
 
         res

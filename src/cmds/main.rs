@@ -144,7 +144,7 @@ async fn real_main() -> Result<(), Error> {
 
     // If a user specifies a log level, we assume it only pertains to cargo_fetcher,
     // if they want to trace other crates they can use the RUST_LOG env approach
-    env_filter = env_filter.add_directive(args.log_level.into());
+    env_filter = env_filter.add_directive(format!("cargo_fetcher={}", args.log_level).parse()?);
 
     let subscriber = tracing_subscriber::FmtSubscriber::builder().with_env_filter(env_filter);
 
@@ -164,7 +164,9 @@ async fn real_main() -> Result<(), Error> {
     // current directory as the root when resolving cargo configurations, but
     // rather the directory in which the lockfile is located
     let root_dir = if args.lock_file.is_relative() {
-        let mut root_dir = std::env::current_dir().context("unable to acquire current directory")?.join(&args.lock_file);
+        let mut root_dir = std::env::current_dir()
+            .context("unable to acquire current directory")?
+            .join(&args.lock_file);
         root_dir.pop();
         root_dir
     } else {
@@ -173,24 +175,22 @@ async fn real_main() -> Result<(), Error> {
         root_dir
     };
 
-    let cargo_root = cf::util::determine_cargo_root(Some(&root_dir)).context("failed to determine $CARGO_HOME")?;
+    let cargo_root = cf::util::determine_cargo_root(Some(&root_dir))
+        .context("failed to determine $CARGO_HOME")?;
 
-    let registries_map = cf::read_cargo_config(
-        cargo_root.clone(),
-        root_dir,
-    )?;
+    let registries = cf::read_cargo_config(cargo_root.clone(), root_dir)?;
 
-    let (krates, registries_vec) = cf::read_lock_file(args.lock_file, registries_map)
+    let (krates, registries) = cf::read_lock_file(args.lock_file, registries)
         .context("failed to get crates from lock file")?;
 
     match args.cmd {
         Command::Mirror(margs) => {
-            let ctx = cf::Ctx::new(None, backend, krates, registries_vec)
+            let ctx = cf::Ctx::new(None, backend, krates, registries)
                 .context("failed to create context")?;
             mirror::cmd(ctx, args.include_index, margs).await
         }
         Command::Sync(sargs) => {
-            let ctx = cf::Ctx::new(Some(cargo_root), backend, krates, registries_vec)
+            let ctx = cf::Ctx::new(Some(cargo_root), backend, krates, registries)
                 .context("failed to create context")?;
             sync::cmd(ctx, args.include_index, sargs).await
         }

@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
 pub use url::Url;
 
 pub mod backends;
@@ -32,21 +32,33 @@ pub struct Registry {
     index: String,
     token: Option<String>,
     dl: Option<String>,
-    api: Option<String>,
 }
 
 impl Registry {
-    pub fn new(
-        index: String,
-        token: Option<String>,
-        dl: Option<String>,
-        api: Option<String>,
-    ) -> Registry {
-        Self {
-            index,
-            token,
-            dl,
-            api,
+    pub fn new(index: String, token: Option<String>, dl: Option<String>) -> Registry {
+        Self { index, token, dl }
+    }
+
+    /// Gets the download url for the crate
+    ///
+    /// See https://doc.rust-lang.org/cargo/reference/registries.html#index-format
+    /// for more info
+    pub fn get_url(&self, krate: &Krate) -> String {
+        match &self.dl {
+            Some(dl) => {
+                let mut dl = dl.clone();
+
+                while let Some(start) = dl.find("{{crate}}") {
+                    dl.replace_range(start..start + 7, &krate.name);
+                }
+
+                // etc
+
+                dl
+            }
+            None => {
+                format!("{}/{}/{}/download", self.index, krate.name, krate.version)
+            }
         }
     }
 }
@@ -323,7 +335,10 @@ pub trait Backend: fmt::Debug {
 /// up in the hierarchy
 ///
 /// See https://doc.rust-lang.org/cargo/reference/config.html
-pub fn read_cargo_config(mut cargo_home_path: PathBuf, dir: PathBuf) -> Result<Vec<Registry>, Error> {
+pub fn read_cargo_config(
+    mut cargo_home_path: PathBuf,
+    dir: PathBuf,
+) -> Result<Vec<Registry>, Error> {
     let mut configs = Vec::new();
 
     fn read_config_dir(dir: &mut PathBuf) -> Option<PathBuf> {
@@ -369,6 +384,15 @@ pub fn read_cargo_config(mut cargo_home_path: PathBuf, dir: PathBuf) -> Result<V
 
     let mut regs = HashMap::new();
 
+    regs.insert(
+        "crates-io".to_owned(),
+        Registry::new(
+            util::CRATES_IO_URL.to_owned(),
+            None,
+            Some(util::CRATES_IO_DL.to_owned()),
+        ),
+    );
+
     for config_path in configs.iter().rev() {
         let config: CargoConfig = {
             let config_contents = match std::fs::read_to_string(config_path) {
@@ -398,6 +422,7 @@ pub fn read_cargo_config(mut cargo_home_path: PathBuf, dir: PathBuf) -> Result<V
 
         if let Some(registries) = config.registries {
             for (name, value) in registries {
+                info!("found registry '{}' in {}", name, config_path.display());
                 if regs.insert(name, value).is_some() {
                     info!("registry overriden");
                 }
@@ -422,69 +447,76 @@ pub fn read_lock_file<P: AsRef<Path>>(
     let mut lookup = String::with_capacity(128);
     let mut krates = Vec::with_capacity(locks.package.len());
 
-    let mut registries_to_sync: Vec<Registry> = Vec::with_capacity(krates.len());
-    for p in locks.package {
-        let source = match p.source.as_ref() {
+    let mut regs_to_sync = vec![0u32; registries.len()];
+
+    for pkg in locks.package {
+        let source = match pkg.source.as_ref() {
             Some(s) => s,
             None => {
-                trace!("skipping 'path' source {}-{}", p.name, p.version);
+                trace!("skipping 'path' source {}-{}", pkg.name, pkg.version);
                 continue;
             }
         };
 
-        if source.starts_with("registry+") {
-            let registry = if source.ends_with(util::CRATES_IO_URL) {
-                match registries.binary_search_by(|r| source.ends_with(&r.index).cmp(&true)) {
-                    Ok(i) => registries[i].clone(),
-                    Err(_) => Registry::new(
-                        util::CRATES_IO_URL.to_owned(),
-                        None,
-                        Some(util::CRATES_IO_DL.to_owned()),
-                        None,
-                    ),
+        if let Some(reg_src) = source.strip_prefix("registry+") {
+            // This will most likely be an extremely short list, so we just do a
+            // linear search
+            let registry = match registries
+                .iter()
+                .enumerate()
+                .find(|(_, reg)| source.ends_with(&reg.index))
+            {
+                Some((ind, reg)) => {
+                    regs_to_sync[ind] += 1;
+                    reg
                 }
-            } else {
-                match registries.binary_search_by(|r| source.ends_with(&r.index).cmp(&true)) {
-                    Ok(i) => registries[i].clone(),
-                    Err(_) => {
-                        return Err(anyhow::Error::msg(format!(
-                            "failed to find the registry {}",
-                            source
-                        )))
+                None => {
+                    warn!(
+                        "skipping '{}:{}': unknown registry index '{}' encountered",
+                        pkg.name, pkg.version, reg_src
+                    );
+                    continue;
+                }
+            };
+
+            let chksum = match pkg.checksum {
+                Some(chksum) => chksum,
+                None => {
+                    lookup.clear();
+                    let _ = write!(
+                        &mut lookup,
+                        "checksum {} {} ({})",
+                        pkg.name, pkg.version, source
+                    );
+
+                    match locks.metadata.remove(&lookup) {
+                        Some(chksum) => chksum,
+                        None => {
+                            warn!(
+                                "skipping '{}:{}': unable to retrieve package checksum",
+                                pkg.name, pkg.version,
+                            );
+                            continue;
+                        }
                     }
                 }
             };
-            registries_to_sync.push(registry.clone());
-            match p.checksum {
-                Some(chksum) => krates.push(Krate {
-                    name: p.name,
-                    version: p.version,
-                    source: Source::Registry(registry, chksum),
-                }),
-                None => {
-                    write!(
-                        &mut lookup,
-                        "checksum {} {} ({})",
-                        p.name, p.version, source
-                    )
-                    .unwrap();
-                    if let Some(chksum) = locks.metadata.remove(&lookup) {
-                        krates.push(Krate {
-                            name: p.name,
-                            version: p.version,
-                            source: Source::Registry(registry.clone(), chksum),
-                        })
-                    }
-                    lookup.clear();
-                }
-            }
+
+            krates.push(Krate {
+                name: pkg.name,
+                version: pkg.version,
+                source: Source::Registry(registry.clone(), chksum),
+            });
         } else {
             // We support exactly one form of git sources, rev specififers
             // eg. git+https://github.com/EmbarkStudios/rust-build-helper?rev=9135717#91357179ba2ce6ec7e430a2323baab80a8f7d9b3
             let url = match Url::parse(source) {
                 Ok(u) => u,
                 Err(e) => {
-                    error!("failed to parse url for {}-{}: {}", p.name, p.version, e);
+                    error!(
+                        "failed to parse url for '{}:{}': {}",
+                        pkg.name, pkg.version, e
+                    );
                     continue;
                 }
             };
@@ -492,22 +524,34 @@ pub fn read_lock_file<P: AsRef<Path>>(
             match Source::from_git_url(&url) {
                 Ok(src) => {
                     krates.push(Krate {
-                        name: p.name,
-                        version: p.version,
+                        name: pkg.name,
+                        version: pkg.version,
                         source: src,
                     });
                 }
                 Err(e) => {
                     error!(
-                        "unable to use git url {} for {}-{}: {}",
-                        url, p.name, p.version, e
+                        "unable to use git url {} for '{}:{}': {}",
+                        url, pkg.name, pkg.version, e
                     );
                 }
             }
         }
     }
-    registries_to_sync.sort();
-    registries_to_sync.dedup();
 
-    Ok((krates, registries_to_sync))
+    Ok((
+        krates,
+        registries
+            .into_iter()
+            .zip(regs_to_sync)
+            .filter_map(|(reg, count)| {
+                if count > 0 {
+                    Some(reg)
+                } else {
+                    info!("no sources using registry '{}'", reg.index);
+                    None
+                }
+            })
+            .collect(),
+    ))
 }

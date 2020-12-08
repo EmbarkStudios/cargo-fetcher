@@ -9,7 +9,8 @@ use tracing::debug;
 use url::Url;
 
 pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
-pub const CRATES_IO_DL: &str = "https://crates.io/api/v1/crates";
+pub const CRATES_IO_DL: &str =
+    "https://static.crates.io/crates/{{crate}}/{{crate}}-{{version}}.crate";
 
 fn to_hex(num: u64) -> String {
     const CHARS: &[u8] = b"0123456789abcdef";
@@ -615,9 +616,16 @@ mod test {
 
     #[test]
     fn gets_proper_registry_ident() {
-        let crates_io = Url::parse("https://github.com/rust-lang/crates.io-index").unwrap();
-        let canonicalized = Canonicalized::try_from(&crates_io).unwrap();
-        assert_eq!("github.com-1ecc6299db9ec823", canonicalized.ident());
+        let crates_io_registry = crate::Registry::new(
+            "https://github.com/rust-lang/crates.io-index".to_owned(),
+            None,
+            None,
+        );
+
+        assert_eq!(
+            "github.com-1ecc6299db9ec823",
+            crates_io_registry.short_name().unwrap()
+        );
     }
 
     #[test]
