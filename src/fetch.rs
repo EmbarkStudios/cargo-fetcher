@@ -1,4 +1,4 @@
-use crate::{util, Krate, Source};
+use crate::{cargo::Source, util, Krate};
 use anyhow::{bail, Context, Error};
 use bytes::Bytes;
 use reqwest::Client;
@@ -11,8 +11,8 @@ pub async fn from_registry(client: &Client, krate: &Krate) -> Result<Bytes, Erro
     async {
         match &krate.source {
             Source::Git { url, rev, .. } => via_git(&url.clone(), rev).await,
-            Source::Registry(registry, chksum) => {
-                let url = registry.get_url(krate);
+            Source::Registry { registry, chksum } => {
+                let url = registry.download_url(krate);
 
                 // TODO use token in private registry
                 let response = client.get(&url).send().await?.error_for_status()?;

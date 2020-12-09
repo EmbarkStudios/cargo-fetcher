@@ -8,7 +8,7 @@ use tracing_futures::Instrument;
 pub async fn registries_index(
     backend: crate::Storage,
     max_stale: Duration,
-    registries: Vec<Registry>,
+    registries: Vec<std::sync::Arc<Registry>>,
 ) -> Result<usize, Error> {
     let bytes = futures::stream::iter(registries)
         .map(|registry| {
@@ -68,7 +68,7 @@ pub async fn registry_index(
 
             if now - last_updated < max_dur {
                 info!(
-                    "the registry ({}) was last updated {}, skipping update as it less than {:?} old",
+                    "the registry ({}) was last updated {}, skipping update as it is less than {:?} old",
                     url, last_updated, max_stale
                 );
                 return Ok(0);

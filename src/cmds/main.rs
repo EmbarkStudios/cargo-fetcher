@@ -175,12 +175,12 @@ async fn real_main() -> Result<(), Error> {
         root_dir
     };
 
-    let cargo_root = cf::util::determine_cargo_root(Some(&root_dir))
+    let cargo_root = cf::cargo::determine_cargo_root(Some(&root_dir))
         .context("failed to determine $CARGO_HOME")?;
 
     let registries = cf::read_cargo_config(cargo_root.clone(), root_dir)?;
 
-    let (krates, registries) = cf::read_lock_file(args.lock_file, registries)
+    let (krates, registries) = cf::cargo::read_lock_file(args.lock_file, registries)
         .context("failed to get crates from lock file")?;
 
     match args.cmd {

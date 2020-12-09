@@ -14,7 +14,7 @@ pub const GIT_CO_DIR: &str = "git/checkouts";
 pub async fn registries_index(
     root_dir: PathBuf,
     backend: crate::Storage,
-    registries: Vec<Registry>,
+    registries: Vec<std::sync::Arc<Registry>>,
 ) -> Result<(), Error> {
     let root_dir = &root_dir;
     let resu = futures::stream::iter(registries)
@@ -29,6 +29,7 @@ pub async fn registries_index(
             .instrument(tracing::debug_span!("sync registry"))
         })
         .buffer_unordered(32);
+
     resu.fold((), |u, res| async move {
         match res {
             Ok(a) => a,
@@ -39,13 +40,14 @@ pub async fn registries_index(
         }
     })
     .await;
+
     Ok(())
 }
 
 pub async fn registry_index(
     root_dir: &Path,
     backend: crate::Storage,
-    registry: Registry,
+    registry: std::sync::Arc<Registry>,
 ) -> Result<(), Error> {
     let ident = registry.short_name()?;
 

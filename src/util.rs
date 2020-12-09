@@ -8,10 +8,6 @@ use std::{
 use tracing::debug;
 use url::Url;
 
-pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
-pub const CRATES_IO_DL: &str =
-    "https://static.crates.io/crates/{{crate}}/{{crate}}-{{version}}.crate";
-
 fn to_hex(num: u64) -> String {
     const CHARS: &[u8] = b"0123456789abcdef";
 
@@ -151,13 +147,6 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
         let url = Url::parse(&url_str)?;
 
         Ok(Self(url))
-    }
-}
-
-pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error> {
-    match explicit {
-        Some(exp) => home::cargo_home_with_cwd(exp).context("failed to retrieve cargo home"),
-        None => home::cargo_home().context("failed to retrieve cargo home for cwd"),
     }
 }
 
