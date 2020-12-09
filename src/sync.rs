@@ -236,11 +236,29 @@ async fn sync_package(
     Ok(())
 }
 
-fn check_local<'a>(
-    ctx: &'a crate::Ctx,
-    cache_dir: &Path,
+fn get_missing_git_sources<'krate>(
+    ctx: &'krate crate::Ctx,
     git_co_dir: &Path,
-) -> Result<Vec<&'a Krate>, Error> {
+    to_sync: &mut Vec<&'krate Krate>,
+) {
+    for (rev, ident, krate) in ctx.krates.iter().filter_map(|k| match &k.source {
+        Source::Git { rev, ident, .. } => Some((rev, ident, k)),
+        _ => None,
+    }) {
+        let path = git_co_dir.join(format!("{}/{}/.cargo-ok", ident, rev));
+
+        if !path.exists() {
+            to_sync.push(krate);
+        }
+    }
+}
+
+fn get_missing_registry_sources<'krate>(
+    ctx: &'krate crate::Ctx,
+    registry: &Registry,
+    cache_dir: &Path,
+    to_sync: &mut Vec<&'krate Krate>,
+) -> Result<(), Error> {
     let cache_iter = std::fs::read_dir(&cache_dir)?;
 
     let mut cached_crates: Vec<String> = cache_iter
@@ -253,10 +271,12 @@ fn check_local<'a>(
 
     cached_crates.sort();
 
-    let mut to_sync = Vec::with_capacity(ctx.krates.len());
     let mut krate_name = String::with_capacity(128);
 
-    for krate in ctx.krates.iter().filter(|k| !k.source.is_git()) {
+    for krate in ctx.krates.iter().filter(|k| match &k.source {
+        Source::Registry { registry: reg, .. } => registry.eq(reg),
+        _ => false,
+    }) {
         use std::fmt::Write;
         write!(&mut krate_name, "{}", krate.local_id()).unwrap();
 
@@ -267,24 +287,7 @@ fn check_local<'a>(
         krate_name.clear();
     }
 
-    for krate in ctx.krates.iter().filter(|k| k.source.is_git()) {
-        match &krate.source {
-            Source::Git { rev, ident, .. } => {
-                let path = git_co_dir.join(format!("{}/{}/.cargo-ok", ident, rev));
-
-                if !path.exists() {
-                    to_sync.push(krate);
-                }
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    // Remove duplicates, eg. when 2 crates are sourced from the same git repository
-    to_sync.sort();
-    to_sync.dedup();
-
-    Ok(to_sync)
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -297,27 +300,38 @@ pub struct Summary {
 pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
     info!("synchronizing {} crates...", ctx.krates.len());
 
-    let mut total_to_sync = Vec::new();
-
     let root_dir = &ctx.root_dir;
     let git_db_dir = root_dir.join(GIT_DB_DIR);
     let git_co_dir = root_dir.join(GIT_CO_DIR);
 
-    for url in ctx.registries.iter() {
-        let ident = url.short_name()?;
-        let cache_dir = root_dir.join(CACHE_DIR).join(ident.clone());
-        let src_dir = root_dir.join(SRC_DIR).join(ident.clone());
+    std::fs::create_dir_all(&git_db_dir).context("failed to create git/db/")?;
+    std::fs::create_dir_all(&git_co_dir).context("failed to create git/checkouts/")?;
+
+    info!("checking local cache for missing crates...");
+    let mut to_sync = Vec::with_capacity(ctx.krates.len());
+    get_missing_git_sources(ctx, &git_co_dir, &mut to_sync);
+
+    for registry in &ctx.registries {
+        let ident = registry.short_name()?;
+        let cache_dir = {
+            let mut d = root_dir.join(CACHE_DIR);
+            d.push(&ident);
+            d
+        };
+        let src_dir = {
+            let mut d = root_dir.join(SRC_DIR);
+            d.push(&ident);
+            d
+        };
         std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache/")?;
         std::fs::create_dir_all(&src_dir).context("failed to create registry/src/")?;
-        std::fs::create_dir_all(&git_db_dir).context("failed to create git/db/")?;
-        std::fs::create_dir_all(&git_co_dir).context("failed to create git/checkouts/")?;
 
-        // TODO: Also check the untarred crates
-        info!("checking local cache for missing crates...");
-        let mut to_sync = check_local(ctx, &cache_dir, &git_co_dir)?;
-        total_to_sync.append(&mut to_sync);
+        get_missing_registry_sources(ctx, &registry, &cache_dir, &mut to_sync)?;
     }
-    let to_sync = total_to_sync;
+
+    // Remove duplicates, eg. when 2 crates are sourced from the same git repository
+    to_sync.sort();
+    to_sync.dedup();
 
     if to_sync.is_empty() {
         info!("all crates already available on local disk");
@@ -351,8 +365,8 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                     Ok(krate_data) => {
                         let len = krate_data.len();
                         match &krate.source {
-                            Source::Registry(reg, chksum) => {
-                                let ident = reg.short_name()?;
+                            Source::Registry { registry, chksum } => {
+                                let ident = registry.short_name()?;
                                 let cache_dir = root_dir.join(CACHE_DIR).join(ident.clone());
                                 let src_dir = root_dir.join(SRC_DIR).join(ident.clone());
                                 if let Err(e) =
