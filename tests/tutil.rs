@@ -19,7 +19,7 @@ pub fn get_sync_dirs(ctx: &cf::Ctx) -> (PathBuf, PathBuf) {
 }
 
 pub fn hook_logger() {
-    const HOOK: std::sync::Once = std::sync::Once::new();
+    static HOOK: std::sync::Once = std::sync::Once::new();
 
     HOOK.call_once(|| {
         let mut env_filter = tracing_subscriber::EnvFilter::from_default_env();
