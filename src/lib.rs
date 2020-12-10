@@ -51,6 +51,15 @@ impl PartialEq for Krate {
     }
 }
 
+impl PartialEq<Registry> for Krate {
+    fn eq(&self, b: &Registry) -> bool {
+        match &self.source {
+            Source::Git { .. } => false,
+            Source::Registry { registry, .. } => b.eq(registry),
+        }
+    }
+}
+
 impl Krate {
     pub fn cloud_id(&self) -> CloudId<'_> {
         CloudId { inner: self }
@@ -162,6 +171,32 @@ impl Ctx {
         std::fs::create_dir_all(self.root_dir.join("git"))?;
 
         Ok(())
+    }
+
+    pub fn registry_sets(&self) -> Vec<mirror::RegistrySet> {
+        self.registries
+            .iter()
+            .map(|registry| {
+                // Gather the names of all of the crates sourced in the registry so we
+                // can add .cache entries
+                let krates = self
+                    .krates
+                    .iter()
+                    .filter_map(|krate| {
+                        if krate == registry.as_ref() {
+                            Some(krate.name.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                mirror::RegistrySet {
+                    registry: registry.clone(),
+                    krates,
+                }
+            })
+            .collect()
     }
 }
 

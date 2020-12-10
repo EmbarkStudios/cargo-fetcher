@@ -5,17 +5,22 @@ use std::time::Duration;
 use tracing::{debug, error, info};
 use tracing_futures::Instrument;
 
-pub async fn registries_index(
+pub struct RegistrySet {
+    pub registry: std::sync::Arc<Registry>,
+    pub krates: Vec<String>,
+}
+
+pub async fn registry_indices(
     backend: crate::Storage,
     max_stale: Duration,
-    registries: Vec<std::sync::Arc<Registry>>,
+    registries: Vec<RegistrySet>,
 ) -> Result<usize, Error> {
     let bytes = futures::stream::iter(registries)
-        .map(|registry| {
+        .map(|rset| {
             let backend = backend.clone();
-            let index = registry.index.clone();
+            let index = rset.registry.index.clone();
             async move {
-                let res: Result<usize, Error> = registry_index(backend, max_stale, &registry)
+                let res: Result<usize, Error> = registry_index(backend, max_stale, rset)
                     .instrument(tracing::debug_span!("upload registry"))
                     .await;
                 res
@@ -42,9 +47,9 @@ pub async fn registries_index(
 pub async fn registry_index(
     backend: crate::Storage,
     max_stale: Duration,
-    registry: &Registry,
+    rset: RegistrySet,
 ) -> Result<usize, Error> {
-    let ident = registry.short_name();
+    let ident = rset.registry.short_name();
 
     // Create a fake krate for the index, we don't have to worry about clashing
     // since we use a `.` which is not an allowed character in crate names
@@ -52,7 +57,7 @@ pub async fn registry_index(
         name: ident.clone(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: registry.index.clone(),
+            url: rset.registry.index.clone(),
             ident,
             rev: "feedc0de".to_owned(),
         },
@@ -68,7 +73,7 @@ pub async fn registry_index(
             if now - last_updated < max_dur {
                 info!(
                     "the registry ({}) was last updated {}, skipping update as it is less than {:?} old",
-                    registry.index, last_updated, max_stale
+                    rset.registry.index, last_updated, max_stale
                 );
                 return Ok(0);
             }
@@ -76,15 +81,18 @@ pub async fn registry_index(
     }
 
     let index = async {
-        let res = fetch::registry(&registry.index).await;
+        let res = fetch::registry(&rset.registry.index, rset.krates.into_iter()).await;
 
         if let Ok(ref buffer) = res {
-            debug!(size = buffer.len(), "{} index downloaded", registry.index);
+            debug!(
+                size = buffer.len(),
+                "{} index downloaded", rset.registry.index
+            );
         }
 
         res
     }
-    .instrument(tracing::debug_span!("fetch"))
+    .instrument(tracing::debug_span!("fetch_index"))
     .await?;
 
     backend

@@ -87,7 +87,7 @@ pub async fn registry_index(
         source: Source::Git {
             url: registry.index.clone(),
             ident,
-            rev: String::new(),
+            rev: "feedc0de".to_owned(),
         },
     };
 
@@ -272,10 +272,7 @@ fn get_missing_registry_sources<'krate>(
 
     let mut krate_name = String::with_capacity(128);
 
-    for krate in ctx.krates.iter().filter(|k| match &k.source {
-        Source::Registry { registry: reg, .. } => registry.eq(reg),
-        _ => false,
-    }) {
+    for krate in ctx.krates.iter().filter(|k| *k == registry) {
         use std::fmt::Write;
         write!(&mut krate_name, "{}", krate.local_id()).unwrap();
 
@@ -355,9 +352,7 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                         let len = krate_data.len();
                         match &krate.source {
                             Source::Registry { registry, chksum } => {
-                                let ident = registry.short_name();
-                                let cache_dir = root_dir.join(CACHE_DIR).join(ident.clone());
-                                let src_dir = root_dir.join(SRC_DIR).join(ident.clone());
+                                let (cache_dir, src_dir) = registry.sync_dirs(&root_dir);
                                 if let Err(e) =
                                     sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
                                         .instrument(tracing::debug_span!("package"))
