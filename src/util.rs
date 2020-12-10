@@ -525,44 +525,6 @@ pub fn parse_cloud_location(
     }
 }
 
-pub(crate) async fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error> {
-    use tokio::process::Command;
-
-    let output = Command::new("git")
-        .arg("clone")
-        .arg("--template=''")
-        .arg("--no-tags")
-        .arg(src)
-        .arg(target)
-        .output()
-        .await?;
-
-    if !output.status.success() {
-        let err_out = String::from_utf8(output.stderr)?;
-        bail!("failed to clone {}: {}", src.display(), err_out);
-    }
-
-    let reset = Command::new("git")
-        .arg("reset")
-        .arg("--hard")
-        .arg(rev)
-        .current_dir(target)
-        .output()
-        .await?;
-
-    if !reset.status.success() {
-        let err_out = String::from_utf8(reset.stderr)?;
-        bail!(
-            "failed to checkout {} @ {}: {}",
-            src.display(),
-            rev,
-            err_out
-        );
-    }
-
-    Ok(())
-}
-
 pub(crate) fn write_ok(to: &Path) -> Result<(), Error> {
     let mut f = std::fs::File::create(&to)
         .with_context(|| format!("failed to create: {}", to.display()))?;

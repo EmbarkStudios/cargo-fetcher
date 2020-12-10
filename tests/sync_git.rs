@@ -16,6 +16,8 @@ macro_rules! git_source {
 
 #[tokio::test(threaded_scheduler)]
 async fn multiple_from_same_repo() {
+    util::hook_logger();
+
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
     let registry = std::sync::Arc::new(Registry::default());
     let registries = vec![registry.clone()];

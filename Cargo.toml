@@ -64,7 +64,7 @@ features = ["vendored-openssl"]
 
 [dependencies.tokio]
 version = "0.2"
-features = ["rt-threaded", "rt-util", "blocking", "process", "macros"]
+features = ["rt-threaded", "rt-util", "blocking", "macros"]
 
 [features]
 default = []

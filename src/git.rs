@@ -1,4 +1,4 @@
-use anyhow::Error;
+use anyhow::{Context, Error};
 
 pub(crate) fn with_fetch_options(
     git_config: &git2::Config,
@@ -282,4 +282,45 @@ where
     }
 
     Err(err)
+}
+
+pub(crate) async fn checkout(
+    src: std::path::PathBuf,
+    target: std::path::PathBuf,
+    rev: String,
+) -> Result<(), Error> {
+    // We require the target directory to be clean
+    std::fs::create_dir_all(target.parent().unwrap()).context("failed to create checkout dir")?;
+    if target.exists() {
+        remove_dir_all::remove_dir_all(&target).context("failed to clean checkout dir")?;
+    }
+
+    tokio::task::spawn_blocking(move || {
+        let fopts = git2::FetchOptions::new();
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.dry_run(); // we'll do this below during a `reset`
+
+        let src_url = url::Url::from_file_path(&src).map_err(|_| Error::msg("invalid path URL"))?;
+
+        let repo = git2::build::RepoBuilder::new()
+            // use hard links and/or copy the database, we're doing a
+            // filesystem clone so this'll speed things up quite a bit.
+            .clone_local(git2::build::CloneLocal::Local)
+            .with_checkout(checkout)
+            .fetch_options(fopts)
+            .clone(src_url.as_str(), &target)
+            .context("failed to clone")?;
+
+        if let Ok(mut cfg) = repo.config() {
+            let _ = cfg.set_bool("core.autocrlf", false);
+        }
+
+        let object = repo
+            .revparse_single(&rev)
+            .context("failed to find revision")?;
+        repo.reset(&object, git2::ResetType::Hard, None)
+            .context("failed to do hard reset")?;
+        Ok(())
+    })
+    .await?
 }

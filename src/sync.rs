@@ -57,27 +57,45 @@ pub async fn registry_index(
     // Just skip the index if the git directory already exists,
     // as a patch on top of an existing repo via git fetch is
     // presumably faster
-    if index_path.join(".git").exists() {
+    if let Ok(repo) = git2::Repository::open(&index_path) {
         info!("registry index already exists, fetching instead");
 
-        let output = tokio::process::Command::new("git")
-            .arg("fetch")
-            .current_dir(&index_path)
-            .output()
-            .await?;
+        let url = registry.index.as_str().to_owned();
 
-        if !output.status.success() {
-            let err_out = String::from_utf8(output.stderr)?;
-            error!(
-                "failed to pull registry index, removing it and updating manually: {}",
-                err_out
-            );
-            remove_dir_all::remove_dir_all(&index_path)?;
-        } else {
-            // Write a file to the directory to let cargo know when it was updated
-            std::fs::File::create(index_path.join(".last-updated"))
-                .context("failed to crate .last-updated")?;
-            return Ok(());
+        // We need to ship off the fetching to a blocking thread so we don't anger tokio
+        match tokio::task::spawn_blocking(move || -> Result<(), Error> {
+            let git_config =
+                git2::Config::open_default().context("Failed to open default git config")?;
+
+            crate::git::with_fetch_options(&git_config, &url, &mut |mut opts| {
+                repo.remote_anonymous(&url)?
+                    .fetch(
+                        &[
+                            "refs/heads/master:refs/remotes/origin/master",
+                            "HEAD:refs/remotes/origin/HEAD",
+                        ],
+                        Some(&mut opts),
+                        None,
+                    )
+                    .context("Failed to fetch")
+            })
+        })
+        .instrument(tracing::debug_span!("fetch"))
+        .await?
+        {
+            Ok(_) => {
+                // Write a file to the directory to let cargo know when it was updated
+                std::fs::File::create(index_path.join(".last-updated"))
+                    .context("failed to crate .last-updated")?;
+                return Ok(());
+            }
+            Err(err_out) => {
+                error!(
+                    "failed to pull registry index, removing it and updating manually: {}",
+                    err_out
+                );
+                remove_dir_all::remove_dir_all(&index_path)?;
+            }
         }
     }
 
@@ -114,19 +132,15 @@ async fn sync_git(
 ) -> Result<(), Error> {
     let db_path = db_dir.join(format!("{}", krate.local_id()));
 
-    // The path may already exist, so in that case just do a fetch
+    // Always just blow away and do a sync from the remote tar
     if db_path.exists() {
-        crate::fetch::update_bare(krate, &db_path)
-            .instrument(tracing::debug_span!("git_fetch"))
-            .await?;
-    } else {
-        let unpack_path = db_path.clone();
-        tokio::task::spawn_blocking(move || {
-            util::unpack_tar(data, util::Encoding::Zstd, &unpack_path)
-        })
+        remove_dir_all::remove_dir_all(&db_path).context("failed to remove existing DB path")?;
+    }
+
+    let unpack_path = db_path.clone();
+    tokio::task::spawn_blocking(move || util::unpack_tar(data, util::Encoding::Zstd, &unpack_path))
         .instrument(tracing::debug_span!("unpack_tar"))
         .await??;
-    }
 
     let co_path = co_dir.join(format!("{}/{}", krate.local_id(), rev));
 
@@ -140,7 +154,7 @@ async fn sync_git(
     }
 
     // Do a checkout of the bare clone
-    util::checkout(&db_path, &co_path, rev)
+    crate::git::checkout(db_path, co_path.clone(), rev.to_owned())
         .instrument(tracing::debug_span!("checkout"))
         .await?;
 

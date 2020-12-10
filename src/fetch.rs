@@ -1,11 +1,8 @@
-mod git;
-
 use crate::{cargo::Source, util, Krate};
-use anyhow::{bail, Context, Error};
+use anyhow::{Context, Error};
 use bytes::Bytes;
 use reqwest::Client;
 use std::path::Path;
-use tokio::process::Command;
 use tracing::{error, warn};
 use tracing_futures::Instrument;
 
@@ -34,125 +31,47 @@ pub async fn via_git(url: &url::Url, rev: &str) -> Result<Bytes, Error> {
     // Create a temporary directory to clone the repo into
     let temp_dir = tempfile::tempdir()?;
 
-    let init = Command::new("git")
-        .arg("init")
-        .arg("--template=''")
-        .arg("--bare")
-        .arg(temp_dir.path())
-        .output()
-        .await?;
+    let mut init_opts = git2::RepositoryInitOptions::new();
+    init_opts.bare(true);
+    init_opts.external_template(false);
 
-    if !init.status.success() {
-        let err = String::from_utf8(init.stderr)?;
-        error!(?err, "failed to init git repo");
-        bail!("failed to init git repo");
-    }
+    let repo =
+        git2::Repository::init_opts(&temp_dir, &init_opts).context("failed to initialize repo")?;
 
-    let mut fetch = Command::new("git");
-    fetch
-        .arg("fetch")
-        .arg("--tags") // fetch all tags
-        .arg("--force") // handle force pushes
-        .arg("--update-head-ok") // see discussion in #2078
-        .arg(url.as_str())
-        .arg("refs/heads/*:refs/heads/*")
-        // If cargo is run by git (for example, the `exec` command in `git
-        // rebase`), the GIT_DIR is set by git and will point to the wrong
-        // location (this takes precedence over the cwd). Make sure this is
-        // unset so git will look at cwd for the repo.
-        .env_remove("GIT_DIR")
-        // The reset of these may not be necessary, but I'm including them
-        // just to be extra paranoid and avoid any issues.
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_OBJECT_DIRECTORY")
-        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-        .current_dir(temp_dir.path());
+    let fetch_url = url.as_str().to_owned();
+    let fetch_rev = rev.to_owned();
 
-    let fetch = fetch.output().await?;
+    // We need to ship off the fetching to a blocking thread so we don't anger tokio
+    tokio::task::spawn_blocking(move || -> Result<(), Error> {
+        let git_config =
+            git2::Config::open_default().context("Failed to open default git config")?;
 
-    if !fetch.status.success() {
-        let err = String::from_utf8(fetch.stderr)?;
-        error!(?err, "failed to fetch git repo");
-        bail!("failed to fetch git repo");
-    }
+        crate::git::with_fetch_options(&git_config, &fetch_url, &mut |mut opts| {
+            opts.download_tags(git2::AutotagOption::All);
+            repo.remote_anonymous(&fetch_url)?
+                .fetch(
+                    &[
+                        "refs/heads/*:refs/remotes/origin/*",
+                        "HEAD:refs/remotes/origin/HEAD",
+                    ],
+                    Some(&mut opts),
+                    None,
+                )
+                .context("Failed to fetch")
+        })?;
 
-    // Ensure that the revision required in the lockfile is actually present
-    let has_revision = Command::new("git")
-        .arg("cat-file")
-        .arg("-t")
-        .arg(rev)
-        .current_dir(temp_dir.path())
-        .output()
-        .await?;
+        // Ensure that the repo actually contains the revision we need
+        repo.revparse_single(&fetch_rev)
+            .with_context(|| format!("{} doesn't contain rev '{}'", fetch_url, fetch_rev))?;
 
-    if !has_revision.status.success()
-        || String::from_utf8(has_revision.stdout)
-            .ok()
-            .as_ref()
-            .map(|s| s.as_ref())
-            != Some("commit\n")
-    {
-        error!(?rev, "revision not found");
-        bail!("revision not found");
-    }
+        Ok(())
+    })
+    .instrument(tracing::debug_span!("fetch"))
+    .await??;
 
     util::pack_tar(temp_dir.path())
         .instrument(tracing::debug_span!("tarballing", %url, %rev))
         .await
-}
-
-pub async fn update_bare(krate: &Krate, path: &Path) -> Result<(), Error> {
-    let rev = match &krate.source {
-        Source::Git { rev, .. } => rev,
-        _ => bail!("not a git source"),
-    };
-
-    // Check if we already have the required revision and can skip the fetch
-    // altogether
-    let has_revision = Command::new("git")
-        .arg("cat-file")
-        .arg("-t")
-        .arg(rev)
-        .current_dir(&path)
-        .output()
-        .await?;
-
-    if has_revision.status.success() {
-        return Ok(());
-    }
-
-    let output = Command::new("git")
-        .arg("fetch")
-        .current_dir(&path)
-        .output()
-        .await?;
-
-    if !output.status.success() {
-        let err_out = String::from_utf8(output.stderr)?;
-        anyhow::bail!("failed to fetch: {}", err_out);
-    }
-
-    // Ensure that the revision required in the lockfile is actually present
-    let has_revision = Command::new("git")
-        .arg("cat-file")
-        .arg("-t")
-        .arg(rev)
-        .current_dir(&path)
-        .output()
-        .await?;
-
-    if !has_revision.status.success()
-        || String::from_utf8(has_revision.stdout)
-            .ok()
-            .as_ref()
-            .map(|s| s.as_ref())
-            != Some("commit\n")
-    {
-        anyhow::bail!("git repo for {} does not contain revision {}", krate, rev);
-    }
-
-    Ok(())
 }
 
 pub async fn registry(
@@ -179,7 +98,7 @@ pub async fn registry(
         let git_config =
             git2::Config::open_default().context("Failed to open default git config")?;
 
-        git::with_fetch_options(&git_config, &url, &mut |mut opts| {
+        crate::git::with_fetch_options(&git_config, &url, &mut |mut opts| {
             repo.remote_anonymous(&url)?
                 .fetch(
                     &[
