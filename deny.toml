@@ -38,9 +38,6 @@ skip = [
     # so many crates
     { name = "base64", version = "=0.12.3" },
 
-    # mio-named-pipes brings in 2 versions of miow
-    { name = "miow", version = "=0.2.1" },
-
     # tempfile uses an old version, but is only a dev-dep so it's fine
     { name = "remove_dir_all", version = "=0.5.3" },
 
