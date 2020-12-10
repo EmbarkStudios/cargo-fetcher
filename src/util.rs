@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context, Error};
 #[allow(deprecated)]
 use std::{
+    fmt,
     hash::{Hash, Hasher, SipHasher},
     path::{Path, PathBuf},
 };
@@ -42,10 +43,11 @@ fn hash_u64<H: Hash>(hashable: H) -> u64 {
     hasher.finish()
 }
 
-fn short_hash<H: Hash>(hashable: &H) -> String {
+pub fn short_hash<H: Hash>(hashable: &H) -> String {
     to_hex(hash_u64(hashable))
 }
 
+#[derive(Clone)]
 pub struct Canonicalized(Url);
 
 impl Canonicalized {
@@ -60,6 +62,12 @@ impl Canonicalized {
         let ident = if ident == "" { "_empty" } else { ident };
 
         format!("{}-{}", ident, short_hash(&self.0))
+    }
+}
+
+impl fmt::Display for Canonicalized {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_ref())
     }
 }
 
@@ -140,21 +148,6 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
 
         Ok(Self(url))
     }
-}
-
-pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error> {
-    let root_dir = explicit
-        .cloned()
-        .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
-        .or_else(|| {
-            app_dirs2::data_root(app_dirs2::AppDataType::UserConfig)
-                .map(|hd| hd.join(".cargo"))
-                .ok()
-        });
-
-    let root_dir = root_dir.context("unable to determine cargo root")?;
-
-    Ok(root_dir)
 }
 
 pub async fn convert_response(
@@ -470,7 +463,7 @@ impl CloudLocationUrl {
 pub fn parse_cloud_location(
     cloud_url: &CloudLocationUrl,
 ) -> Result<crate::CloudLocation<'_>, Error> {
-    let CloudLocationUrl { url, path } = cloud_url;
+    let CloudLocationUrl { url, path: _path } = cloud_url;
     match url.scheme() {
         #[cfg(feature = "gcs")]
         "gs" => {
@@ -495,7 +488,7 @@ pub fn parse_cloud_location(
         }
         #[cfg(feature = "fs")]
         "file" => {
-            let path = path.as_ref().unwrap();
+            let path = _path.as_ref().unwrap();
             Ok(crate::CloudLocation::Fs(crate::FilesystemLocation { path }))
         }
         #[cfg(not(feature = "fs"))]
@@ -608,6 +601,16 @@ mod test {
         let ident = canonicalized.ident();
 
         assert_eq!(ident, "cpal-a7ffd7cabefac714");
+    }
+
+    #[test]
+    fn gets_proper_registry_ident() {
+        let crates_io_registry = crate::Registry::default();
+
+        assert_eq!(
+            "github.com-1ecc6299db9ec823",
+            crates_io_registry.short_name()
+        );
     }
 
     #[test]

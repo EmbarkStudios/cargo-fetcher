@@ -1,6 +1,6 @@
 use anyhow::Context;
 use cargo_fetcher as cf;
-use cf::{Krate, Source};
+use cf::{Krate, Registry, Source};
 
 mod tutil;
 use tutil as util;
@@ -17,7 +17,9 @@ macro_rules! git_source {
 #[tokio::test(threaded_scheduler)]
 async fn multiple_from_same_repo() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned()).await;
+    let registry = std::sync::Arc::new(Registry::default());
+    let registries = vec![registry.clone()];
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
 
     let missing_root = tempfile::TempDir::new().expect("failed to create tempdir");
     fs_ctx.root_dir = missing_root.path().to_owned();

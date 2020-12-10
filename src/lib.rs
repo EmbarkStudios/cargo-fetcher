@@ -2,150 +2,25 @@
 #![warn(rust_2018_idioms)]
 
 use anyhow::Error;
-use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
-    collections::BTreeMap,
-    convert::{From, Into, TryFrom},
+    convert::From,
     fmt,
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tracing::warn;
 pub use url::Url;
 
 pub mod backends;
+pub mod cargo;
 mod fetch;
 pub mod mirror;
 pub mod sync;
 pub mod util;
 
-#[derive(Deserialize)]
-struct Package {
-    name: String,
-    version: String,
-    source: Option<String>,
-    /// V2 lock format has the package checksum at the package definition
-    /// instead of the separate metadata
-    checksum: Option<String>,
-}
+pub use cargo::{read_cargo_config, Registry, Source};
 
-#[derive(Deserialize)]
-struct LockContents {
-    package: Vec<Package>,
-    /// V2 lock format doesn't have a metadata section
-    #[serde(default)]
-    metadata: BTreeMap<String, String>,
-}
-
-///
-/// NB: This exists purely to make Source be able to auto-derive Serialize and Deserialize!
-///
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
-pub struct UrlWrapper(Url);
-
-impl From<Url> for UrlWrapper {
-    fn from(url: Url) -> Self {
-        Self(url)
-    }
-}
-
-impl Into<Url> for UrlWrapper {
-    fn into(self) -> Url {
-        self.0
-    }
-}
-
-impl Serialize for UrlWrapper {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut obj = serializer.serialize_struct("UrlWrapper", 1)?;
-        obj.serialize_field("url", &format!("{}", self.0))?;
-        obj.end()
-    }
-}
-
-// TODO: figure out how to avoid all this boilerplate implementing Deserialize!
-impl<'de> Deserialize<'de> for UrlWrapper {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct UrlWrapperVisitor;
-
-        impl<'de> Visitor<'de> for UrlWrapperVisitor {
-            type Value = UrlWrapper;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("struct UrlWrapper")
-            }
-
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                url::Url::parse(v).map(UrlWrapper).map_err(|err| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Str(&format!("{:?}: {}", v, err)),
-                        &"A url",
-                    )
-                })
-            }
-        }
-
-        const FIELDS: &[&str] = &["url"];
-        deserializer.deserialize_struct("UrlWrapper", FIELDS, UrlWrapperVisitor)
-    }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
-pub enum Source {
-    CratesIo(String),
-    Git {
-        url: UrlWrapper,
-        rev: String,
-        ident: String,
-    },
-}
-
-impl Source {
-    pub fn from_git_url(url: &Url) -> Result<Self, Error> {
-        let rev = match url.query_pairs().find(|(k, _)| k == "rev") {
-            Some((_, rev)) => {
-                if rev.len() < 7 {
-                    anyhow::bail!("revision specififer {} is too short", rev);
-                } else {
-                    rev
-                }
-            }
-            None => {
-                anyhow::bail!("url doesn't contain a revision specifier");
-            }
-        };
-
-        // This will handle
-        // 1. 7 character short_id
-        // 2. Full 40 character sha-1
-        // 3. 7 character short_id#sha-1
-        let rev = &rev[..7];
-
-        let canonicalized = util::Canonicalized::try_from(url)?;
-        let ident = canonicalized.ident();
-
-        let url: Url = canonicalized.into();
-        Ok(Source::Git {
-            url: url.into(),
-            ident,
-            rev: rev.to_owned(),
-        })
-    }
-
-    pub(crate) fn is_git(&self) -> bool {
-        !matches!(self, Source::CratesIo(_))
-    }
-}
-
-#[derive(Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(Eq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
@@ -189,8 +64,8 @@ impl Krate {
 impl fmt::Display for Krate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let typ = match &self.source {
-            Source::CratesIo(_) => "crates.io",
             Source::Git { .. } => "git",
+            Source::Registry { .. } => "registry",
         };
 
         write!(f, "{}-{}({})", self.name, self.version, typ)
@@ -204,8 +79,10 @@ pub struct LocalId<'a> {
 impl<'a> fmt::Display for LocalId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
-            Source::CratesIo(_) => write!(f, "{}-{}.crate", self.inner.name, self.inner.version),
             Source::Git { ident, .. } => write!(f, "{}", &ident),
+            Source::Registry { .. } => {
+                write!(f, "{}-{}.crate", self.inner.name, self.inner.version)
+            }
         }
     }
 }
@@ -217,8 +94,8 @@ pub struct CloudId<'a> {
 impl<'a> fmt::Display for CloudId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
-            Source::CratesIo(chksum) => write!(f, "{}", chksum),
             Source::Git { ident, rev, .. } => write!(f, "{}-{}", ident, rev),
+            Source::Registry { chksum, .. } => write!(f, "{}", chksum),
         }
     }
 }
@@ -259,6 +136,7 @@ pub struct Ctx {
     pub client: reqwest::Client,
     pub backend: Storage,
     pub krates: Vec<Krate>,
+    pub registries: Vec<Arc<Registry>>,
     pub root_dir: PathBuf,
 }
 
@@ -267,17 +145,19 @@ impl Ctx {
         root_dir: Option<PathBuf>,
         backend: Storage,
         krates: Vec<Krate>,
+        registries: Vec<Arc<Registry>>,
     ) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::builder().build()?,
             backend,
             krates,
+            registries,
             root_dir: root_dir.unwrap_or_else(|| PathBuf::from(".")),
         })
     }
 
+    /// Create the registry and git directories as they are the root of multiple other ones
     pub fn prep_sync_dirs(&self) -> Result<(), Error> {
-        // Create the registry and git directories as they are the root of multiple other ones
         std::fs::create_dir_all(self.root_dir.join("registry"))?;
         std::fs::create_dir_all(self.root_dir.join("git"))?;
 
@@ -298,83 +178,4 @@ pub trait Backend: fmt::Debug {
     async fn list(&self) -> Result<Vec<String>, Error>;
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
     fn set_prefix(&mut self, prefix: &str);
-}
-
-pub fn read_lock_file<P: AsRef<Path>>(lock_path: P) -> Result<Vec<Krate>, Error> {
-    use std::fmt::Write;
-    use tracing::{error, trace};
-
-    let mut locks: LockContents = {
-        let toml_contents = std::fs::read_to_string(lock_path)?;
-        toml::from_str(&toml_contents)?
-    };
-
-    let mut lookup = String::with_capacity(128);
-    let mut krates = Vec::with_capacity(locks.package.len());
-
-    for p in locks.package {
-        let source = match p.source.as_ref() {
-            Some(s) => s,
-            None => {
-                trace!("skipping 'path' source {}-{}", p.name, p.version);
-                continue;
-            }
-        };
-
-        if source == "registry+https://github.com/rust-lang/crates.io-index" {
-            match p.checksum {
-                Some(chksum) => krates.push(Krate {
-                    name: p.name,
-                    version: p.version,
-                    source: Source::CratesIo(chksum),
-                }),
-                None => {
-                    write!(
-                        &mut lookup,
-                        "checksum {} {} (registry+https://github.com/rust-lang/crates.io-index)",
-                        p.name, p.version
-                    )
-                    .unwrap();
-
-                    if let Some(chksum) = locks.metadata.remove(&lookup) {
-                        krates.push(Krate {
-                            name: p.name,
-                            version: p.version,
-                            source: Source::CratesIo(chksum),
-                        })
-                    }
-
-                    lookup.clear();
-                }
-            }
-        } else {
-            // We support exactly one form of git sources, rev specififers
-            // eg. git+https://github.com/EmbarkStudios/rust-build-helper?rev=9135717#91357179ba2ce6ec7e430a2323baab80a8f7d9b3
-            let url = match Url::parse(source) {
-                Ok(u) => u,
-                Err(e) => {
-                    error!("failed to parse url for {}-{}: {}", p.name, p.version, e);
-                    continue;
-                }
-            };
-
-            match Source::from_git_url(&url) {
-                Ok(src) => {
-                    krates.push(Krate {
-                        name: p.name,
-                        version: p.version,
-                        source: src,
-                    });
-                }
-                Err(e) => {
-                    error!(
-                        "unable to use git url {} for {}-{}: {}",
-                        url, p.name, p.version, e
-                    );
-                }
-            }
-        }
-    }
-
-    Ok(krates)
 }

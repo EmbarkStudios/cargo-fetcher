@@ -1,23 +1,60 @@
-use crate::{fetch, util, Ctx, Krate, Source};
+use crate::{fetch, Ctx, Krate, Registry, Source};
 use anyhow::Error;
-use std::{convert::TryFrom, time::Duration};
+use futures::StreamExt;
+use std::time::Duration;
 use tracing::{debug, error, info};
 use tracing_futures::Instrument;
 
-pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Result<usize, Error> {
-    let url = url::Url::parse("git+https://github.com/rust-lang/crates.io-index.git")?;
-    let canonicalized = util::Canonicalized::try_from(&url)?;
-    let ident = canonicalized.ident();
+pub async fn registries_index(
+    backend: crate::Storage,
+    max_stale: Duration,
+    registries: Vec<std::sync::Arc<Registry>>,
+) -> Result<usize, Error> {
+    let bytes = futures::stream::iter(registries)
+        .map(|registry| {
+            let backend = backend.clone();
+            let index = registry.index.clone();
+            async move {
+                let res: Result<usize, Error> = registry_index(backend, max_stale, &registry)
+                    .instrument(tracing::debug_span!("upload registry"))
+                    .await;
+                res
+            }
+            .instrument(tracing::debug_span!("mirror registries", %index))
+        })
+        .buffer_unordered(32);
+
+    let total_bytes = bytes
+        .fold(0usize, |acc, res| async move {
+            match res {
+                Ok(a) => a + acc,
+                Err(e) => {
+                    error!("{:#}", e);
+                    acc
+                }
+            }
+        })
+        .await;
+
+    Ok(total_bytes)
+}
+
+pub async fn registry_index(
+    backend: crate::Storage,
+    max_stale: Duration,
+    registry: &Registry,
+) -> Result<usize, Error> {
+    let ident = registry.short_name();
 
     // Create a fake krate for the index, we don't have to worry about clashing
     // since we use a `.` which is not an allowed character in crate names
     let krate = Krate {
-        name: "crates.io-index".to_owned(),
+        name: ident.clone(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: canonicalized.as_ref().clone().into(),
+            url: registry.index.clone(),
             ident,
-            rev: String::new(),
+            rev: "feedc0de".to_owned(),
         },
     };
 
@@ -30,8 +67,8 @@ pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Res
 
             if now - last_updated < max_dur {
                 info!(
-                    "crates.io-index was last updated {}, skipping update as it less than {:?} old",
-                    last_updated, max_stale
+                    "the registry ({}) was last updated {}, skipping update as it is less than {:?} old",
+                    registry.index, last_updated, max_stale
                 );
                 return Ok(0);
             }
@@ -39,10 +76,10 @@ pub async fn registry_index(backend: crate::Storage, max_stale: Duration) -> Res
     }
 
     let index = async {
-        let res = fetch::registry(canonicalized.as_ref()).await;
+        let res = fetch::registry(&registry.index).await;
 
         if let Ok(ref buffer) = res {
-            debug!(size = buffer.len(), "crates.io index downloaded");
+            debug!(size = buffer.len(), "{} index downloaded", registry.index);
         }
 
         res
@@ -91,15 +128,12 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
     let client = &ctx.client;
     let backend = &ctx.backend;
 
-    use futures::StreamExt;
-
     let bodies = futures::stream::iter(to_mirror)
         .map(|krate| {
             let client = &client;
             let backend = backend.clone();
             async move {
-                let res: Result<usize, String> = match fetch::from_crates_io(&client, &krate).await
-                {
+                let res: Result<usize, String> = match fetch::from_registry(&client, &krate).await {
                     Err(e) => Err(format!("failed to retrieve {}: {}", krate, e)),
                     Ok(buffer) => {
                         debug!(size = buffer.len(), "fetched");

@@ -1,4 +1,4 @@
-use crate::{util, Krate, Source};
+use crate::{cargo::Source, util, Krate};
 use anyhow::{bail, Context, Error};
 use bytes::Bytes;
 use reqwest::Client;
@@ -7,15 +7,14 @@ use tokio::process::Command;
 use tracing::{debug, error};
 use tracing_futures::Instrument;
 
-pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
+pub async fn from_registry(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
     async {
         match &krate.source {
-            Source::CratesIo(chksum) => {
-                let url = format!(
-                    "https://static.crates.io/crates/{}/{}-{}.crate",
-                    krate.name, krate.name, krate.version
-                );
+            Source::Git { url, rev, .. } => via_git(&url.clone(), rev).await,
+            Source::Registry { registry, chksum } => {
+                let url = registry.download_url(krate);
 
+                // TODO use token in private registry
                 let response = client.get(&url).send().await?.error_for_status()?;
                 let res = util::convert_response(response).await?;
                 let content = res.into_body();
@@ -24,7 +23,6 @@ pub async fn from_crates_io(client: &Client, krate: &Krate) -> Result<Bytes, Err
 
                 Ok(content)
             }
-            Source::Git { url, rev, .. } => via_git(&url.clone().into(), rev).await,
         }
     }
     .instrument(tracing::debug_span!("fetch"))
