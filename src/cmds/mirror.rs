@@ -28,21 +28,23 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(),
     let backend = ctx.backend.clone();
 
     let local = tokio::task::LocalSet::new();
-    let regs = ctx.registries.to_vec();
+
+    let regs = ctx.registry_sets();
+
     let index = local.run_until(async move {
         if !include_index {
             return;
         }
 
         if let Err(e) = tokio::task::spawn_local(async move {
-            match mirror::registries_index(backend, args.max_stale, regs)
+            match mirror::registry_indices(backend, args.max_stale, regs)
                 .instrument(tracing::info_span!("index"))
                 .await
             {
                 Ok(_) => {
-                    info!("successfully mirrored all registries index");
+                    info!("successfully mirrored all registry indices");
                 }
-                Err(e) => error!("failed to mirror registries index: {:#}", e),
+                Err(e) => error!("failed to mirror all registry indices: {:#}", e),
             }
         })
         .await

@@ -32,6 +32,7 @@ futures-util = { version = "0.3", features = ["async-await-macro"] }
 hex = { version = "0.4", optional = true }
 home = "0.5"
 http = "0.2"
+memchr = "2.3"
 md5 = { version = "0.7", optional = true }
 rayon = "1.5"
 remove_dir_all = "0.6"
@@ -54,6 +55,12 @@ tracing-subscriber = "0.2"
 url = { version = "2.2", features = ["serde"] }
 walkdir = "2.3"
 zstd = "0.5"
+
+[dependencies.git2]
+version = "0.13"
+# We enable this feature so that we can easily compile for eg. musl, and dodge
+# a bunch of shenanigans with openssl differences on different distros
+features = ["vendored-openssl"]
 
 [dependencies.tokio]
 version = "0.2"

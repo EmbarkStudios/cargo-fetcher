@@ -2,9 +2,10 @@ use std::{cmp::Ordering, fs::File, path::Path};
 use walkdir::{DirEntry, WalkDir};
 
 #[cfg(unix)]
-fn perms(p: &std::fs::Permissions) -> u32 {
-    use std::os::unix::fs::PermissionsExt;
-    p.mode()
+fn perms(_p: &std::fs::Permissions) -> u32 {
+    // use std::os::unix::fs::PermissionsExt;
+    // p.mode()
+    0
 }
 
 #[cfg(windows)]
@@ -21,7 +22,13 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
 
         let mut tree = String::with_capacity(4 * 1024);
 
-        for item in walker {
+        for item in walker.filter_entry(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .map(|s| s == ".git")
+                .unwrap_or(false)
+        }) {
             let item = item.unwrap();
 
             let hash = if item.file_type().is_file() {
@@ -126,24 +133,58 @@ use tutil as util;
 #[ignore]
 async fn diff_cargo() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registries = vec![std::sync::Arc::new(cf::Registry::default())];
+    let (the_krates, registries) =
+        cf::cargo::read_lock_file("tests/full/Cargo.lock", vec![cf::Registry::default()]).unwrap();
+
     let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
+    fs_ctx.krates = the_krates;
 
     let fetcher_root = tempfile::TempDir::new().expect("failed to create tempdir");
+
+    let cargo_home = tempfile::TempDir::new().expect("failed to create tempdir");
+    let cargo_home_path = cargo_home.path().to_str().unwrap().to_owned();
+
+    // Fetch with cargo
+    let cargo_fetch = std::thread::spawn(move || {
+        std::process::Command::new("cargo")
+            .env("CARGO_HOME", &cargo_home_path)
+            .args(&[
+                "fetch",
+                "--quiet",
+                "--locked",
+                "--manifest-path",
+                "tests/full/Cargo.toml",
+            ])
+            .status()
+            .unwrap();
+
+        // We need to run a quick check, as otherwise cargo will NOT write any
+        // of the .cache entries since it writes them lazily
+        std::process::Command::new("cargo")
+            .env("CARGO_HOME", &cargo_home_path)
+            .args(&[
+                "check",
+                "--quiet",
+                "--manifest-path",
+                "tests/full/Cargo.toml",
+            ])
+            .status()
+            .unwrap();
+    });
 
     // Synchronize with cargo-fetcher
     {
         fs_ctx.root_dir = fetcher_root.path().to_owned();
 
-        let (the_krates, _) =
-            cf::cargo::read_lock_file("tests/full/Cargo.lock", Vec::new()).unwrap();
-        fs_ctx.krates = the_krates;
-        let the_registry = std::sync::Arc::new(cf::Registry::default());
+        let registry_sets = fs_ctx.registry_sets();
 
-        cf::mirror::registry_index(
+        assert_eq!(registry_sets.len(), 1);
+        let the_registry = fs_ctx.registries[0].clone();
+
+        cf::mirror::registry_indices(
             fs_ctx.backend.clone(),
             std::time::Duration::new(10, 0),
-            &the_registry,
+            registry_sets,
         )
         .await
         .expect("failed to mirror index");
@@ -158,19 +199,19 @@ async fn diff_cargo() {
             .expect("failed to sync index");
     }
 
-    let cargo_home = tempfile::TempDir::new().expect("failed to create tempdir");
+    cargo_fetch.join().unwrap();
 
-    // Fetch with cargo
-    {
-        let path = cargo_home.path().to_str().unwrap();
+    if true {
+        assert_diff(&fetcher_root, &cargo_home);
+    } else {
+        // Can be useful when iterating to keep the temp directories
+        let fetcher_root = fetcher_root.into_path();
+        let cargo_home = cargo_home.into_path();
 
-        std::process::Command::new("cargo")
-            .env("CARGO_HOME", &path)
-            .args(&["fetch", "--manifest-path", "tests/full/Cargo.toml"])
-            .status()
-            .unwrap();
+        println!("FETCHER: {}", fetcher_root.display());
+        println!("CARGO: {}", cargo_home.display());
+
+        // Compare the outputs to ensure they match "exactly"
+        assert_diff(&fetcher_root, &cargo_home);
     }
-
-    // Compare the outputs to ensure they match "exactly"
-    assert_diff(fetcher_root.path(), cargo_home.path());
 }

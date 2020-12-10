@@ -23,13 +23,6 @@ ignore = [
 [bans]
 multiple-versions = "deny"
 deny = [
-    # we never want a dependency on openssl due to all of the cross platform
-    # issues it has, particularly on windows
-    { name = "openssl" },
-    { name = "openssl-sys" },
-
-    # dirs is ridiculously heavyweight for what it does...sigh rusoto
-    #{ name = "dirs-sys" },
 ]
 skip = [
     # clap still uses an old ansi_term
