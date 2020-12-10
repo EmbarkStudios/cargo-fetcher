@@ -1,10 +1,10 @@
 use crate::{util, Krate};
 use anyhow::{Context, Error};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     convert::TryFrom,
     hash::{Hash, Hasher},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 use url::Url;
@@ -22,16 +22,16 @@ pub struct CargoConfig {
     pub registries: Option<std::collections::HashMap<String, Registry>>,
 }
 
-#[derive(Eq, Clone, Debug, Deserialize)]
+#[derive(Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct Registry {
-    pub index: String,
-    token: Option<String>,
+    pub index: Url,
     dl: Option<String>,
 }
 
 impl Registry {
-    pub fn new(index: String, token: Option<String>, dl: Option<String>) -> Registry {
-        Self { index, token, dl }
+    pub fn new(index: impl AsRef<str>, dl: Option<String>) -> Result<Self, Error> {
+        let index = Url::parse(index.as_ref())?;
+        Ok(Self { index, dl })
     }
 
     /// Gets the download url for the crate
@@ -75,22 +75,41 @@ impl Registry {
         }
     }
 
-    pub fn short_name(&self) -> Result<String, Error> {
+    pub fn short_name(&self) -> String {
         let hash = util::short_hash(self);
-        let ident = Url::parse(&self.index)
-            .context(format!("failed parse {} into url::Url", self.index))?
-            .host_str()
-            .unwrap_or("")
-            .to_string();
-        Ok(format!("{}-{}", ident, hash))
+        let ident = self.index.host_str().unwrap_or("").to_string();
+        format!("{}-{}", ident, hash)
+    }
+
+    pub fn cache_dir(&self, root: &Path) -> PathBuf {
+        let mut cdir = root.join(crate::sync::CACHE_DIR);
+        cdir.push(self.short_name());
+        cdir
+    }
+
+    pub fn src_dir(&self, root: &Path) -> PathBuf {
+        let mut cdir = root.join(crate::sync::SRC_DIR);
+        cdir.push(self.short_name());
+        cdir
+    }
+
+    pub fn sync_dirs(&self, root: &Path) -> (PathBuf, PathBuf) {
+        let ident = self.short_name();
+
+        let mut cdir = root.join(crate::sync::CACHE_DIR);
+        cdir.push(&ident);
+
+        let mut sdir = root.join(crate::sync::SRC_DIR);
+        sdir.push(&ident);
+
+        (cdir, sdir)
     }
 }
 
 impl Default for Registry {
     fn default() -> Self {
         Self {
-            index: CRATES_IO_URL.to_owned(),
-            token: None,
+            index: Url::parse(CRATES_IO_URL).unwrap(),
             dl: Some(CRATES_IO_DL.to_owned()),
         }
     }
@@ -148,7 +167,7 @@ struct Package {
     checksum: Option<String>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
 pub enum Source {
     Registry {
         registry: Arc<Registry>,
@@ -191,10 +210,6 @@ impl Source {
             ident,
             rev: rev.to_owned(),
         })
-    }
-
-    pub(crate) fn is_git(&self) -> bool {
-        matches!(self, Source::Git { .. })
     }
 }
 
@@ -256,14 +271,7 @@ pub fn read_cargo_config(
 
     let mut regs = std::collections::HashMap::new();
 
-    regs.insert(
-        "crates-io".to_owned(),
-        Registry::new(
-            CRATES_IO_URL.to_owned(),
-            None,
-            Some(CRATES_IO_DL.to_owned()),
-        ),
-    );
+    regs.insert("crates-io".to_owned(), Registry::default());
 
     for config_path in configs.iter().rev() {
         let config: CargoConfig = {
@@ -358,7 +366,7 @@ pub fn read_lock_file<P: AsRef<std::path::Path>>(
             let registry = match registries
                 .iter()
                 .enumerate()
-                .find(|(_, reg)| source.ends_with(&reg.index))
+                .find(|(_, reg)| source.ends_with(reg.index.as_str()))
             {
                 Some((ind, reg)) => {
                     regs_to_sync[ind] += 1;
@@ -530,14 +538,16 @@ mod test {
 
     #[test]
     fn gets_other_download_url() {
-        let crates_io = Arc::new(super::Registry::new(
-            "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/index.git".to_owned(),
-            None,
-            Some(
-                "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/{crate}-{version}.crate"
-                    .to_owned(),
-            ),
-        ));
+        let crates_io = Arc::new(
+            super::Registry::new(
+                "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/index.git".to_owned(),
+                Some(
+                    "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/{crate}-{version}.crate"
+                        .to_owned(),
+                ),
+            )
+            .unwrap(),
+        );
 
         assert_eq!(
             crates_io.download_url(&krate!("a", "1.0.0", crates_io)),
@@ -561,12 +571,11 @@ mod test {
     fn gets_other_complex_download_url() {
         let crates_io = Arc::new(super::Registry::new(
             "https://complex.io/ohhi/embark/rust/cargo/index.git".to_owned(),
-            None,
             Some(
                 "https://complex.io/ohhi/embark/rust/cargo/{lowerprefix}/{crate}/{crate}/{prefix}-{version}"
                     .to_owned(),
             ),
-        ));
+        ).unwrap());
 
         assert_eq!(
             crates_io.download_url(&krate!("a", "1.0.0", crates_io)),

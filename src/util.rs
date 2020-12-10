@@ -605,15 +605,11 @@ mod test {
 
     #[test]
     fn gets_proper_registry_ident() {
-        let crates_io_registry = crate::Registry::new(
-            "https://github.com/rust-lang/crates.io-index".to_owned(),
-            None,
-            None,
-        );
+        let crates_io_registry = crate::Registry::default();
 
         assert_eq!(
             "github.com-1ecc6299db9ec823",
-            crates_io_registry.short_name().unwrap()
+            crates_io_registry.short_name()
         );
     }
 

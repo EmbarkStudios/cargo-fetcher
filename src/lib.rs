@@ -20,7 +20,7 @@ pub mod util;
 
 pub use cargo::{read_cargo_config, Registry, Source};
 
-#[derive(Eq, Clone, Debug)]
+#[derive(Eq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
@@ -95,7 +95,6 @@ impl<'a> fmt::Display for CloudId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
             Source::Git { ident, rev, .. } => write!(f, "{}-{}", ident, rev),
-            // TODO: havn't make sure
             Source::Registry { chksum, .. } => write!(f, "{}", chksum),
         }
     }
@@ -157,8 +156,8 @@ impl Ctx {
         })
     }
 
+    /// Create the registry and git directories as they are the root of multiple other ones
     pub fn prep_sync_dirs(&self) -> Result<(), Error> {
-        // Create the registry and git directories as they are the root of multiple other ones
         std::fs::create_dir_all(self.root_dir.join("registry"))?;
         std::fs::create_dir_all(self.root_dir.join("git"))?;
 

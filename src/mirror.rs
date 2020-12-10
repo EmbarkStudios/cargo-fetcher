@@ -44,8 +44,7 @@ pub async fn registry_index(
     max_stale: Duration,
     registry: &Registry,
 ) -> Result<usize, Error> {
-    let url = url::Url::parse(&registry.index)?;
-    let ident = registry.short_name()?;
+    let ident = registry.short_name();
 
     // Create a fake krate for the index, we don't have to worry about clashing
     // since we use a `.` which is not an allowed character in crate names
@@ -53,7 +52,7 @@ pub async fn registry_index(
         name: ident.clone(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url: url.clone(),
+            url: registry.index.clone(),
             ident,
             rev: "feedc0de".to_owned(),
         },
@@ -69,7 +68,7 @@ pub async fn registry_index(
             if now - last_updated < max_dur {
                 info!(
                     "the registry ({}) was last updated {}, skipping update as it is less than {:?} old",
-                    url, last_updated, max_stale
+                    registry.index, last_updated, max_stale
                 );
                 return Ok(0);
             }
@@ -77,10 +76,10 @@ pub async fn registry_index(
     }
 
     let index = async {
-        let res = fetch::registry(&url).await;
+        let res = fetch::registry(&registry.index).await;
 
         if let Ok(ref buffer) = res {
-            debug!(size = buffer.len(), "{} index downloaded", url);
+            debug!(size = buffer.len(), "{} index downloaded", registry.index);
         }
 
         res

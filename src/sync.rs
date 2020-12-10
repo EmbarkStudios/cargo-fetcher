@@ -49,7 +49,7 @@ pub async fn registry_index(
     backend: crate::Storage,
     registry: std::sync::Arc<Registry>,
 ) -> Result<(), Error> {
-    let ident = registry.short_name()?;
+    let ident = registry.short_name();
 
     let index_path = root_dir.join(INDEX_DIR).join(ident.clone());
     std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
@@ -81,12 +81,11 @@ pub async fn registry_index(
         }
     }
 
-    let url = url::Url::parse(&registry.index)?;
     let krate = Krate {
         name: ident.clone(),
         version: "1.0.0".to_owned(),
         source: Source::Git {
-            url,
+            url: registry.index.clone(),
             ident,
             rev: String::new(),
         },
@@ -312,19 +311,9 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
     get_missing_git_sources(ctx, &git_co_dir, &mut to_sync);
 
     for registry in &ctx.registries {
-        let ident = registry.short_name()?;
-        let cache_dir = {
-            let mut d = root_dir.join(CACHE_DIR);
-            d.push(&ident);
-            d
-        };
-        let src_dir = {
-            let mut d = root_dir.join(SRC_DIR);
-            d.push(&ident);
-            d
-        };
-        std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache/")?;
-        std::fs::create_dir_all(&src_dir).context("failed to create registry/src/")?;
+        let (cache_dir, src_dir) = registry.sync_dirs(root_dir);
+        std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache")?;
+        std::fs::create_dir_all(&src_dir).context("failed to create registry/src")?;
 
         get_missing_registry_sources(ctx, &registry, &cache_dir, &mut to_sync)?;
     }
@@ -366,7 +355,7 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                         let len = krate_data.len();
                         match &krate.source {
                             Source::Registry { registry, chksum } => {
-                                let ident = registry.short_name()?;
+                                let ident = registry.short_name();
                                 let cache_dir = root_dir.join(CACHE_DIR).join(ident.clone());
                                 let src_dir = root_dir.join(SRC_DIR).join(ident.clone());
                                 if let Err(e) =
