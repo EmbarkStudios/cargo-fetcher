@@ -11,7 +11,7 @@ pub const SRC_DIR: &str = "registry/src";
 pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
 
-pub async fn registries_index(
+pub async fn registry_indices(
     root_dir: PathBuf,
     backend: crate::Storage,
     registries: Vec<std::sync::Arc<Registry>>,
@@ -57,27 +57,45 @@ pub async fn registry_index(
     // Just skip the index if the git directory already exists,
     // as a patch on top of an existing repo via git fetch is
     // presumably faster
-    if index_path.join(".git").exists() {
+    if let Ok(repo) = git2::Repository::open(&index_path) {
         info!("registry index already exists, fetching instead");
 
-        let output = tokio::process::Command::new("git")
-            .arg("fetch")
-            .current_dir(&index_path)
-            .output()
-            .await?;
+        let url = registry.index.as_str().to_owned();
 
-        if !output.status.success() {
-            let err_out = String::from_utf8(output.stderr)?;
-            error!(
-                "failed to pull registry index, removing it and updating manually: {}",
-                err_out
-            );
-            remove_dir_all::remove_dir_all(&index_path)?;
-        } else {
-            // Write a file to the directory to let cargo know when it was updated
-            std::fs::File::create(index_path.join(".last-updated"))
-                .context("failed to crate .last-updated")?;
-            return Ok(());
+        // We need to ship off the fetching to a blocking thread so we don't anger tokio
+        match tokio::task::spawn_blocking(move || -> Result<(), Error> {
+            let git_config =
+                git2::Config::open_default().context("Failed to open default git config")?;
+
+            crate::git::with_fetch_options(&git_config, &url, &mut |mut opts| {
+                repo.remote_anonymous(&url)?
+                    .fetch(
+                        &[
+                            "refs/heads/master:refs/remotes/origin/master",
+                            "HEAD:refs/remotes/origin/HEAD",
+                        ],
+                        Some(&mut opts),
+                        None,
+                    )
+                    .context("Failed to fetch")
+            })
+        })
+        .instrument(tracing::debug_span!("fetch"))
+        .await?
+        {
+            Ok(_) => {
+                // Write a file to the directory to let cargo know when it was updated
+                std::fs::File::create(index_path.join(".last-updated"))
+                    .context("failed to crate .last-updated")?;
+                return Ok(());
+            }
+            Err(err_out) => {
+                error!(
+                    "failed to pull registry index, removing it and updating manually: {}",
+                    err_out
+                );
+                remove_dir_all::remove_dir_all(&index_path)?;
+            }
         }
     }
 
@@ -109,24 +127,22 @@ async fn sync_git(
     db_dir: PathBuf,
     co_dir: PathBuf,
     krate: &Krate,
-    data: bytes::Bytes,
+    src: crate::git::GitSource,
     rev: &str,
 ) -> Result<(), Error> {
     let db_path = db_dir.join(format!("{}", krate.local_id()));
 
-    // The path may already exist, so in that case just do a fetch
+    // Always just blow away and do a sync from the remote tar
     if db_path.exists() {
-        crate::fetch::update_bare(krate, &db_path)
-            .instrument(tracing::debug_span!("git_fetch"))
-            .await?;
-    } else {
-        let unpack_path = db_path.clone();
-        tokio::task::spawn_blocking(move || {
-            util::unpack_tar(data, util::Encoding::Zstd, &unpack_path)
-        })
-        .instrument(tracing::debug_span!("unpack_tar"))
-        .await??;
+        remove_dir_all::remove_dir_all(&db_path).context("failed to remove existing DB path")?;
     }
+
+    let crate::git::GitSource { db, checkout } = src;
+
+    let unpack_path = db_path.clone();
+    tokio::task::spawn_blocking(move || util::unpack_tar(db, util::Encoding::Zstd, &unpack_path))
+        .instrument(tracing::debug_span!("unpack_db_tar"))
+        .await??;
 
     let co_path = co_dir.join(format!("{}/{}", krate.local_id(), rev));
 
@@ -139,10 +155,24 @@ async fn sync_git(
             .with_context(|| format!("unable to remove {}", co_path.display()))?;
     }
 
-    // Do a checkout of the bare clone
-    util::checkout(&db_path, &co_path, rev)
-        .instrument(tracing::debug_span!("checkout"))
-        .await?;
+    // If we have a checkout tarball, use that, as it will include submodules,
+    // otherwise do a checkout
+    match checkout {
+        Some(checkout) => {
+            let unpack_path = co_path.clone();
+            tokio::task::spawn_blocking(move || {
+                util::unpack_tar(checkout, util::Encoding::Zstd, &unpack_path)
+            })
+            .instrument(tracing::debug_span!("unpack_checkout_tar"))
+            .await??;
+        }
+        None => {
+            // Do a checkout of the bare clone
+            crate::git::checkout(db_path, co_path.clone(), rev.to_owned())
+                .instrument(tracing::debug_span!("checkout"))
+                .await?;
+        }
+    }
 
     let ok = co_path.join(".cargo-ok");
     // The non-git .cargo-ok has "ok" in it, however the git ones do not
@@ -363,8 +393,27 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                                 }
                             }
                             Source::Git { rev, .. } => {
+                                let checkout = {
+                                    let mut checkout_id = krate.clone();
+
+                                    if let Source::Git { rev, .. } = &mut checkout_id.source {
+                                        rev.push_str("-checkout");
+                                    }
+
+                                    backend
+                                        .fetch(&checkout_id)
+                                        .instrument(tracing::debug_span!("download_checkout"))
+                                        .await
+                                        .ok()
+                                };
+
+                                let git_source = crate::git::GitSource {
+                                    db: krate_data,
+                                    checkout,
+                                };
+
                                 if let Err(e) =
-                                    sync_git(git_db_dir, git_co_dir, krate, krate_data, rev)
+                                    sync_git(git_db_dir, git_co_dir, krate, git_source, rev)
                                         .instrument(tracing::debug_span!("git"))
                                         .await
                                 {

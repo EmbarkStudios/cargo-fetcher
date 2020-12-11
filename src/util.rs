@@ -265,9 +265,16 @@ pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
         original: usize,
     }
 
+    // zstd has a pointer in it, which means it isn't Sync, but
+    // this _should_ be fine as writing of the tar is never going to
+    // do a write until a previous one has succeeded, as otherwise
+    // the stream could be corrupted regardless of the actual write
+    // implementation, so this should be fine. :tm:
+    unsafe impl<W: io::Write + Sync> Sync for Writer<W> {}
+
     impl<W> futures::io::AsyncWrite for Writer<W>
     where
-        W: io::Write + Send + std::marker::Unpin,
+        W: io::Write + Send + Sync + std::marker::Unpin,
     {
         fn poll_write(
             self: Pin<&mut Self>,
@@ -523,44 +530,6 @@ pub fn parse_cloud_location(
         }
         scheme => anyhow::bail!("the scheme '{}' is not supported", scheme),
     }
-}
-
-pub(crate) async fn checkout(src: &Path, target: &Path, rev: &str) -> Result<(), Error> {
-    use tokio::process::Command;
-
-    let output = Command::new("git")
-        .arg("clone")
-        .arg("--template=''")
-        .arg("--no-tags")
-        .arg(src)
-        .arg(target)
-        .output()
-        .await?;
-
-    if !output.status.success() {
-        let err_out = String::from_utf8(output.stderr)?;
-        bail!("failed to clone {}: {}", src.display(), err_out);
-    }
-
-    let reset = Command::new("git")
-        .arg("reset")
-        .arg("--hard")
-        .arg(rev)
-        .current_dir(target)
-        .output()
-        .await?;
-
-    if !reset.status.success() {
-        let err_out = String::from_utf8(reset.stderr)?;
-        bail!(
-            "failed to checkout {} @ {}: {}",
-            src.display(),
-            rev,
-            err_out
-        );
-    }
-
-    Ok(())
 }
 
 pub(crate) fn write_ok(to: &Path) -> Result<(), Error> {

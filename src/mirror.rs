@@ -143,15 +143,52 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
             async move {
                 let res: Result<usize, String> = match fetch::from_registry(&client, &krate).await {
                     Err(e) => Err(format!("failed to retrieve {}: {}", krate, e)),
-                    Ok(buffer) => {
-                        debug!(size = buffer.len(), "fetched");
+                    Ok(krate_data) => {
+                        debug!(size = krate_data.len(), "fetched");
+
+                        let mut checkout_size = None;
+
+                        let buffer = match krate_data {
+                            fetch::KrateSource::Registry(buffer) => buffer,
+                            fetch::KrateSource::Git(gs) => {
+                                if let Some(checkout) = gs.checkout {
+                                    // We synthesize a slightly different krate id so that we can
+                                    // store both (and also not have to change every backend)
+                                    let mut checkout_id = krate.clone();
+
+                                    if let Source::Git { rev, .. } = &mut checkout_id.source {
+                                        rev.push_str("-checkout");
+                                    }
+
+                                    match backend
+                                        .upload(checkout, &checkout_id)
+                                        .instrument(tracing::debug_span!("upload"))
+                                        .await
+                                    {
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "failed to upload  {}: {}",
+                                                checkout_id,
+                                                e
+                                            );
+                                        }
+                                        Ok(len) => {
+                                            checkout_size = Some(len);
+                                        }
+                                    }
+                                }
+
+                                gs.db
+                            }
+                        };
+
                         match backend
                             .upload(buffer, &krate)
                             .instrument(tracing::debug_span!("upload"))
                             .await
                         {
                             Err(e) => Err(format!("failed to upload {}: {}", krate, e)),
-                            Ok(len) => Ok(len),
+                            Ok(len) => Ok(len + checkout_size.unwrap_or(0)),
                         }
                     }
                 };

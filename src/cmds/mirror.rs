@@ -26,30 +26,21 @@ Times may be specified with no suffix (default days), or one of:
 
 pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
     let backend = ctx.backend.clone();
-
-    let local = tokio::task::LocalSet::new();
-
     let regs = ctx.registry_sets();
 
-    let index = local.run_until(async move {
+    let index = tokio::task::spawn(async move {
         if !include_index {
             return;
         }
 
-        if let Err(e) = tokio::task::spawn_local(async move {
-            match mirror::registry_indices(backend, args.max_stale, regs)
-                .instrument(tracing::info_span!("index"))
-                .await
-            {
-                Ok(_) => {
-                    info!("successfully mirrored all registry indices");
-                }
-                Err(e) => error!("failed to mirror all registry indices: {:#}", e),
-            }
-        })
-        .await
+        match mirror::registry_indices(backend, args.max_stale, regs)
+            .instrument(tracing::info_span!("index"))
+            .await
         {
-            error!("failed to spawn index mirror task: {:#}", e);
+            Ok(_) => {
+                info!("successfully mirrored all registry indices");
+            }
+            Err(e) => error!("failed to mirror all registry indices: {:#}", e),
         }
     });
 

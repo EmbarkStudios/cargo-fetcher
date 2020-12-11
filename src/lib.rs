@@ -14,6 +14,7 @@ pub use url::Url;
 pub mod backends;
 pub mod cargo;
 mod fetch;
+pub(crate) mod git;
 pub mod mirror;
 pub mod sync;
 pub mod util;
