@@ -6,10 +6,24 @@ use std::path::Path;
 use tracing::{error, warn};
 use tracing_futures::Instrument;
 
-pub async fn from_registry(client: &Client, krate: &Krate) -> Result<Bytes, Error> {
+pub(crate) enum KrateSource {
+    Registry(Bytes),
+    Git(crate::git::GitSource),
+}
+
+impl KrateSource {
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::Registry(bytes) => bytes.len(),
+            Self::Git(gs) => gs.db.len() + gs.checkout.as_ref().map(|s| s.len()).unwrap_or(0),
+        }
+    }
+}
+
+pub(crate) async fn from_registry(client: &Client, krate: &Krate) -> Result<KrateSource, Error> {
     async {
         match &krate.source {
-            Source::Git { url, rev, .. } => via_git(&url.clone(), rev).await,
+            Source::Git { url, rev, .. } => via_git(&url.clone(), rev).await.map(KrateSource::Git),
             Source::Registry { registry, chksum } => {
                 let url = registry.download_url(krate);
 
@@ -19,7 +33,7 @@ pub async fn from_registry(client: &Client, krate: &Krate) -> Result<Bytes, Erro
 
                 util::validate_checksum(&content, &chksum)?;
 
-                Ok(content)
+                Ok(KrateSource::Registry(content))
             }
         }
     }
@@ -27,9 +41,11 @@ pub async fn from_registry(client: &Client, krate: &Krate) -> Result<Bytes, Erro
     .await
 }
 
-pub async fn via_git(url: &url::Url, rev: &str) -> Result<Bytes, Error> {
-    // Create a temporary directory to clone the repo into
+pub async fn via_git(url: &url::Url, rev: &str) -> Result<crate::git::GitSource, Error> {
+    // Create a temporary directory to fetch the repo into
     let temp_dir = tempfile::tempdir()?;
+    // Create another temporary directory where we *may* checkout submodules into
+    let submodule_dir = tempfile::tempdir()?;
 
     let mut init_opts = git2::RepositoryInitOptions::new();
     init_opts.bare(true);
@@ -69,9 +85,39 @@ pub async fn via_git(url: &url::Url, rev: &str) -> Result<Bytes, Error> {
     .instrument(tracing::debug_span!("fetch"))
     .await??;
 
-    util::pack_tar(temp_dir.path())
-        .instrument(tracing::debug_span!("tarballing", %url, %rev))
+    let fetch_rev = rev.to_owned();
+    let temp_db_path = temp_dir.path().to_owned();
+    let checkout = tokio::task::spawn(async move {
+        match crate::git::prepare_submodules(
+            temp_db_path,
+            submodule_dir.path().to_owned(),
+            fetch_rev.clone(),
+        )
+        .instrument(tracing::debug_span!("submodule checkout"))
         .await
+        {
+            Ok(_) => {
+                util::pack_tar(submodule_dir.path())
+                    .instrument(tracing::debug_span!("tarballing checkout", rev = %fetch_rev))
+                    .await
+            }
+            Err(e) => Err(e),
+        }
+    });
+
+    let (db, checkout) = tokio::join!(
+        async {
+            util::pack_tar(temp_dir.path())
+                .instrument(tracing::debug_span!("tarballing db", %url, %rev))
+                .await
+        },
+        checkout,
+    );
+
+    Ok(crate::git::GitSource {
+        db: db?,
+        checkout: checkout?.ok(),
+    })
 }
 
 pub async fn registry(

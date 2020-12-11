@@ -9,7 +9,7 @@ fn perms(_p: &std::fs::Permissions) -> u32 {
 }
 
 #[cfg(windows)]
-fn perms(p: &std::fs::Permissions) -> u32 {
+fn perms(_p: &std::fs::Permissions) -> u32 {
     0
 }
 
@@ -26,8 +26,8 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
             entry
                 .file_name()
                 .to_str()
-                .map(|s| s == ".git")
-                .unwrap_or(false)
+                .map(|s| s != ".git")
+                .unwrap_or(true)
         }) {
             let item = item.unwrap();
 
@@ -132,6 +132,8 @@ use tutil as util;
 #[tokio::test(threaded_scheduler)]
 #[ignore]
 async fn diff_cargo() {
+    util::hook_logger();
+
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
     let (the_krates, registries) =
         cf::cargo::read_lock_file("tests/full/Cargo.lock", vec![cf::Registry::default()]).unwrap();
@@ -152,19 +154,6 @@ async fn diff_cargo() {
                 "fetch",
                 "--quiet",
                 "--locked",
-                "--manifest-path",
-                "tests/full/Cargo.toml",
-            ])
-            .status()
-            .unwrap();
-
-        // We need to run a quick check, as otherwise cargo will NOT write any
-        // of the .cache entries since it writes them lazily
-        std::process::Command::new("cargo")
-            .env("CARGO_HOME", &cargo_home_path)
-            .args(&[
-                "check",
-                "--quiet",
                 "--manifest-path",
                 "tests/full/Cargo.toml",
             ])

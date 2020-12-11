@@ -284,11 +284,18 @@ where
     Err(err)
 }
 
+pub struct GitSource {
+    /// The tarball of the bare repository
+    pub db: bytes::Bytes,
+    /// The tarball of the checked out repository, including all submodules
+    pub checkout: Option<bytes::Bytes>,
+}
+
 pub(crate) async fn checkout(
     src: std::path::PathBuf,
     target: std::path::PathBuf,
     rev: String,
-) -> Result<(), Error> {
+) -> Result<git2::Repository, Error> {
     // We require the target directory to be clean
     std::fs::create_dir_all(target.parent().unwrap()).context("failed to create checkout dir")?;
     if target.exists() {
@@ -315,12 +322,120 @@ pub(crate) async fn checkout(
             let _ = cfg.set_bool("core.autocrlf", false);
         }
 
-        let object = repo
-            .revparse_single(&rev)
-            .context("failed to find revision")?;
-        repo.reset(&object, git2::ResetType::Hard, None)
-            .context("failed to do hard reset")?;
+        {
+            let object = repo
+                .revparse_single(&rev)
+                .context("failed to find revision")?;
+            repo.reset(&object, git2::ResetType::Hard, None)
+                .context("failed to do hard reset")?;
+        }
+
+        Ok(repo)
+    })
+    .await?
+}
+
+pub(crate) async fn prepare_submodules(
+    src: std::path::PathBuf,
+    target: std::path::PathBuf,
+    rev: String,
+) -> Result<(), Error> {
+    let repo = checkout(src, target, rev).await?;
+
+    fn update_submodules(repo: &git2::Repository, git_cfg: &git2::Config) -> Result<(), Error> {
+        tracing::info!("update submodules for: {:?}", repo.workdir().unwrap());
+
+        for mut child in repo.submodules()? {
+            update_submodule(repo, &mut child, git_cfg).with_context(|| {
+                format!(
+                    "failed to update submodule '{}'",
+                    child.name().unwrap_or("")
+                )
+            })?;
+        }
         Ok(())
+    }
+
+    fn update_submodule(
+        parent: &git2::Repository,
+        child: &mut git2::Submodule<'_>,
+        git_cfg: &git2::Config,
+    ) -> Result<(), Error> {
+        child.init(false).context("failed to init submodule")?;
+
+        let url = child
+            .url()
+            .with_context(|| format!("non-utf8 url for submodule {:?}", child.path()))?;
+
+        // A submodule which is listed in .gitmodules but not actually
+        // checked out will not have a head id, so we should ignore it.
+        let head = match child.head_id() {
+            Some(head) => head,
+            None => {
+                tracing::debug!(
+                    "skipping submodule '{}' without HEAD",
+                    child.name().unwrap_or("")
+                );
+                return Ok(());
+            }
+        };
+
+        // If the submodule hasn't been checked out yet, we need to
+        // clone it. If it has been checked out and the head is the same
+        // as the submodule's head, then we can skip an update and keep
+        // recursing.
+        let head_and_repo = child.open().and_then(|repo| {
+            let target = repo.head()?.target();
+            Ok((target, repo))
+        });
+
+        let repo = match head_and_repo {
+            Ok((head, repo)) => {
+                if child.head_id() == head {
+                    return update_submodules(&repo, git_cfg);
+                }
+                repo
+            }
+            Err(_) => {
+                let path = parent.workdir().unwrap().join(child.path());
+                let _ = remove_dir_all::remove_dir_all(&path);
+
+                let mut opts = git2::RepositoryInitOptions::new();
+                opts.external_template(false);
+                opts.bare(false);
+                git2::Repository::init_opts(&path, &opts)?
+            }
+        };
+
+        with_fetch_options(git_cfg, url, &mut |mut fopts| {
+            fopts.download_tags(git2::AutotagOption::All);
+
+            repo.remote_anonymous(url)?
+                .fetch(
+                    &[
+                        "refs/heads/*:refs/remotes/origin/*",
+                        "HEAD:refs/remotes/origin/HEAD",
+                    ],
+                    Some(&mut fopts),
+                    None,
+                )
+                .context("failed to fetch")
+        })
+        .with_context(|| format!("failed to fetch submodule '{}'", child.name().unwrap_or("")))?;
+
+        let obj = repo
+            .find_object(head, None)
+            .context("failed to find HEAD")?;
+        repo.reset(&obj, git2::ResetType::Hard, None)
+            .context("failed to reset")?;
+        update_submodules(&repo, git_cfg)
+    }
+
+    tokio::task::spawn_blocking(move || {
+        let git_config =
+            git2::Config::open_default().context("Failed to open default git config")?;
+
+        update_submodules(&repo, &git_config)
     })
     .await?
 }

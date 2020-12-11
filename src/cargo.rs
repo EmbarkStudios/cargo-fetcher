@@ -185,7 +185,7 @@ impl Source {
         let rev = match url.query_pairs().find(|(k, _)| k == "rev") {
             Some((_, rev)) => {
                 if rev.len() < 7 {
-                    anyhow::bail!("revision specififer {} is too short", rev);
+                    anyhow::bail!("revision specifier {} is too short", rev);
                 } else {
                     rev
                 }

@@ -18,7 +18,7 @@ pub(crate) async fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<()
         }
 
         info!("syncing registries index");
-        match sync::registries_index(root, backend, registries).await {
+        match sync::registry_indices(root, backend, registries).await {
             Ok(_) => info!("successfully synced registries index"),
             Err(e) => error!(err = ?e, "failed to sync registries index"),
         }

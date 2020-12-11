@@ -5,9 +5,13 @@ authors = ["Jake Shadle <jake.shadle@embark-studios.com>"]
 edition = "2018"
 
 [dependencies]
+# regular basic crate
 tame-oauth = "=0.4.2"
+# contains several crates, which is important when patching, as they will share
+# the same db/checkout dir
 cpal = { version = "0.10.0" }
-tame-gcs = { git = "https://github.com/EmbarkStudios/tame-gcs", rev = "822e2bb" }
+# this repo contains recursive submodules
+sentry-contrib-native = { git = "https://github.com/EmbarkStudios/sentry-contrib-native", rev = "6cac29f" }
 
 [patch.crates-io]
 cpal = { git = "https://github.com/EmbarkStudios/cpal", rev = "e68e61f7d" }

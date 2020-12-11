@@ -11,7 +11,7 @@ pub const SRC_DIR: &str = "registry/src";
 pub const GIT_DB_DIR: &str = "git/db";
 pub const GIT_CO_DIR: &str = "git/checkouts";
 
-pub async fn registries_index(
+pub async fn registry_indices(
     root_dir: PathBuf,
     backend: crate::Storage,
     registries: Vec<std::sync::Arc<Registry>>,
@@ -127,7 +127,7 @@ async fn sync_git(
     db_dir: PathBuf,
     co_dir: PathBuf,
     krate: &Krate,
-    data: bytes::Bytes,
+    src: crate::git::GitSource,
     rev: &str,
 ) -> Result<(), Error> {
     let db_path = db_dir.join(format!("{}", krate.local_id()));
@@ -137,9 +137,11 @@ async fn sync_git(
         remove_dir_all::remove_dir_all(&db_path).context("failed to remove existing DB path")?;
     }
 
+    let crate::git::GitSource { db, checkout } = src;
+
     let unpack_path = db_path.clone();
-    tokio::task::spawn_blocking(move || util::unpack_tar(data, util::Encoding::Zstd, &unpack_path))
-        .instrument(tracing::debug_span!("unpack_tar"))
+    tokio::task::spawn_blocking(move || util::unpack_tar(db, util::Encoding::Zstd, &unpack_path))
+        .instrument(tracing::debug_span!("unpack_db_tar"))
         .await??;
 
     let co_path = co_dir.join(format!("{}/{}", krate.local_id(), rev));
@@ -153,10 +155,24 @@ async fn sync_git(
             .with_context(|| format!("unable to remove {}", co_path.display()))?;
     }
 
-    // Do a checkout of the bare clone
-    crate::git::checkout(db_path, co_path.clone(), rev.to_owned())
-        .instrument(tracing::debug_span!("checkout"))
-        .await?;
+    // If we have a checkout tarball, use that, as it will include submodules,
+    // otherwise do a checkout
+    match checkout {
+        Some(checkout) => {
+            let unpack_path = co_path.clone();
+            tokio::task::spawn_blocking(move || {
+                util::unpack_tar(checkout, util::Encoding::Zstd, &unpack_path)
+            })
+            .instrument(tracing::debug_span!("unpack_checkout_tar"))
+            .await??;
+        }
+        None => {
+            // Do a checkout of the bare clone
+            crate::git::checkout(db_path, co_path.clone(), rev.to_owned())
+                .instrument(tracing::debug_span!("checkout"))
+                .await?;
+        }
+    }
 
     let ok = co_path.join(".cargo-ok");
     // The non-git .cargo-ok has "ok" in it, however the git ones do not
@@ -377,8 +393,27 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                                 }
                             }
                             Source::Git { rev, .. } => {
+                                let checkout = {
+                                    let mut checkout_id = krate.clone();
+
+                                    if let Source::Git { rev, .. } = &mut checkout_id.source {
+                                        rev.push_str("-checkout");
+                                    }
+
+                                    backend
+                                        .fetch(&checkout_id)
+                                        .instrument(tracing::debug_span!("download_checkout"))
+                                        .await
+                                        .ok()
+                                };
+
+                                let git_source = crate::git::GitSource {
+                                    db: krate_data,
+                                    checkout,
+                                };
+
                                 if let Err(e) =
-                                    sync_git(git_db_dir, git_co_dir, krate, krate_data, rev)
+                                    sync_git(git_db_dir, git_co_dir, krate, git_source, rev)
                                         .instrument(tracing::debug_span!("git"))
                                         .await
                                 {
