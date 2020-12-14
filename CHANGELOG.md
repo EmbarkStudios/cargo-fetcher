@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Added
+- [PR#131](https://github.com/EmbarkStudios/cargo-fetcher/pull/131) and [PR#151](https://github.com/EmbarkStudios/cargo-fetcher/pull/150) added support for registries other than crates.io, resolving [#118](https://github.com/EmbarkStudios/cargo-fetcher/issues/118). Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
+- [PR#152](https://github.com/EmbarkStudios/cargo-fetcher/pull/152) added support for creating `.cache` entries when mirroring/syncing registry indices, resolving [#16](https://github.com/EmbarkStudios/cargo-fetcher/issues/16) and [#117](https://github.com/EmbarkStudios/cargo-fetcher/issues/117).
+- [PR#154](https://github.com/EmbarkStudios/cargo-fetcher/pull/154) added support for mirroring and syncing git submodules, which was the final missing piece for having "perfect" copying of cargo's behavior when fetching crates and registries, resolving [#141](https://github.com/EmbarkStudios/cargo-fetcher/issues/141).
+
 ## [0.9.0] - 2020-07-28
 ### Added
 - [PR#109](https://github.com/EmbarkStudios/cargo-fetcher/pull/109) added support for Azure Blob storage, under the `blob` feature flag. Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
@@ -16,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.0] - 2020-02-21
 ### Added
-- Cargo's v2 Cargo.lock format is now supported
+- Cargo's v2 Cargo.lock format is now supported, in addition to the v1 format.
 
 ### Changed
 - Async (almost) all the things!
