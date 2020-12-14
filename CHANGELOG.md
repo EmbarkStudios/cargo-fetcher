@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.10.0] - 2020-12-14
 ### Added
 - [PR#131](https://github.com/EmbarkStudios/cargo-fetcher/pull/131) and [PR#151](https://github.com/EmbarkStudios/cargo-fetcher/pull/150) added support for registries other than crates.io, resolving [#118](https://github.com/EmbarkStudios/cargo-fetcher/issues/118). Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
 - [PR#152](https://github.com/EmbarkStudios/cargo-fetcher/pull/152) added support for creating `.cache` entries when mirroring/syncing registry indices, resolving [#16](https://github.com/EmbarkStudios/cargo-fetcher/issues/16) and [#117](https://github.com/EmbarkStudios/cargo-fetcher/issues/117).
@@ -86,7 +87,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.9.0...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.10.0...HEAD
+[0.10.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.9.0...0.10.0
 [0.9.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.8.0...0.9.0
 [0.8.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.7.0...0.8.0
 [0.7.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.6.1...0.7.0
