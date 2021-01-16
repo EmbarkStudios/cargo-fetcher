@@ -12,7 +12,7 @@ impl S3Backend {
     pub fn new(loc: crate::S3Location<'_>) -> Result<Self, Error> {
         let region = rusoto_core::Region::Custom {
             name: loc.region.to_owned(),
-            endpoint: loc.host.to_owned(),
+            endpoint: format!("https://s3.{}.{}", loc.region, loc.host),
         };
 
         let client = S3Client::new(region);
