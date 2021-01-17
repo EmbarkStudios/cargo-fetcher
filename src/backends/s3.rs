@@ -1,20 +1,17 @@
 use crate::Krate;
 use anyhow::{Context, Error};
 use reqwest::Client;
-use rusoto_s3::{S3Client, S3};
-use rusty_s3::actions::{GetObject, ListObjectsV2, PutObject, S3Action};
+use rusty_s3::actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action};
 use rusty_s3::{Bucket, Credentials};
 use std::time::Duration;
 
 const ONE_HOUR: Duration = Duration::from_secs(3600);
 
 pub struct S3Backend {
-    client: S3Client,
-    bucket: String,
     prefix: String,
-    bucket_rusty_s3: Bucket,
+    bucket: Bucket,
     credential: Credentials,
-    client_reqwest: Client,
+    client: Client,
 }
 
 impl S3Backend {
@@ -28,26 +25,13 @@ impl S3Backend {
         let key = "AKIA6BO3PLN4ZB5CWIHE";
         let secret = "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";
         let credential = Credentials::new(key.into(), secret.into());
-        let client_reqwest = Client::new();
-
-        println!(
-            "endpoint: {}",
-            format!("https://s3.{}.{}", loc.region, loc.host)
-        );
-        let region = rusoto_core::Region::Custom {
-            name: loc.region.to_owned(),
-            endpoint: format!("https://s3.{}.{}", loc.region, loc.host),
-        };
-
-        let client = S3Client::new(region);
+        let client = Client::new();
 
         Ok(Self {
-            client,
             prefix: loc.prefix.to_owned(),
-            bucket: loc.bucket.to_owned(),
-            bucket_rusty_s3: bucket,
+            bucket,
             credential,
-            client_reqwest,
+            client,
         })
     }
 
@@ -57,13 +41,14 @@ impl S3Backend {
     }
 
     pub async fn make_bucket(&self) -> Result<(), Error> {
-        let bucket_request = rusoto_s3::CreateBucketRequest {
-            bucket: self.bucket.clone(),
-            ..Default::default()
-        };
-
-        // Can "fail" if bucket already exists
-        let _ = self.client.create_bucket(bucket_request).await;
+        let action = CreateBucket::new(&self.bucket, Some(&self.credential));
+        let signed_url = action.sign(ONE_HOUR);
+        self.client
+            .put(signed_url)
+            .send()
+            .await
+            .context("failed io when fetching s3")?
+            .error_for_status()?;
 
         Ok(())
     }
@@ -73,14 +58,14 @@ impl S3Backend {
 impl crate::Backend for S3Backend {
     async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
         let obj = self.make_key(krate);
-        let mut action = GetObject::new(&self.bucket_rusty_s3, Some(&self.credential), &obj);
+        let mut action = GetObject::new(&self.bucket, Some(&self.credential), &obj);
         action
             .query_mut()
             .insert("response-cache-control", "no-cache, no-store");
         let signed_url = action.sign(ONE_HOUR);
 
         let res = self
-            .client_reqwest
+            .client
             .get(signed_url)
             .send()
             .await
@@ -92,9 +77,9 @@ impl crate::Backend for S3Backend {
     async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
         let len = source.len();
         let obj = self.make_key(krate);
-        let action = PutObject::new(&self.bucket_rusty_s3, Some(&self.credential), &obj);
+        let action = PutObject::new(&self.bucket, Some(&self.credential), &obj);
         let signed_url = action.sign(ONE_HOUR);
-        self.client_reqwest
+        self.client
             .put(signed_url)
             .body(source)
             .send()
@@ -105,10 +90,10 @@ impl crate::Backend for S3Backend {
     }
 
     async fn list(&self) -> Result<Vec<String>, Error> {
-        let action = ListObjectsV2::new(&self.bucket_rusty_s3, Some(&self.credential));
+        let action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         let signed_url = action.sign(ONE_HOUR);
         let resp = self
-            .client_reqwest
+            .client
             .get(signed_url)
             .send()
             .await
@@ -125,12 +110,12 @@ impl crate::Backend for S3Backend {
     }
 
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
-        let mut action = ListObjectsV2::new(&self.bucket_rusty_s3, Some(&self.credential));
+        let mut action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         action.query_mut().insert("prefix", self.make_key(krate));
         action.query_mut().insert("max-keys", "1");
         let signed_url = action.sign(ONE_HOUR);
         let resp = self
-            .client_reqwest
+            .client
             .get(signed_url)
             .send()
             .await
