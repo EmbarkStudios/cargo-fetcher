@@ -302,7 +302,7 @@ fn write_summary<'blob>(
 }
 
 fn iter_index_entries(blob: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
-    fn split_blob<'a>(haystack: &'a [u8]) -> impl Iterator<Item = &'a [u8]> + 'a {
+    fn split_blob(haystack: &[u8]) -> impl Iterator<Item = &[u8]> {
         struct Split<'a> {
             haystack: &'a [u8],
         }
