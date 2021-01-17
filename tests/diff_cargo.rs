@@ -106,10 +106,7 @@ fn hash<P: AsRef<Path>>(file: P) -> u64 {
             let mut chunk = [0; 8 * 1024];
 
             loop {
-                let read = match f.read(&mut chunk) {
-                    Ok(r) => r,
-                    Err(_) => 0xdead_beef,
-                };
+                let read = f.read(&mut chunk).unwrap_or(0xdead_beef);
 
                 if read > 0 {
                     xh.write(&chunk[..read]);
