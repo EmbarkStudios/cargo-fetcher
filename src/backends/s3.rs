@@ -15,15 +15,13 @@ pub struct S3Backend {
 }
 
 impl S3Backend {
-    pub fn new(loc: crate::S3Location<'_>) -> Result<Self, Error> {
+    pub fn new(loc: crate::S3Location<'_>, key: String , secret: String) -> Result<Self, Error> {
         let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
             .parse()
             .context("failed to parse s3 endpoint")?;
         let path_style = false;
         let bucket = Bucket::new(endpoint, path_style, loc.bucket.into(), loc.region.into())
             .context("failed to new Bucket")?;
-        let key = "AKIA6BO3PLN4ZB5CWIHE";
-        let secret = "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";
         let credential = Credentials::new(key.into(), secret.into());
         let client = Client::new();
 

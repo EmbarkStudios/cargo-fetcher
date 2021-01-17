@@ -98,7 +98,11 @@ async fn init_backend(
             // Special case local testing
             let make_bucket = loc.bucket == "testing" && loc.host.contains("localhost");
 
-            let s3 = cf::backends::s3::S3Backend::new(loc)?;
+            let key = std::env::var("AWS_ACCESS_KEY_ID")
+                .context("Set env variable AWS_ACCESS_KEY_ID first!")?;
+            let secret = std::env::var("AWS_SECRET_ACCESS_KEY")
+                .context("Set env variable AWS_SECRET_ACCESS_KEY first!")?;
+            let s3 = cf::backends::s3::S3Backend::new(loc, key, secret)?;
 
             if make_bucket {
                 s3.make_bucket()

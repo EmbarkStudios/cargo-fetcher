@@ -32,7 +32,7 @@ The `gcs` feature enables the use of [Google Cloud Storage](https://cloud.google
 The `s3` feature enables the use of [Amazon S3](https://aws.amazon.com/s3/) as a backend.
 
 * Must provide a url to the `-u | --url` parameter, it must of the form `http(s)?://<bucket>.s3(-<region>).<host>(/<prefix>)?`
-* Must provide AWS credentials by the default mechanism(s) described [here](https://github.com/rusoto/rusoto/blob/master/AWS-CREDENTIALS.md)
+* Must provide AWS IAM user via the environment `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` described [here](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html).
 
 ### `fs`
 
