@@ -100,11 +100,7 @@ impl crate::Backend for S3Backend {
         let text = resp.text().await?;
         let parsed =
             ListObjectsV2::parse_response(&text).context("failed parsing list response")?;
-        Ok(parsed
-            .contents
-            .into_iter()
-            .map(|obj| obj.key)
-            .collect())
+        Ok(parsed.contents.into_iter().map(|obj| obj.key).collect())
     }
 
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
