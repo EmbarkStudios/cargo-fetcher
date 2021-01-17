@@ -19,10 +19,12 @@ pub struct S3Backend {
 
 impl S3Backend {
     pub fn new(loc: crate::S3Location<'_>) -> Result<Self, Error> {
-        let endpoint = format!("https://s3.{}.{}", loc.region, loc.host).parse()?;
+        let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
+            .parse()
+            .context("failed to parse s3 endpoint")?;
         let path_style = false;
         let bucket = Bucket::new(endpoint, path_style, loc.bucket.into(), loc.region.into())
-            .context("Can not new Bucket obj")?;
+            .context("failed to new Bucket")?;
         let key = "AKIA6BO3PLN4ZB5CWIHE";
         let secret = "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";
         let credential = Credentials::new(key.into(), secret.into());
@@ -81,7 +83,8 @@ impl crate::Backend for S3Backend {
             .client_reqwest
             .get(signed_url)
             .send()
-            .await?
+            .await
+            .context("failed io when fetching s3")?
             .error_for_status()?;
         Ok(res.bytes().await?)
     }
@@ -95,7 +98,8 @@ impl crate::Backend for S3Backend {
             .put(signed_url)
             .body(source)
             .send()
-            .await?
+            .await
+            .context("failed io when uploading s3")?
             .error_for_status()?;
         Ok(len)
     }
@@ -107,10 +111,12 @@ impl crate::Backend for S3Backend {
             .client_reqwest
             .get(signed_url)
             .send()
-            .await?
+            .await
+            .context("failed io when listing s3")?
             .error_for_status()?;
         let text = resp.text().await?;
-        let parsed = ListObjectsV2::parse_response(&text)?;
+        let parsed =
+            ListObjectsV2::parse_response(&text).context("failed parsing list response")?;
         Ok(parsed
             .contents
             .into_iter()
@@ -128,10 +134,10 @@ impl crate::Backend for S3Backend {
             .get(signed_url)
             .send()
             .await
-            .context("context")?
+            .context("failed io when getting updated info")?
             .error_for_status()?;
         let text = resp.text().await?;
-        let parsed = ListObjectsV2::parse_response(&text).context("faild to get the object")?;
+        let parsed = ListObjectsV2::parse_response(&text).context("faild parsing updated info")?;
         let last_modified = parsed
             .contents
             .get(0)
