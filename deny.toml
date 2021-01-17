@@ -16,6 +16,8 @@ ignore = [
     "RUSTSEC-2019-0036",
     # failure is unmaintained
     "RUSTSEC-2020-0036",
+    # difference is unmaintained, but it suits our needs just fine
+    "RUSTSEC-2020-0095",
 ]
 
 [bans]
