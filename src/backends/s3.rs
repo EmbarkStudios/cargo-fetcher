@@ -15,7 +15,7 @@ pub struct S3Backend {
 }
 
 impl S3Backend {
-    pub fn new(loc: crate::S3Location<'_>, key: String , secret: String) -> Result<Self, Error> {
+    pub fn new(loc: crate::S3Location<'_>, key: String, secret: String) -> Result<Self, Error> {
         let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
             .parse()
             .context("failed to parse s3 endpoint")?;
