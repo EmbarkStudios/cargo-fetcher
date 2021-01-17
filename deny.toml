@@ -16,8 +16,6 @@ ignore = [
     "RUSTSEC-2019-0036",
     # failure is unmaintained
     "RUSTSEC-2020-0036",
-    # dirs is umaintained still used by rusoto
-    "RUSTSEC-2020-0053",
 ]
 
 [bans]

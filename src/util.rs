@@ -59,7 +59,7 @@ impl Canonicalized {
             .and_then(|mut s| s.next_back())
             .unwrap_or("");
 
-        let ident = if ident == "" { "_empty" } else { ident };
+        let ident = if ident.is_empty() { "_empty" } else { ident };
 
         format!("{}-{}", ident, short_hash(&self.0))
     }

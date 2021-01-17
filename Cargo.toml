@@ -38,8 +38,7 @@ rayon = "1.5"
 remove_dir_all = "0.6"
 reqwest = { version = "0.10", default-features = false, features = ["rustls-tls"] }
 ring = "0.16"
-rusoto_core = { version = "0.45", default-features = false, features = ["rustls"], optional = true }
-rusoto_s3 = { version = "0.45", default-features = false, features = ["rustls"], optional = true }
+rusty-s3 = { version = "0.1", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0", optional = true }
 sha2 = { version = "0.9", optional = true }
@@ -70,7 +69,7 @@ features = ["rt-threaded", "rt-util", "blocking", "macros"]
 default = []
 fs = ["sha2", "async-std", "serde_json", "digest", "hex"]
 gcs = ["tame-gcs", "tame-oauth"]
-s3 = ["rusoto_core", "rusoto_s3"]
+s3 = ["rusty-s3"]
 fs_test = ["fs"]
 blob = ["azure_sdk_core", "azure_sdk_storage_core", "azure_sdk_storage_blob", "md5"]
 
