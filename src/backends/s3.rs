@@ -22,7 +22,7 @@ impl S3Backend {
         let path_style = false;
         let bucket = Bucket::new(endpoint, path_style, loc.bucket.into(), loc.region.into())
             .context("failed to new Bucket")?;
-        let credential = Credentials::new(key.into(), secret.into());
+        let credential = Credentials::new(key, secret);
         let client = Client::new();
 
         Ok(Self {
@@ -103,7 +103,7 @@ impl crate::Backend for S3Backend {
         Ok(parsed
             .contents
             .into_iter()
-            .filter_map(|obj| Some(obj.key))
+            .map(|obj| obj.key)
             .collect())
     }
 
