@@ -119,21 +119,25 @@ impl crate::Backend for S3Backend {
     }
 
     async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
-        let head_request = rusoto_s3::HeadObjectRequest {
-            bucket: self.bucket.clone(),
-            key: self.make_key(krate),
-            ..Default::default()
-        };
-
-        let head_output = self
-            .client
-            .head_object(head_request)
+        let mut action = ListObjectsV2::new(&self.bucket_rusty_s3, Some(&self.credential));
+        action.query_mut().insert("prefix", self.make_key(krate));
+        action.query_mut().insert("max-keys", "1");
+        let signed_url = action.sign(ONE_HOUR);
+        let resp = self
+            .client_reqwest
+            .get(signed_url)
+            .send()
             .await
-            .context("failed to get head object")?;
-
-        let last_modified = head_output
+            .context("context")?
+            .error_for_status()?;
+        let text = resp.text().await?;
+        let parsed = ListObjectsV2::parse_response(&text).context("faild to get the object")?;
+        let last_modified = parsed
+            .contents
+            .get(0)
+            .context(format!("can not get the updated info of {}", krate))?
             .last_modified
-            .context("last_modified not available for object")?;
+            .to_owned();
 
         let last_modified = chrono::DateTime::parse_from_rfc3339(&last_modified)
             .context("failed to parse last_modified")?
