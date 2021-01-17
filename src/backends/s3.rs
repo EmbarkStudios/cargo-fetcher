@@ -1,15 +1,37 @@
 use crate::Krate;
 use anyhow::{Context, Error};
+use reqwest::Client;
 use rusoto_s3::{S3Client, S3};
+use rusty_s3::actions::{GetObject, ListObjectsV2, PutObject, S3Action};
+use rusty_s3::{Bucket, Credentials};
+use std::time::Duration;
+
+const ONE_HOUR: Duration = Duration::from_secs(3600);
 
 pub struct S3Backend {
     client: S3Client,
     bucket: String,
     prefix: String,
+    bucket_rusty_s3: Bucket,
+    credential: Credentials,
+    client_reqwest: Client,
 }
 
 impl S3Backend {
     pub fn new(loc: crate::S3Location<'_>) -> Result<Self, Error> {
+        let endpoint = format!("https://s3.{}.{}", loc.region, loc.host).parse()?;
+        let path_style = false;
+        let bucket = Bucket::new(endpoint, path_style, loc.bucket.into(), loc.region.into())
+            .context("Can not new Bucket obj")?;
+        let key = "AKIA6BO3PLN4ZB5CWIHE";
+        let secret = "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";
+        let credential = Credentials::new(key.into(), secret.into());
+        let client_reqwest = Client::new();
+
+        println!(
+            "endpoint: {}",
+            format!("https://s3.{}.{}", loc.region, loc.host)
+        );
         let region = rusoto_core::Region::Custom {
             name: loc.region.to_owned(),
             endpoint: format!("https://s3.{}.{}", loc.region, loc.host),
@@ -21,6 +43,9 @@ impl S3Backend {
             client,
             prefix: loc.prefix.to_owned(),
             bucket: loc.bucket.to_owned(),
+            bucket_rusty_s3: bucket,
+            credential,
+            client_reqwest,
         })
     }
 
@@ -45,76 +70,51 @@ impl S3Backend {
 #[async_trait::async_trait]
 impl crate::Backend for S3Backend {
     async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
-        let get_request = rusoto_s3::GetObjectRequest {
-            bucket: self.bucket.clone(),
-            key: self.make_key(krate),
-            ..Default::default()
-        };
+        let obj = self.make_key(krate);
+        let mut action = GetObject::new(&self.bucket_rusty_s3, Some(&self.credential), &obj);
+        action
+            .query_mut()
+            .insert("response-cache-control", "no-cache, no-store");
+        let signed_url = action.sign(ONE_HOUR);
 
-        let get_output = self
-            .client
-            .get_object(get_request)
-            .await
-            .context("failed to retrieve object")?;
-
-        let len = get_output.content_length.unwrap_or(1024) as usize;
-        let stream = get_output.body.context("failed to retrieve body")?;
-
-        let mut buffer = bytes::BytesMut::with_capacity(len);
-        let mut reader = stream.into_async_read();
-        let mut chunk = [0u8; 8 * 1024];
-
-        use tokio::io::AsyncReadExt;
-
-        loop {
-            let read = reader.read(&mut chunk).await?;
-            if read > 0 {
-                buffer.extend_from_slice(&chunk[..read]);
-            } else {
-                break;
-            }
-        }
-
-        let buffer = buffer.freeze();
-        Ok(buffer)
+        let res = self
+            .client_reqwest
+            .get(signed_url)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(res.bytes().await?)
     }
 
     async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
         let len = source.len();
-        let put_request = rusoto_s3::PutObjectRequest {
-            bucket: self.bucket.clone(),
-            key: self.make_key(krate),
-            body: Some(source.to_vec().into()),
-            ..Default::default()
-        };
-
-        self.client
-            .put_object(put_request)
-            .await
-            .context("failed to upload object")?;
-
+        let obj = self.make_key(krate);
+        let action = PutObject::new(&self.bucket_rusty_s3, Some(&self.credential), &obj);
+        let signed_url = action.sign(ONE_HOUR);
+        self.client_reqwest
+            .put(signed_url)
+            .body(source)
+            .send()
+            .await?
+            .error_for_status()?;
         Ok(len)
     }
 
     async fn list(&self) -> Result<Vec<String>, Error> {
-        let list_request = rusoto_s3::ListObjectsV2Request {
-            bucket: self.bucket.clone(),
-            ..Default::default()
-        };
-
+        let action = ListObjectsV2::new(&self.bucket_rusty_s3, Some(&self.credential));
+        let signed_url = action.sign(ONE_HOUR);
         let resp = self
-            .client
-            .list_objects_v2(list_request)
-            .await
-            .context("failed to list objects")?;
-
-        let objects = resp.contents.unwrap_or_default();
-
-        let len = self.prefix.len();
-
-        Ok(objects
+            .client_reqwest
+            .get(signed_url)
+            .send()
+            .await?
+            .error_for_status()?;
+        let text = resp.text().await?;
+        let parsed = ListObjectsV2::parse_response(&text)?;
+        Ok(parsed
+            .contents
             .into_iter()
-            .filter_map(|obj| obj.key.map(|k| k[len..].to_owned()))
+            .filter_map(|obj| Some(obj.key))
             .collect())
     }
 
