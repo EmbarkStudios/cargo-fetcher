@@ -76,7 +76,7 @@ blob = ["azure_sdk_core", "azure_sdk_storage_core", "azure_sdk_storage_blob", "m
 [dev-dependencies]
 difference = "2.0"
 tempfile = "3.1"
-twox-hash = "1.6"
+twox-hash = { version = "1.6", default-features = false }
 walkdir = "2.3"
 
 [[test]]

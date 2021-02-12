@@ -35,7 +35,7 @@ skip = [
     { name = "remove_dir_all", version = "=0.5.3" },
 
     # chrono!? uses and old version of time
-    { name = "time", version = "=0.1.44" },
+    { name = "time", version = "=0.1.43" },
 
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },
