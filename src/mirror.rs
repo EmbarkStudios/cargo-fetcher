@@ -65,18 +65,16 @@ pub async fn registry_index(
 
     // Retrieve the metadata for the last updated registry entry, and update
     // only it if it's stale
-    if let Ok(last_updated) = backend.updated(&krate).await {
-        if let Some(last_updated) = last_updated {
-            let now = chrono::Utc::now();
-            let max_dur = chrono::Duration::from_std(max_stale)?;
+    if let Ok(Some(last_updated)) = backend.updated(&krate).await {
+        let now = chrono::Utc::now();
+        let max_dur = chrono::Duration::from_std(max_stale)?;
 
-            if now - last_updated < max_dur {
-                info!(
+        if now - last_updated < max_dur {
+            info!(
                     "the registry ({}) was last updated {}, skipping update as it is less than {:?} old",
                     rset.registry.index, last_updated, max_stale
                 );
-                return Ok(0);
-            }
+            return Ok(0);
         }
     }
 
