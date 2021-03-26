@@ -5,7 +5,7 @@ use cf::{Krate, Registry, Source};
 mod tutil;
 use tutil as util;
 
-#[tokio::test(threaded_scheduler)]
+#[tokio::test(flavor = "multi_thread")]
 async fn all_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
     let registry = std::sync::Arc::new(Registry::default());
@@ -87,7 +87,7 @@ async fn all_missing() {
     }
 }
 
-#[tokio::test(threaded_scheduler)]
+#[tokio::test(flavor = "multi_thread")]
 async fn some_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
     let registry = std::sync::Arc::new(Registry::default());
@@ -209,7 +209,7 @@ async fn some_missing() {
     }
 }
 
-#[tokio::test(threaded_scheduler)]
+#[tokio::test(flavor = "multi_thread")]
 async fn none_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
     let registry = std::sync::Arc::new(Registry::default());
