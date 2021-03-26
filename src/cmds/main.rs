@@ -125,7 +125,7 @@ async fn init_backend(
             let master_key = std::env::var("STORAGE_MASTER_KEY")
                 .context("Set env variable STORAGE_MASTER_KEY first!")?;
             Ok(Arc::new(
-                cf::backends::blob::BLOBBackend::new(loc, account, master_key).await?,
+                cf::backends::blob::BlobBackend::new(loc, account, master_key).await?,
             ))
         }
         #[cfg(not(feature = "blob"))]

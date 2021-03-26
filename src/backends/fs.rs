@@ -52,6 +52,7 @@ impl Fingerprint {
 /// A key-value store backed by a filesystem directory.
 ///
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 struct FilesystemDB {
     root: PathBuf,
 }
@@ -142,11 +143,12 @@ impl FilesystemDB {
 /// A specialization of FilesystemDB that implements a Content-Addressed Storage (CAS) interface.
 ///
 #[derive(Debug)]
-struct CASDB {
+#[allow(clippy::upper_case_acronyms)]
+struct CasDB {
     db: FilesystemDB,
 }
 
-impl CASDB {
+impl CasDB {
     fn new(db: FilesystemDB) -> Self {
         Self { db }
     }
@@ -180,8 +182,9 @@ impl CASDB {
 }
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct FSBackend {
-    krate_lookup: CASDB,
+    krate_lookup: CasDB,
     krate_data: FilesystemDB,
     krate_digest_mapping: FilesystemDB,
     fetch_cache: FilesystemDB,
@@ -193,7 +196,7 @@ impl FSBackend {
     pub async fn new(loc: crate::FilesystemLocation<'_>) -> Result<Self, Error> {
         let crate::FilesystemLocation { path } = loc;
 
-        let krate_lookup = CASDB::new(FilesystemDB::new(path.join("krate_lookup")).await?);
+        let krate_lookup = CasDB::new(FilesystemDB::new(path.join("krate_lookup")).await?);
         let krate_data = FilesystemDB::new(path.join("krate_data")).await?;
         let krate_digest_mapping = FilesystemDB::new(path.join("krate_digest_mapping")).await?;
         let fetch_cache = FilesystemDB::new(path.join("fetch_cache")).await?;
@@ -208,19 +211,19 @@ impl FSBackend {
     }
 }
 
-impl Into<Fingerprint> for Krate {
-    fn into(self) -> Fingerprint {
-        let krate_json =
-            serde_json::to_string(&self).expect("did not expect an error serializing Krate object");
-        Fingerprint::digest(krate_json.as_bytes())
+impl From<Krate> for Fingerprint {
+    fn from(krate: Krate) -> Self {
+        let krate_json = serde_json::to_string(&krate)
+            .expect("did not expect an error serializing Krate object");
+        Self::digest(krate_json.as_bytes())
     }
 }
 
-impl Into<Bytes> for Krate {
-    fn into(self) -> Bytes {
+impl From<Krate> for Bytes {
+    fn from(krate: Krate) -> Self {
         let krate_json =
-            serde_json::to_string(&self).expect("did not expect an error serializing Krate object");
-        Bytes::copy_from_slice(krate_json.as_bytes())
+            serde_json::to_vec(&krate).expect("did not expect an error serializing Krate object");
+        Bytes::from(krate_json)
     }
 }
 

@@ -126,7 +126,7 @@ use cargo_fetcher as cf;
 mod tutil;
 use tutil as util;
 
-#[tokio::test(threaded_scheduler)]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn diff_cargo() {
     util::hook_logger();

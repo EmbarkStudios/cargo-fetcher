@@ -14,7 +14,7 @@ macro_rules! git_source {
     }};
 }
 
-#[tokio::test(threaded_scheduler)]
+#[tokio::test(flavor = "multi_thread")]
 async fn multiple_from_same_repo() {
     util::hook_logger();
 

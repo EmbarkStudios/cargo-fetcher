@@ -39,9 +39,6 @@ skip = [
 
     # too many things still use ancient (slow to compile!) versions of winapi
     { name = "winapi", version = "=0.2.8" },
-
-    # TODO: update tame-gcs
-    { name = "serde_urlencoded", version = "=0.6.1" },
 ]
 skip-tree = [
     # azure_sdk_core uses an old version of rustls/hyper/tokio

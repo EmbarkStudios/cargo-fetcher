@@ -77,6 +77,7 @@ impl AsRef<Url> for Canonicalized {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<Url> for Canonicalized {
     fn into(self) -> Url {
         self.0
@@ -186,12 +187,12 @@ use std::{
 };
 
 pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Result<(), Error> {
-    enum Decoder<R: io::Read + io::BufRead> {
+    enum Decoder<'z, R: io::Read + io::BufRead> {
         Gzip(flate2::read::GzDecoder<R>),
-        Zstd(zstd::Decoder<R>),
+        Zstd(zstd::Decoder<'z, R>),
     }
 
-    impl<R> io::Read for Decoder<R>
+    impl<'z, R> io::Read for Decoder<'z, R>
     where
         R: io::Read + io::BufRead,
     {
@@ -203,7 +204,7 @@ pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Resul
         }
     }
 
-    use bytes::buf::BufExt;
+    use bytes::Buf;
     let buf_reader = buffer.reader();
 
     let decoder = match encoding {
@@ -260,8 +261,8 @@ pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
         }
     }
 
-    struct Writer<W: io::Write> {
-        encoder: zstd::Encoder<W>,
+    struct Writer<'z, W: io::Write> {
+        encoder: zstd::Encoder<'z, W>,
         original: usize,
     }
 
@@ -270,9 +271,9 @@ pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
     // do a write until a previous one has succeeded, as otherwise
     // the stream could be corrupted regardless of the actual write
     // implementation, so this should be fine. :tm:
-    unsafe impl<W: io::Write + Sync> Sync for Writer<W> {}
+    unsafe impl<'z, W: io::Write + Sync> Sync for Writer<'z, W> {}
 
-    impl<W> futures::io::AsyncWrite for Writer<W>
+    impl<'z, W> futures::io::AsyncWrite for Writer<'z, W>
     where
         W: io::Write + Send + Sync + std::marker::Unpin,
     {
@@ -305,8 +306,7 @@ pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
         }
     }
 
-    use bytes::buf::BufMutExt;
-
+    use bytes::BufMut;
     let out_buffer = bytes::BytesMut::with_capacity(estimated_size as usize);
     let buf_writer = out_buffer.writer();
 

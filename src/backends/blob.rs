@@ -6,13 +6,13 @@ use azure_sdk_storage_core::{client, key_client::KeyClient};
 use bytes::Bytes;
 
 #[derive(Debug)]
-pub struct BLOBBackend {
+pub struct BlobBackend {
     prefix: String,
     client: KeyClient,
     container: String,
 }
 
-impl BLOBBackend {
+impl BlobBackend {
     pub async fn new(
         loc: crate::BlobLocation<'_>,
         account: String,
@@ -33,7 +33,7 @@ impl BLOBBackend {
 }
 
 #[async_trait::async_trait]
-impl crate::Backend for BLOBBackend {
+impl crate::Backend for BlobBackend {
     async fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
         let response = self
             .client
