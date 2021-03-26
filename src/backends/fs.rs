@@ -213,8 +213,8 @@ impl FSBackend {
 
 impl From<Krate> for Fingerprint {
     fn from(krate: Krate) -> Self {
-        let krate_json =
-            serde_json::to_string(&krate).expect("did not expect an error serializing Krate object");
+        let krate_json = serde_json::to_string(&krate)
+            .expect("did not expect an error serializing Krate object");
         Self::digest(krate_json.as_bytes())
     }
 }
