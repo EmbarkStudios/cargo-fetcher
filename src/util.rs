@@ -77,6 +77,7 @@ impl AsRef<Url> for Canonicalized {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<Url> for Canonicalized {
     fn into(self) -> Url {
         self.0
