@@ -39,7 +39,7 @@ impl Fingerprint {
             .map_err(|e| e.into())
     }
 
-    fn to_hex(&self) -> String {
+    fn to_hex(self) -> String {
         let mut s = String::new();
         for &byte in &self.0 {
             fmt::Write::write_fmt(&mut s, format_args!("{:02x}", byte)).unwrap();
