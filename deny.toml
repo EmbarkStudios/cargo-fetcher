@@ -9,13 +9,6 @@ targets = [
 unmaintained = "deny"
 unsound = "deny"
 ignore = [
-    # net2 is deprecated, but it's used by mio, which is still stuck on winapi
-    # 0.2, so we'll just wait a few years for that to be updated
-    "RUSTSEC-2020-0016",
-    # failure unsoundness, still used by azure
-    "RUSTSEC-2019-0036",
-    # failure is unmaintained
-    "RUSTSEC-2020-0036",
     # difference is unmaintained, but it suits our needs just fine
     "RUSTSEC-2020-0095",
 ]
@@ -28,21 +21,14 @@ skip = [
     # clap still uses an old ansi_term
     { name = "ansi_term", version = "=0.11.0" },
 
-    # so many crates
-    { name = "base64", version = "=0.12.3" },
-
     # tempfile uses an old version, but is only a dev-dep so it's fine
     { name = "remove_dir_all", version = "=0.5.3" },
 
     # chrono!? uses and old version of time
     { name = "time", version = "=0.1.43" },
 
-    # too many things still use ancient (slow to compile!) versions of winapi
-    { name = "winapi", version = "=0.2.8" },
 ]
 skip-tree = [
-    # azure_sdk_core uses an old version of rustls/hyper/tokio
-    { name = "hyper-rustls", version = "0.20.0" },
 ]
 
 [licenses]
