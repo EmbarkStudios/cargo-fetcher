@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Changed
+- [PR#161](https://github.com/EmbarkStudios/cargo-fetcher/pull/161) replaced the bloated auto-generated crates for rusoto with much leaner [`rusty-s3`](https://crates.io/crates/rusty-s3) crate. Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
+- [PR#166](https://github.com/EmbarkStudios/cargo-fetcher/pull/166) replaced the bloated auto-generated crates for the azure SDK with the much leaner [`bloblock`](https://crates.io/crates/bloblock) crate. Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
+
 ## [0.10.0] - 2020-12-14
 ### Added
 - [PR#131](https://github.com/EmbarkStudios/cargo-fetcher/pull/131) and [PR#151](https://github.com/EmbarkStudios/cargo-fetcher/pull/150) added support for registries other than crates.io, resolving [#118](https://github.com/EmbarkStudios/cargo-fetcher/issues/118). Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
