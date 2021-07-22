@@ -27,6 +27,12 @@ skip = [
     # chrono!? uses and old version of time
     { name = "time", version = "=0.1.43" },
 
+    # async-tar v0.3.0 uses an old version of pin-project
+    { name = "pin-project", version = "=0.4.28" },
+    { name = "pin-project-internal", version = "=0.4.28" },
+
+    # twox-hash v1.6.0 uses an old version of cfg-if
+    { name = "cfg-if", version = "=0.1.10" }
 ]
 skip-tree = [
 ]
