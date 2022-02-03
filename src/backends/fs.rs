@@ -1,6 +1,6 @@
 use crate::Krate;
 
-use anyhow::Error;
+use anyhow::{Context as _, Error};
 use async_std::{fs, io, stream::StreamExt};
 use bytes::Bytes;
 use digest::Digest as DigestTrait;
@@ -267,18 +267,18 @@ impl crate::Backend for FSBackend {
         Ok(all_names)
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
-        let result = self.krate_data.modified_time(krate.clone()).await?;
-        Ok(result.map(|system_time| {
-            let unix_time: u64 = system_time
-                .duration_since(time::UNIX_EPOCH)
-                .expect("Surely you're not before the unix epoch?")
-                .as_secs();
-            // TODO: figure out how to initialize a chrono timestamp using a u64 instead of cutting
+    async fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
+        if let Some(timestamp) = self.krate_data.modified_time(krate.clone()).await? {
+            let unix_time = timestamp.duration_since(time::UNIX_EPOCH)?.as_secs();
+
+            // TODO: figure out how to initialize a timestamp using a u64 instead of cutting
             // off half the range into an i64.
-            let naive_time = chrono::NaiveDateTime::from_timestamp(unix_time as i64, 0);
-            chrono::DateTime::<chrono::Utc>::from_utc(naive_time, chrono::Utc)
-        }))
+            crate::Timestamp::from_unix_timestamp(unix_time as i64)
+                .context("invalid timestamp range")
+                .map(Some)
+        } else {
+            Ok(None)
+        }
     }
 
     fn set_prefix(&mut self, prefix: &str) {

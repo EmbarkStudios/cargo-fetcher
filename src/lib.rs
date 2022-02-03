@@ -287,11 +287,13 @@ impl fmt::Debug for Ctx {
     }
 }
 
+pub type Timestamp = time::OffsetDateTime;
+
 #[async_trait::async_trait]
 pub trait Backend: fmt::Debug {
     async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
     async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error>;
     async fn list(&self) -> Result<Vec<String>, Error>;
-    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error>;
+    async fn updated(&self, krate: &Krate) -> Result<Option<Timestamp>, Error>;
     fn set_prefix(&mut self, prefix: &str);
 }

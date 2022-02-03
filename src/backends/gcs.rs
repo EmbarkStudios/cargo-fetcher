@@ -1,14 +1,13 @@
 use crate::Krate;
 use anyhow::{anyhow, Context, Error};
 use reqwest::Client;
-use std::convert::TryFrom;
 use tame_gcs::{BucketName, ObjectName};
 use tracing::debug;
 
 async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, Error> {
-    // If we're not completing whatever task in under an hour then
+    // If we're not completing whatever task in under an hour then we
     // have more problems than the token expiring
-    use tame_oauth::gcp;
+    use tame_oauth::gcp::{self, TokenProvider};
 
     #[cfg(feature = "gcs")]
     debug!("using credentials in {}", cred_path.display());
@@ -16,7 +15,7 @@ async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::To
     let svc_account_info =
         gcp::ServiceAccountInfo::deserialize(std::fs::read_to_string(&cred_path)?)
             .context("failed to deserilize service account")?;
-    let svc_account_access = gcp::ServiceAccountAccess::new(svc_account_info)?;
+    let svc_account_access = gcp::ServiceAccountProvider::new(svc_account_info)?;
 
     let token = match svc_account_access.get_token(&[tame_gcs::Scopes::ReadWrite])? {
         gcp::TokenOrRequest::Request {
@@ -213,7 +212,7 @@ impl crate::Backend for GcsBackend {
             .collect())
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    async fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
         use tame_gcs::objects::{GetObjectOptional, GetObjectResponse, Object};
 
         let get_req = Object::get(

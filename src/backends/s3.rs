@@ -1,8 +1,10 @@
 use crate::Krate;
 use anyhow::{Context, Error};
 use reqwest::Client;
-use rusty_s3::actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action};
-use rusty_s3::{Bucket, Credentials};
+use rusty_s3::{
+    actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action},
+    Bucket, Credentials,
+};
 use std::time::Duration;
 
 const ONE_HOUR: Duration = Duration::from_secs(3600);
@@ -19,9 +21,14 @@ impl S3Backend {
         let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
             .parse()
             .context("failed to parse s3 endpoint")?;
-        let path_style = false;
-        let bucket = Bucket::new(endpoint, path_style, loc.bucket.into(), loc.region.into())
-            .context("failed to new Bucket")?;
+
+        let bucket = Bucket::new(
+            endpoint,
+            rusty_s3::UrlStyle::VirtualHost,
+            loc.bucket.to_owned(),
+            loc.region.to_owned(),
+        )
+        .context("failed to new Bucket")?;
         let credential = Credentials::new(key, secret);
         let client = Client::new();
 
@@ -39,7 +46,7 @@ impl S3Backend {
     }
 
     pub async fn make_bucket(&self) -> Result<(), Error> {
-        let action = CreateBucket::new(&self.bucket, Some(&self.credential));
+        let action = CreateBucket::new(&self.bucket, &self.credential);
         let signed_url = action.sign(ONE_HOUR);
         self.client
             .put(signed_url)
@@ -103,7 +110,7 @@ impl crate::Backend for S3Backend {
         Ok(parsed.contents.into_iter().map(|obj| obj.key).collect())
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    async fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
         let mut action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         action.query_mut().insert("prefix", self.make_key(krate));
         action.query_mut().insert("max-keys", "1");
@@ -117,16 +124,19 @@ impl crate::Backend for S3Backend {
             .error_for_status()?;
         let text = resp.text().await?;
         let parsed = ListObjectsV2::parse_response(&text).context("faild parsing updated info")?;
-        let last_modified = parsed
+        let last_modified = &parsed
             .contents
             .get(0)
             .context(format!("can not get the updated info of {}", krate))?
-            .last_modified
-            .to_owned();
+            .last_modified;
 
-        let last_modified = chrono::DateTime::parse_from_rfc3339(&last_modified)
-            .context("failed to parse last_modified")?
-            .with_timezone(&chrono::Utc);
+        let last_modified = crate::Timestamp::parse(
+            last_modified,
+            &time::format_description::well_known::Rfc3339,
+        )
+        .context("failed to parse last_modified")?
+        // This _should_ already be set during parsing?
+        .replace_offset(time::UtcOffset::UTC);
 
         Ok(Some(last_modified))
     }
