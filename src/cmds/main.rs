@@ -87,22 +87,21 @@ extern crate cargo_fetcher as cf;
 
 use anyhow::{anyhow, Context, Error};
 use std::{path::PathBuf, sync::Arc};
-use structopt::StructOpt;
 use tracing_subscriber::filter::LevelFilter;
 use url::Url;
 
 mod mirror;
 mod sync;
 
-#[derive(StructOpt)]
+#[derive(clap::Subcommand)]
 enum Command {
     /// Uploads any crates in the lockfile that aren't already present
     /// in the cloud storage location
-    #[structopt(name = "mirror")]
+    #[clap(name = "mirror")]
     Mirror(mirror::Args),
     /// Downloads missing crates to the local cargo locations and unpacks
     /// them
-    #[structopt(name = "sync")]
+    #[clap(name = "sync")]
     Sync(sync::Args),
 }
 
@@ -112,7 +111,7 @@ fn parse_level(s: &str) -> Result<LevelFilter, Error> {
         .map_err(|_err| anyhow!("failed to parse level '{}'", s))
 }
 
-#[derive(StructOpt)]
+#[derive(clap::Parser)]
 struct Opts {
     /// Path to a service account credentials file used to obtain
     /// oauth2 tokens. By default uses GOOGLE_APPLICATION_CREDENTIALS
@@ -126,19 +125,14 @@ struct Opts {
     credentials: Option<PathBuf>,
     /// A url to a cloud storage bucket and prefix path at which to store
     /// or retrieve archives
-    #[structopt(short = "u", long = "url")]
+    #[structopt(short, long)]
     url: Url,
     /// Path to the lockfile used for determining what crates to operate on
-    #[structopt(
-        short,
-        long = "lock-file",
-        default_value = "Cargo.lock",
-        parse(from_os_str)
-    )]
+    #[structopt(short, long, default_value = "Cargo.lock", parse(from_os_str))]
     lock_file: PathBuf,
     #[structopt(
-        short = "L",
-        long = "log-level",
+        short = 'L',
+        long,
         default_value = "info",
         parse(try_from_str = parse_level),
         long_help = "The log level for messages, only log messages at or above the level will be emitted.
@@ -156,7 +150,7 @@ Possible values:
     #[structopt(long)]
     json: bool,
     /// A snapshot of the registry index is also included when mirroring or syncing
-    #[structopt(short, long = "include-index")]
+    #[structopt(short, long)]
     include_index: bool,
     #[structopt(subcommand)]
     cmd: Command,
@@ -217,7 +211,8 @@ async fn init_backend(
 }
 
 async fn real_main() -> Result<(), Error> {
-    let args = Opts::from_iter({
+    use clap::Parser;
+    let args = Opts::parse_from({
         std::env::args().enumerate().filter_map(|(i, a)| {
             if i == 1 && a == "fetcher" {
                 None

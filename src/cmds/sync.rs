@@ -2,7 +2,7 @@ use anyhow::Error;
 use cf::{sync, Ctx};
 use tracing::{error, info};
 
-#[derive(structopt::StructOpt)]
+#[derive(clap::Parser)]
 pub struct Args {}
 
 pub(crate) async fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<(), Error> {

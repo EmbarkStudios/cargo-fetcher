@@ -4,11 +4,10 @@ use std::time::Duration;
 use tracing::{error, info};
 use tracing_futures::Instrument;
 
-#[derive(structopt::StructOpt)]
+#[derive(clap::Parser)]
 pub struct Args {
-    #[structopt(
+    #[clap(
         short,
-        long = "max-stale",
         default_value = "1d",
         parse(try_from_str = parse_duration),
         long_help = "The duration for which the index will not be replaced after its most recent update.
