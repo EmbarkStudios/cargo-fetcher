@@ -1,8 +1,9 @@
-use crate::Krate;
+use crate::{HttpClient, Krate};
 use anyhow::{Context, Error};
-use reqwest::Client;
-use rusty_s3::actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action};
-use rusty_s3::{Bucket, Credentials};
+use rusty_s3::{
+    actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action},
+    Bucket, Credentials,
+};
 use std::time::Duration;
 
 const ONE_HOUR: Duration = Duration::from_secs(3600);
@@ -11,7 +12,7 @@ pub struct S3Backend {
     prefix: String,
     bucket: Bucket,
     credential: Credentials,
-    client: Client,
+    client: HttpClient,
 }
 
 impl S3Backend {
@@ -19,11 +20,16 @@ impl S3Backend {
         let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
             .parse()
             .context("failed to parse s3 endpoint")?;
-        let path_style = false;
-        let bucket = Bucket::new(endpoint, path_style, loc.bucket.into(), loc.region.into())
-            .context("failed to new Bucket")?;
+
+        let bucket = Bucket::new(
+            endpoint,
+            rusty_s3::UrlStyle::VirtualHost,
+            loc.bucket.to_owned(),
+            loc.region.to_owned(),
+        )
+        .context("failed to new Bucket")?;
         let credential = Credentials::new(key, secret);
-        let client = Client::new();
+        let client = HttpClient::new();
 
         Ok(Self {
             prefix: loc.prefix.to_owned(),
@@ -38,13 +44,12 @@ impl S3Backend {
         format!("{}{}", self.prefix, krate.cloud_id())
     }
 
-    pub async fn make_bucket(&self) -> Result<(), Error> {
-        let action = CreateBucket::new(&self.bucket, Some(&self.credential));
+    pub fn make_bucket(&self) -> Result<(), Error> {
+        let action = CreateBucket::new(&self.bucket, &self.credential);
         let signed_url = action.sign(ONE_HOUR);
         self.client
             .put(signed_url)
             .send()
-            .await
             .context("failed io when fetching s3")?
             .error_for_status()?;
 
@@ -52,9 +57,8 @@ impl S3Backend {
     }
 }
 
-#[async_trait::async_trait]
 impl crate::Backend for S3Backend {
-    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
+    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
         let obj = self.make_key(krate);
         let mut action = GetObject::new(&self.bucket, Some(&self.credential), &obj);
         action
@@ -66,13 +70,12 @@ impl crate::Backend for S3Backend {
             .client
             .get(signed_url)
             .send()
-            .await
             .context("failed io when fetching s3")?
             .error_for_status()?;
-        Ok(res.bytes().await?)
+        Ok(res.bytes()?)
     }
 
-    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
         let len = source.len();
         let obj = self.make_key(krate);
         let action = PutObject::new(&self.bucket, Some(&self.credential), &obj);
@@ -81,29 +84,27 @@ impl crate::Backend for S3Backend {
             .put(signed_url)
             .body(source)
             .send()
-            .await
             .context("failed io when uploading s3")?
             .error_for_status()?;
         Ok(len)
     }
 
-    async fn list(&self) -> Result<Vec<String>, Error> {
+    fn list(&self) -> Result<Vec<String>, Error> {
         let action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         let signed_url = action.sign(ONE_HOUR);
         let resp = self
             .client
             .get(signed_url)
             .send()
-            .await
             .context("failed io when listing s3")?
             .error_for_status()?;
-        let text = resp.text().await?;
+        let text = resp.text()?;
         let parsed =
             ListObjectsV2::parse_response(&text).context("failed parsing list response")?;
         Ok(parsed.contents.into_iter().map(|obj| obj.key).collect())
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
         let mut action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         action.query_mut().insert("prefix", self.make_key(krate));
         action.query_mut().insert("max-keys", "1");
@@ -112,21 +113,23 @@ impl crate::Backend for S3Backend {
             .client
             .get(signed_url)
             .send()
-            .await
             .context("failed io when getting updated info")?
             .error_for_status()?;
-        let text = resp.text().await?;
+        let text = resp.text()?;
         let parsed = ListObjectsV2::parse_response(&text).context("faild parsing updated info")?;
-        let last_modified = parsed
+        let last_modified = &parsed
             .contents
             .get(0)
             .context(format!("can not get the updated info of {}", krate))?
-            .last_modified
-            .to_owned();
+            .last_modified;
 
-        let last_modified = chrono::DateTime::parse_from_rfc3339(&last_modified)
-            .context("failed to parse last_modified")?
-            .with_timezone(&chrono::Utc);
+        let last_modified = crate::Timestamp::parse(
+            last_modified,
+            &time::format_description::well_known::Rfc3339,
+        )
+        .context("failed to parse last_modified")?
+        // This _should_ already be set during parsing?
+        .replace_offset(time::UtcOffset::UTC);
 
         Ok(Some(last_modified))
     }

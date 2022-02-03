@@ -2,13 +2,11 @@ use anyhow::Error;
 use cf::{mirror, Ctx};
 use std::time::Duration;
 use tracing::{error, info};
-use tracing_futures::Instrument;
 
-#[derive(structopt::StructOpt)]
+#[derive(clap::Parser)]
 pub struct Args {
-    #[structopt(
+    #[clap(
         short,
-        long = "max-stale",
         default_value = "1d",
         parse(try_from_str = parse_duration),
         long_help = "The duration for which the index will not be replaced after its most recent update.
@@ -24,34 +22,24 @@ Times may be specified with no suffix (default days), or one of:
     max_stale: Duration,
 }
 
-pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
+pub(crate) fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
     let backend = ctx.backend.clone();
     let regs = ctx.registry_sets();
 
-    let index = tokio::task::spawn(async move {
-        if !include_index {
-            return;
-        }
-
-        match mirror::registry_indices(backend, args.max_stale, regs)
-            .instrument(tracing::info_span!("index"))
-            .await
-        {
-            Ok(_) => {
-                info!("successfully mirrored all registry indices");
+    rayon::join(
+        || {
+            if !include_index {
+                return;
             }
-            Err(e) => error!("failed to mirror all registry indices: {:#}", e),
-        }
-    });
 
-    let (_index, _mirror) = tokio::join!(index, async move {
-        match mirror::crates(&ctx).await {
-            Ok(_) => {
-                info!("finished uploading crates");
-            }
+            mirror::registry_indices(backend, args.max_stale, regs);
+            info!("finished uploading registry indices");
+        },
+        || match mirror::crates(&ctx) {
+            Ok(_) => info!("finished uploading crates"),
             Err(e) => error!("failed to mirror crates: {:#}", e),
-        }
-    });
+        },
+    );
 
     Ok(())
 }

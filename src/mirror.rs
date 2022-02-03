@@ -1,50 +1,36 @@
 use crate::{fetch, Ctx, Krate, Registry, Source};
 use anyhow::Error;
-use futures::StreamExt;
+use rayon::prelude::*;
 use std::time::Duration;
 use tracing::{debug, error, info};
-use tracing_futures::Instrument;
 
 pub struct RegistrySet {
     pub registry: std::sync::Arc<Registry>,
     pub krates: Vec<String>,
 }
 
-pub async fn registry_indices(
+#[tracing::instrument(level = "debug", skip_all)]
+pub fn registry_indices(
     backend: crate::Storage,
     max_stale: Duration,
     registries: Vec<RegistrySet>,
-) -> Result<usize, Error> {
-    let bytes = futures::stream::iter(registries)
-        .map(|rset| {
-            let backend = backend.clone();
-            let index = rset.registry.index.clone();
-            async move {
-                let res: Result<usize, Error> = registry_index(backend, max_stale, rset)
-                    .instrument(tracing::debug_span!("upload registry"))
-                    .await;
-                res
-            }
-            .instrument(tracing::debug_span!("mirror registries", %index))
-        })
-        .buffer_unordered(32);
-
-    let total_bytes = bytes
-        .fold(0usize, |acc, res| async move {
-            match res {
-                Ok(a) => a + acc,
-                Err(e) => {
-                    error!("{:#}", e);
-                    acc
+) -> usize {
+    registries
+        .into_par_iter()
+        .map(
+            |rset| match registry_index(backend.clone(), max_stale, rset) {
+                Ok(size) => size,
+                Err(err) => {
+                    error!("{:#}", err);
+                    0
                 }
-            }
-        })
-        .await;
-
-    Ok(total_bytes)
+            },
+        )
+        .sum()
 }
 
-pub async fn registry_index(
+#[tracing::instrument(level = "debug", skip_all)]
+pub fn registry_index(
     backend: crate::Storage,
     max_stale: Duration,
     rset: RegistrySet,
@@ -65,11 +51,10 @@ pub async fn registry_index(
 
     // Retrieve the metadata for the last updated registry entry, and update
     // only it if it's stale
-    if let Ok(Some(last_updated)) = backend.updated(&krate).await {
-        let now = chrono::Utc::now();
-        let max_dur = chrono::Duration::from_std(max_stale)?;
+    if let Ok(Some(last_updated)) = backend.updated(&krate) {
+        let now = time::OffsetDateTime::now_utc();
 
-        if now - last_updated < max_dur {
+        if now - last_updated < max_stale {
             info!(
                     "the registry ({}) was last updated {}, skipping update as it is less than {:?} old",
                     rset.registry.index, last_updated, max_stale
@@ -78,30 +63,21 @@ pub async fn registry_index(
         }
     }
 
-    let index = async {
-        let res = fetch::registry(&rset.registry.index, rset.krates.into_iter()).await;
+    let index = fetch::registry(&rset.registry.index, rset.krates.into_iter())?;
 
-        if let Ok(ref buffer) = res {
-            debug!(
-                size = buffer.len(),
-                "{} index downloaded", rset.registry.index
-            );
-        }
+    debug!(
+        size = index.len(),
+        "{} index downloaded", rset.registry.index
+    );
 
-        res
-    }
-    .instrument(tracing::debug_span!("fetch_index"))
-    .await?;
-
-    backend
-        .upload(index, &krate)
-        .instrument(tracing::debug_span!("upload"))
-        .await
+    let span = tracing::debug_span!("upload");
+    let _us = span.enter();
+    backend.upload(index, &krate)
 }
 
-pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
+pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
     debug!("checking existing crates...");
-    let mut names = ctx.backend.list().await?;
+    let mut names = ctx.backend.list()?;
 
     names.sort();
 
@@ -134,35 +110,35 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
     let client = &ctx.client;
     let backend = &ctx.backend;
 
-    let bodies = futures::stream::iter(to_mirror)
+    let total_bytes = to_mirror
+        .into_par_iter()
         .map(|krate| {
-            let client = &client;
-            let backend = backend.clone();
-            async move {
-                let res: Result<usize, String> = match fetch::from_registry(&client, &krate).await {
-                    Err(e) => Err(format!("failed to retrieve {}: {}", krate, e)),
-                    Ok(krate_data) => {
-                        debug!(size = krate_data.len(), "fetched");
+            let span = tracing::debug_span!("mirror", %krate);
+            let _ms = span.enter();
 
-                        let mut checkout_size = None;
+            match fetch::from_registry(client, krate) {
+                Ok(krate_data) => {
+                    debug!(size = krate_data.len(), "fetched");
 
-                        let buffer = match krate_data {
-                            fetch::KrateSource::Registry(buffer) => buffer,
-                            fetch::KrateSource::Git(gs) => {
-                                if let Some(checkout) = gs.checkout {
-                                    // We synthesize a slightly different krate id so that we can
-                                    // store both (and also not have to change every backend)
-                                    let mut checkout_id = krate.clone();
+                    let mut checkout_size = None;
 
-                                    if let Source::Git { rev, .. } = &mut checkout_id.source {
-                                        rev.push_str("-checkout");
-                                    }
+                    let buffer = match krate_data {
+                        fetch::KrateSource::Registry(buffer) => buffer,
+                        fetch::KrateSource::Git(gs) => {
+                            if let Some(checkout) = gs.checkout {
+                                // We synthesize a slightly different krate id so that we can
+                                // store both (and also not have to change every backend)
+                                let mut checkout_id = krate.clone();
 
-                                    match backend
-                                        .upload(checkout, &checkout_id)
-                                        .instrument(tracing::debug_span!("upload"))
-                                        .await
-                                    {
+                                if let Source::Git { rev, .. } = &mut checkout_id.source {
+                                    rev.push_str("-checkout");
+                                }
+
+                                {
+                                    let span = tracing::debug_span!("upload_checkout");
+                                    let _us = span.enter();
+
+                                    match backend.upload(checkout, &checkout_id) {
                                         Err(e) => {
                                             tracing::warn!(
                                                 "failed to upload  {}: {}",
@@ -175,39 +151,31 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
                                         }
                                     }
                                 }
-
-                                gs.db
                             }
-                        };
 
-                        match backend
-                            .upload(buffer, &krate)
-                            .instrument(tracing::debug_span!("upload"))
-                            .await
-                        {
-                            Err(e) => Err(format!("failed to upload {}: {}", krate, e)),
-                            Ok(len) => Ok(len + checkout_size.unwrap_or(0)),
+                            gs.db
+                        }
+                    };
+
+                    {
+                        let span = tracing::debug_span!("upload");
+                        let _us = span.enter();
+                        match backend.upload(buffer, krate) {
+                            Err(e) => {
+                                error!("failed to upload: {}", e);
+                                0
+                            }
+                            Ok(len) => len + checkout_size.unwrap_or(0),
                         }
                     }
-                };
-
-                res
-            }
-            .instrument(tracing::debug_span!("mirror", %krate))
-        })
-        .buffer_unordered(32);
-
-    let total_bytes = bodies
-        .fold(0usize, |acc, res| async move {
-            match res {
-                Ok(len) => acc + len,
+                }
                 Err(e) => {
-                    error!("{:#}", e);
-                    acc
+                    error!("failed to retrieve: {}", e);
+                    0
                 }
             }
         })
-        .await;
+        .sum();
 
     Ok(total_bytes)
 }

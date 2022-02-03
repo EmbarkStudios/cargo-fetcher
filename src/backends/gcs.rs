@@ -1,14 +1,12 @@
-use crate::Krate;
+use crate::{HttpClient, Krate};
 use anyhow::{anyhow, Context, Error};
-use reqwest::Client;
-use std::convert::TryFrom;
 use tame_gcs::{BucketName, ObjectName};
 use tracing::debug;
 
-async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, Error> {
-    // If we're not completing whatever task in under an hour then
+fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, Error> {
+    // If we're not completing whatever task in under an hour then we
     // have more problems than the token expiring
-    use tame_oauth::gcp;
+    use tame_oauth::gcp::{self, TokenProvider};
 
     #[cfg(feature = "gcs")]
     debug!("using credentials in {}", cred_path.display());
@@ -16,7 +14,7 @@ async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::To
     let svc_account_info =
         gcp::ServiceAccountInfo::deserialize(std::fs::read_to_string(&cred_path)?)
             .context("failed to deserilize service account")?;
-    let svc_account_access = gcp::ServiceAccountAccess::new(svc_account_info)?;
+    let svc_account_access = gcp::ServiceAccountProvider::new(svc_account_info)?;
 
     let token = match svc_account_access.get_token(&[tame_gcs::Scopes::ReadWrite])? {
         gcp::TokenOrRequest::Request {
@@ -26,7 +24,7 @@ async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::To
         } => {
             let (parts, body) = request.into_parts();
 
-            let client = reqwest::Client::new();
+            let client = HttpClient::new();
 
             let uri = parts.uri.to_string();
 
@@ -35,36 +33,33 @@ async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::To
                 http::Method::POST => client.post(&uri),
                 http::Method::DELETE => client.delete(&uri),
                 http::Method::PUT => client.put(&uri),
-                method => unimplemented!("{} not implemented", method),
+                method => unreachable!("{} not implemented", method),
             };
 
             let req = builder.headers(parts.headers).body(body).build()?;
 
-            let res = client.execute(req).await?;
+            let res = client.execute(req)?;
 
-            let response = convert_response(res).await?;
+            let response = convert_response(res)?;
             svc_account_access.parse_token_response(scope_hash, response)?
         }
-        _ => unreachable!(),
+        gcp::TokenOrRequest::Token(_) => unreachable!(),
     };
 
     Ok(token)
 }
 
 pub struct GcsBackend {
-    client: Client,
+    client: HttpClient,
     bucket: BucketName<'static>,
     prefix: String,
 }
 
 impl GcsBackend {
-    pub async fn new(
-        loc: crate::GcsLocation<'_>,
-        credentials: &std::path::Path,
-    ) -> Result<Self, Error> {
+    pub fn new(loc: crate::GcsLocation<'_>, credentials: &std::path::Path) -> Result<Self, Error> {
         let bucket = BucketName::try_from(loc.bucket.to_owned())?;
 
-        let token = acquire_gcs_token(credentials).await?;
+        let token = acquire_gcs_token(credentials)?;
 
         use reqwest::header;
 
@@ -77,7 +72,7 @@ impl GcsBackend {
             hm
         };
 
-        let client = Client::builder()
+        let client = HttpClient::builder()
             .default_headers(hm)
             .use_rustls_tls()
             .build()?;
@@ -110,9 +105,8 @@ impl fmt::Debug for GcsBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl crate::Backend for GcsBackend {
-    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
+    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
         let dl_req =
             tame_gcs::objects::Object::download(&(&self.bucket, &self.obj_name(krate)?), None)?;
 
@@ -123,14 +117,14 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let response = self.client.execute(request).await?.error_for_status()?;
-        let res = convert_response(response).await?;
+        let response = self.client.execute(request)?.error_for_status()?;
+        let res = convert_response(response)?;
         let content = res.into_body();
 
         Ok(content)
     }
 
-    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
         use tame_gcs::objects::{InsertObjectOptional, Object};
 
         let content_len = source.len() as u64;
@@ -152,12 +146,12 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).body(body).build()?;
 
-        self.client.execute(request).await?.error_for_status()?;
+        self.client.execute(request)?.error_for_status()?;
 
         Ok(content_len as usize)
     }
 
-    async fn list(&self) -> Result<Vec<String>, Error> {
+    fn list(&self) -> Result<Vec<String>, Error> {
         use tame_gcs::objects::{ListOptional, ListResponse, Object};
 
         // Get a list of all crates already present in gcs, the list
@@ -186,9 +180,9 @@ impl crate::Backend for GcsBackend {
 
             let request = builder.headers(parts.headers).build()?;
 
-            let res = self.client.execute(request).await?;
+            let res = self.client.execute(request)?;
 
-            let response = convert_response(res).await?;
+            let response = convert_response(res)?;
             let list_response = ListResponse::try_from(response)?;
 
             let name_block: Vec<_> = list_response
@@ -213,7 +207,7 @@ impl crate::Backend for GcsBackend {
             .collect())
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
+    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
         use tame_gcs::objects::{GetObjectOptional, GetObjectResponse, Object};
 
         let get_req = Object::get(
@@ -234,9 +228,9 @@ impl crate::Backend for GcsBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let response = self.client.execute(request).await?.error_for_status()?;
+        let response = self.client.execute(request)?.error_for_status()?;
 
-        let response = convert_response(response).await?;
+        let response = convert_response(response)?;
         let get_response = GetObjectResponse::try_from(response)?;
 
         Ok(get_response.metadata.updated)
@@ -247,8 +241,8 @@ impl crate::Backend for GcsBackend {
     }
 }
 
-pub async fn convert_response(
-    res: reqwest::Response,
+pub fn convert_response(
+    res: reqwest::blocking::Response,
 ) -> Result<http::Response<bytes::Bytes>, Error> {
     let mut builder = http::Response::builder()
         .status(res.status())
@@ -264,7 +258,7 @@ pub async fn convert_response(
             .map(|(k, v)| (k.clone(), v.clone())),
     );
 
-    let body = res.bytes().await?;
+    let body = res.bytes()?;
 
     Ok(builder.body(body)?)
 }

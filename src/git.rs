@@ -180,7 +180,7 @@ where
                     debug_assert_eq!(Some(&s[..]), username);
                     attempts += 1;
                     if attempts == 1 {
-                        ssh_agent_attempts.push(s.to_string());
+                        ssh_agent_attempts.push(s.clone());
                         return git2::Cred::ssh_key_from_agent(&s);
                     }
                 }
@@ -291,7 +291,8 @@ pub struct GitSource {
     pub checkout: Option<bytes::Bytes>,
 }
 
-pub(crate) async fn checkout(
+#[tracing::instrument(level = "debug")]
+pub(crate) fn checkout(
     src: std::path::PathBuf,
     target: std::path::PathBuf,
     rev: String,
@@ -302,45 +303,43 @@ pub(crate) async fn checkout(
         remove_dir_all::remove_dir_all(&target).context("failed to clean checkout dir")?;
     }
 
-    tokio::task::spawn_blocking(move || {
-        let fopts = git2::FetchOptions::new();
-        let mut checkout = git2::build::CheckoutBuilder::new();
-        checkout.dry_run(); // we'll do this below during a `reset`
+    let fopts = git2::FetchOptions::new();
+    let mut checkout = git2::build::CheckoutBuilder::new();
+    checkout.dry_run(); // we'll do this below during a `reset`
 
-        let src_url = url::Url::from_file_path(&src).map_err(|_| Error::msg("invalid path URL"))?;
+    let src_url = url::Url::from_file_path(&src).map_err(|_err| Error::msg("invalid path URL"))?;
 
-        let repo = git2::build::RepoBuilder::new()
-            // use hard links and/or copy the database, we're doing a
-            // filesystem clone so this'll speed things up quite a bit.
-            .clone_local(git2::build::CloneLocal::Local)
-            .with_checkout(checkout)
-            .fetch_options(fopts)
-            .clone(src_url.as_str(), &target)
-            .context("failed to clone")?;
+    let repo = git2::build::RepoBuilder::new()
+        // use hard links and/or copy the database, we're doing a
+        // filesystem clone so this'll speed things up quite a bit.
+        .clone_local(git2::build::CloneLocal::Local)
+        .with_checkout(checkout)
+        .fetch_options(fopts)
+        .clone(src_url.as_str(), &target)
+        .context("failed to clone")?;
 
-        if let Ok(mut cfg) = repo.config() {
-            let _ = cfg.set_bool("core.autocrlf", false);
-        }
+    if let Ok(mut cfg) = repo.config() {
+        let _ = cfg.set_bool("core.autocrlf", false);
+    }
 
-        {
-            let object = repo
-                .revparse_single(&rev)
-                .context("failed to find revision")?;
-            repo.reset(&object, git2::ResetType::Hard, None)
-                .context("failed to do hard reset")?;
-        }
+    {
+        let object = repo
+            .revparse_single(&rev)
+            .context("failed to find revision")?;
+        repo.reset(&object, git2::ResetType::Hard, None)
+            .context("failed to do hard reset")?;
+    }
 
-        Ok(repo)
-    })
-    .await?
+    Ok(repo)
 }
 
-pub(crate) async fn prepare_submodules(
+#[tracing::instrument(level = "debug")]
+pub(crate) fn prepare_submodules(
     src: std::path::PathBuf,
     target: std::path::PathBuf,
     rev: String,
 ) -> Result<(), Error> {
-    let repo = checkout(src, target, rev).await?;
+    let repo = checkout(src, target, rev)?;
 
     fn update_submodules(repo: &git2::Repository, git_cfg: &git2::Config) -> Result<(), Error> {
         tracing::info!("update submodules for: {:?}", repo.workdir().unwrap());
@@ -356,6 +355,7 @@ pub(crate) async fn prepare_submodules(
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn update_submodule(
         parent: &git2::Repository,
         child: &mut git2::Submodule<'_>,
@@ -431,11 +431,7 @@ pub(crate) async fn prepare_submodules(
         update_submodules(&repo, git_cfg)
     }
 
-    tokio::task::spawn_blocking(move || {
-        let git_config =
-            git2::Config::open_default().context("Failed to open default git config")?;
+    let git_config = git2::Config::open_default().context("Failed to open default git config")?;
 
-        update_submodules(&repo, &git_config)
-    })
-    .await?
+    update_submodules(&repo, &git_config)
 }

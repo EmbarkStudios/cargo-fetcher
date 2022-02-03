@@ -1,10 +1,8 @@
 use crate::{cargo::Source, util, Krate};
 use anyhow::{Context, Error};
 use bytes::Bytes;
-use reqwest::Client;
 use std::path::Path;
 use tracing::{error, warn};
-use tracing_futures::Instrument;
 
 pub(crate) enum KrateSource {
     Registry(Bytes),
@@ -15,33 +13,34 @@ impl KrateSource {
     pub(crate) fn len(&self) -> usize {
         match self {
             Self::Registry(bytes) => bytes.len(),
-            Self::Git(gs) => gs.db.len() + gs.checkout.as_ref().map(|s| s.len()).unwrap_or(0),
+            Self::Git(gs) => gs.db.len() + gs.checkout.as_ref().map_or(0, |s| s.len()),
         }
     }
 }
 
-pub(crate) async fn from_registry(client: &Client, krate: &Krate) -> Result<KrateSource, Error> {
-    async {
-        match &krate.source {
-            Source::Git { url, rev, .. } => via_git(&url.clone(), rev).await.map(KrateSource::Git),
-            Source::Registry { registry, chksum } => {
-                let url = registry.download_url(krate);
+#[tracing::instrument(level = "debug")]
+pub(crate) fn from_registry(
+    client: &crate::HttpClient,
+    krate: &Krate,
+) -> Result<KrateSource, Error> {
+    match &krate.source {
+        Source::Git { url, rev, .. } => via_git(&url.clone(), rev).map(KrateSource::Git),
+        Source::Registry { registry, chksum } => {
+            let url = registry.download_url(krate);
 
-                let response = client.get(&url).send().await?.error_for_status()?;
-                let res = util::convert_response(response).await?;
-                let content = res.into_body();
+            let response = client.get(&url).send()?.error_for_status()?;
+            let res = util::convert_response(response)?;
+            let content = res.into_body();
 
-                util::validate_checksum(&content, &chksum)?;
+            util::validate_checksum(&content, chksum)?;
 
-                Ok(KrateSource::Registry(content))
-            }
+            Ok(KrateSource::Registry(content))
         }
     }
-    .instrument(tracing::debug_span!("fetch"))
-    .await
 }
 
-pub async fn via_git(url: &url::Url, rev: &str) -> Result<crate::git::GitSource, Error> {
+#[tracing::instrument(level = "debug")]
+pub fn via_git(url: &url::Url, rev: &str) -> Result<crate::git::GitSource, Error> {
     // Create a temporary directory to fetch the repo into
     let temp_dir = tempfile::tempdir()?;
     // Create another temporary directory where we *may* checkout submodules into
@@ -58,7 +57,10 @@ pub async fn via_git(url: &url::Url, rev: &str) -> Result<crate::git::GitSource,
     let fetch_rev = rev.to_owned();
 
     // We need to ship off the fetching to a blocking thread so we don't anger tokio
-    tokio::task::spawn_blocking(move || -> Result<(), Error> {
+    {
+        let span = tracing::debug_span!("fetch");
+        let _fs = span.enter();
+
         let git_config =
             git2::Config::open_default().context("Failed to open default git config")?;
 
@@ -79,48 +81,32 @@ pub async fn via_git(url: &url::Url, rev: &str) -> Result<crate::git::GitSource,
         // Ensure that the repo actually contains the revision we need
         repo.revparse_single(&fetch_rev)
             .with_context(|| format!("{} doesn't contain rev '{}'", fetch_url, fetch_rev))?;
-
-        Ok(())
-    })
-    .instrument(tracing::debug_span!("fetch"))
-    .await??;
+    }
 
     let fetch_rev = rev.to_owned();
     let temp_db_path = temp_dir.path().to_owned();
-    let checkout = tokio::task::spawn(async move {
-        match crate::git::prepare_submodules(
-            temp_db_path,
-            submodule_dir.path().to_owned(),
-            fetch_rev.clone(),
-        )
-        .instrument(tracing::debug_span!("submodule checkout"))
-        .await
-        {
-            Ok(_) => {
-                util::pack_tar(submodule_dir.path())
-                    .instrument(tracing::debug_span!("tarballing checkout", rev = %fetch_rev))
-                    .await
-            }
-            Err(e) => Err(e),
-        }
-    });
 
-    let (db, checkout) = tokio::join!(
-        async {
-            util::pack_tar(temp_dir.path())
-                .instrument(tracing::debug_span!("tarballing db", %url, %rev))
-                .await
+    let (checkout, db) = rayon::join(
+        || -> Result<_, Error> {
+            crate::git::prepare_submodules(
+                temp_db_path,
+                submodule_dir.path().to_owned(),
+                fetch_rev.clone(),
+            )?;
+
+            util::pack_tar(submodule_dir.path())
         },
-        checkout,
+        || -> Result<_, Error> { util::pack_tar(temp_dir.path()) },
     );
 
     Ok(crate::git::GitSource {
         db: db?,
-        checkout: checkout?.ok(),
+        checkout: checkout.ok(),
     })
 }
 
-pub async fn registry(
+#[tracing::instrument(level = "debug", skip(krates))]
+pub fn registry(
     url: &url::Url,
     krates: impl Iterator<Item = String> + Send + 'static,
 ) -> Result<Bytes, Error> {
@@ -139,8 +125,9 @@ pub async fn registry(
 
     let url = url.as_str().to_owned();
 
-    // We need to ship off the fetching to a blocking thread so we don't anger tokio
-    tokio::task::spawn_blocking(move || -> Result<(), Error> {
+    {
+        let span = tracing::debug_span!("fetch");
+        let _fs = span.enter();
         let git_config =
             git2::Config::open_default().context("Failed to open default git config")?;
 
@@ -164,11 +151,7 @@ pub async fn registry(
                 error!("Failed to write all .cache entries: {:#}", e);
             }
         });
-
-        Ok(())
-    })
-    .instrument(tracing::debug_span!("fetch"))
-    .await??;
+    }
 
     // We also write a `.last-updated` file just like cargo so that cargo knows
     // the timestamp of the fetch
@@ -176,8 +159,6 @@ pub async fn registry(
         .context("failed to create .last-updated")?;
 
     util::pack_tar(temp_dir.path())
-        .instrument(tracing::debug_span!("tarball"))
-        .await
 }
 
 /// Writes .cache entries in the registry's directory for all of the specified

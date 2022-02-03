@@ -1,31 +1,27 @@
-use crate::backends::gcs::convert_response;
-use crate::Krate;
+use crate::{backends::gcs::convert_response, HttpClient, Krate};
 use anyhow::{Context, Error};
-use bloblock::blob;
 use bytes::Bytes;
-use chrono::Utc;
-use reqwest::Client;
-use std::convert::TryFrom;
+
+mod vendor;
+use vendor as blob;
 
 #[derive(Debug)]
 pub struct BlobBackend {
     prefix: String,
     instance: blob::Blob,
-    client: Client,
-    container: String,
+    client: HttpClient,
 }
 
 impl BlobBackend {
-    pub async fn new(
+    pub fn new(
         loc: crate::BlobLocation<'_>,
         account: String,
         master_key: String,
     ) -> Result<Self, Error> {
         let instance = blob::Blob::new(&account, &master_key, loc.container, false);
-        let client = reqwest::Client::new();
+        let client = HttpClient::new();
         Ok(Self {
             prefix: loc.prefix.to_owned(),
-            container: loc.container.to_owned(),
             instance,
             client,
         })
@@ -37,13 +33,20 @@ impl BlobBackend {
     }
 }
 
-#[async_trait::async_trait]
+const FMT: &[time::format_description::FormatItem<'_>] = time::macros::format_description!(
+    "[weekday repr:short], [day] [month repr:short] [year] [hour]:[minute]:[second] GMT"
+);
+
+#[inline]
+fn utc_now_to_str() -> String {
+    time::OffsetDateTime::now_utc().format(&FMT).unwrap()
+}
+
 impl crate::Backend for BlobBackend {
-    async fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
-        let dl_req = self.instance.download(
-            &self.make_key(krate),
-            &Utc::now().format("%a, %d %b %Y %T GMT").to_string(),
-        )?;
+    fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
+        let dl_req = self
+            .instance
+            .download(&self.make_key(krate), &utc_now_to_str())?;
         let (parts, _) = dl_req.into_parts();
 
         let uri = parts.uri.to_string();
@@ -51,20 +54,18 @@ impl crate::Backend for BlobBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let response = self.client.execute(request).await?.error_for_status()?;
-        let res = convert_response(response).await?;
+        let response = self.client.execute(request)?.error_for_status()?;
+        let res = convert_response(response)?;
         let content = res.into_body();
 
         Ok(content)
     }
 
-    async fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
         let content_len = source.len() as u64;
-        let insert_req = self.instance.insert(
-            &self.make_key(krate),
-            source,
-            &Utc::now().format("%a, %d %b %Y %T GMT").to_string(),
-        )?;
+        let insert_req = self
+            .instance
+            .insert(&self.make_key(krate), source, &utc_now_to_str())?;
         let (parts, body) = insert_req.into_parts();
 
         let uri = parts.uri.to_string();
@@ -72,15 +73,13 @@ impl crate::Backend for BlobBackend {
 
         let request = builder.headers(parts.headers).body(body).build()?;
 
-        self.client.execute(request).await?.error_for_status()?;
+        self.client.execute(request)?.error_for_status()?;
 
         Ok(content_len as usize)
     }
 
-    async fn list(&self) -> Result<Vec<String>, Error> {
-        let list_req = self
-            .instance
-            .list(&Utc::now().format("%a, %d %b %Y %T GMT").to_string())?;
+    fn list(&self) -> Result<Vec<String>, Error> {
+        let list_req = self.instance.list(&utc_now_to_str())?;
 
         let (parts, _) = list_req.into_parts();
 
@@ -88,11 +87,8 @@ impl crate::Backend for BlobBackend {
         let builder = self.client.get(&uri);
 
         let request = builder.headers(parts.headers).build()?;
-        let response = self.client.execute(request).await?.error_for_status()?;
-        let resp_body = response
-            .text()
-            .await
-            .context("failed to get list response")?;
+        let response = self.client.execute(request)?.error_for_status()?;
+        let resp_body = response.text().context("failed to get list response")?;
         let resp_body = resp_body.trim_start_matches('\u{feff}');
         let resp = blob::parse_list_body(resp_body)?;
         let a = resp
@@ -104,11 +100,10 @@ impl crate::Backend for BlobBackend {
         Ok(a)
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<chrono::DateTime<chrono::Utc>>, Error> {
-        let request = self.instance.properties(
-            &self.make_key(krate),
-            &Utc::now().format("%a, %d %b %Y %T GMT").to_string(),
-        )?;
+    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
+        let request = self
+            .instance
+            .properties(&self.make_key(krate), &utc_now_to_str())?;
         let (parts, _) = request.into_parts();
 
         let uri = parts.uri.to_string();
@@ -116,11 +111,14 @@ impl crate::Backend for BlobBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let response = self.client.execute(request).await?.error_for_status()?;
-        let properties = blob::PropertiesResponse::try_from(convert_response(response).await?)?;
-        let a = properties.last_modified;
-        let a = chrono::DateTime::parse_from_str(&a, "%a, %d %b %Y %T GMT")?;
-        Ok(Some(a.into()))
+        let response = self.client.execute(request)?.error_for_status()?;
+        let properties = blob::PropertiesResponse::try_from(convert_response(response)?)?;
+
+        // Ensure the offset is UTC, the azure datetime format is truly terrible
+        let last_modified = crate::Timestamp::parse(&properties.last_modified, &FMT)?
+            .replace_offset(time::UtcOffset::UTC);
+
+        Ok(Some(last_modified))
     }
 
     fn set_prefix(&mut self, prefix: &str) {

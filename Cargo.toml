@@ -1,14 +1,18 @@
 [package]
 name = "cargo-fetcher"
 version = "0.11.0"
-authors = ["Embark <opensource@embark-studios.com>", "Jake Shadle <jake.shadle@embark-studios.com>"]
-edition = "2018"
-description = "🎁 Experimental alternative to cargo fetch"
+authors = [
+    "Embark <opensource@embark-studios.com>",
+    "Jake Shadle <jake.shadle@embark-studios.com>",
+]
+edition = "2021"
+description = "🎁 Alternative to cargo fetch"
 license = "MIT OR Apache-2.0"
 documentation = "https://docs.rs/cargo-fetcher"
 homepage = "https://github.com/EmbarkStudios/cargo-fetcher"
 repository = "https://github.com/EmbarkStudios/cargo-fetcher"
 keywords = ["fetch", "gcs", "s3"]
+categories = ["development-tools::cargo-plugins"]
 readme = "README.md"
 
 [[bin]]
@@ -16,41 +20,43 @@ name = "cargo-fetcher"
 path = "src/cmds/main.rs"
 
 [dependencies]
+# Ergonomic error handling
 anyhow = "1.0"
-async-tar = "0.3"
-async-trait = "0.1"
-async-std = { version = "1.7", optional = true }
+base64 = { version = "0.13", optional = true }
+#bloblock = { version = "0.1.2", optional = true }
 bytes = "1.0"
-chrono = "0.4"
-digest = { version = "0.9", optional = true }
-flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
-futures = { version = "0.3" }
-futures-util = { version = "0.3", features = ["async-await-macro"] }
+clap = { version = "3.0", features = ["derive", "env"] }
+digest = { version = "0.10", optional = true }
+flate2 = { version = "1.0", default-features = false, features = [
+    "rust_backend",
+] }
 hex = { version = "0.4", optional = true }
 home = "0.5"
 http = "0.2"
 memchr = "2.3"
 rayon = "1.5"
 remove_dir_all = "0.7"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.11", default-features = false, features = [
+    "blocking",
+    "rustls-tls",
+] }
 ring = "0.16"
-rusty-s3 = { version = "0.1", optional = true }
+rusty-s3 = { version = "0.2", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0", optional = true }
-sha2 = { version = "0.9", optional = true }
-structopt = "0.3"
-tame-gcs = { version = "0.10", optional = true }
-tame-oauth = { version = "0.5", features = ["gcp"], optional = true }
+serde-xml-rs = { version = "0.5", optional = true }
+sha2 = { version = "0.10", optional = true }
+tame-gcs = { version = "0.11", optional = true }
+tame-oauth = { version = "0.7", features = ["gcp"], optional = true }
 tar = "0.4"
 tempfile = "3.1"
+time = { version = "0.3", features = ["formatting", "macros"] }
 toml = "0.5"
 tracing = "0.1"
-tracing-futures = "0.2"
-tracing-subscriber = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = { version = "2.2", features = ["serde"] }
 walkdir = "2.3"
-zstd = "0.9"
-bloblock = { version = "0.1.2", optional = true }
+zstd = "0.10"
 
 [dependencies.git2]
 version = "0.13"
@@ -64,14 +70,18 @@ features = ["rt-multi-thread", "macros"]
 
 [features]
 default = []
-fs = ["sha2", "async-std", "serde_json", "digest", "hex"]
+fs = ["sha2", "serde_json", "digest", "hex"]
 gcs = ["tame-gcs", "tame-oauth"]
 s3 = ["rusty-s3"]
 fs_test = ["fs"]
-blob = ["bloblock" ]
+blob = [
+    # "bloblock",
+    "base64",
+    "serde-xml-rs",
+]
 
 [dev-dependencies]
-difference = "2.0"
+similar-asserts = "1.2"
 tempfile = "3.1"
 twox-hash = { version = "1.6", default-features = false }
 walkdir = "2.3"

@@ -11,7 +11,7 @@ use url::Url;
 
 pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
 /// The normal crates.io DL url, note that this is not the one actually advertised
-/// by cargo (https://crates.io/api/v1/crates) as that is just a redirect to this
+/// by cargo (<https://crates.io/api/v1/crates>) as that is just a redirect to this
 /// location, so obviously this will break terribly if crates.io ever changes the
 /// actual storage location, but that's unlikely, and is easy to fix if it ever
 /// does happen
@@ -36,7 +36,7 @@ impl Registry {
 
     /// Gets the download url for the crate
     ///
-    /// See https://doc.rust-lang.org/cargo/reference/registries.html#index-format
+    /// See <https://doc.rust-lang.org/cargo/reference/registries.html#index-format>
     /// for more info
     pub fn download_url(&self, krate: &Krate) -> String {
         match &self.dl {
@@ -219,7 +219,7 @@ impl Source {
 /// them in reverse order, as the more local ones override the ones higher
 /// up in the hierarchy
 ///
-/// See https://doc.rust-lang.org/cargo/reference/config.html
+/// See <https://doc.rust-lang.org/cargo/reference/config.html>
 pub fn read_cargo_config(
     mut cargo_home_path: PathBuf,
     dir: PathBuf,
@@ -463,7 +463,7 @@ pub fn read_lock_file<P: AsRef<std::path::Path>>(
 
 /// Converts a crate name into its prefix form
 ///
-/// See https://doc.rust-lang.org/cargo/reference/registries.html#index-format
+/// See <https://doc.rust-lang.org/cargo/reference/registries.html#index-format>
 /// for more details
 pub fn get_crate_prefix(name: &str) -> String {
     match name.chars().count() {
