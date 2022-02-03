@@ -1,8 +1,10 @@
 use crate::{backends::gcs::convert_response, Krate};
 use anyhow::{Context, Error};
-use bloblock::blob;
 use bytes::Bytes;
 use reqwest::Client;
+
+mod vendor;
+use vendor as blob;
 
 #[derive(Debug)]
 pub struct BlobBackend {
