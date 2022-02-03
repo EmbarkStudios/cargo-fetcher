@@ -100,9 +100,8 @@ impl FilesystemDB {
     }
 
     fn list_keys(&self) -> Result<Vec<Fingerprint>, Error> {
-        let mut entries = fs::read_dir(&self.root)?;
-        let mut results: Vec<Fingerprint> = vec![];
-        while let Some(res) = entries.next() {
+        let mut results = Vec::new();
+        for res in fs::read_dir(&self.root)? {
             let entry = res?;
             let file_name = entry.file_name();
             results.push(Fingerprint::from_hex_string(&file_name.to_string_lossy())?);

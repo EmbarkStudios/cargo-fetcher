@@ -38,7 +38,7 @@ fn all_missing() {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
             source: Source::Registry {
-                registry: registry.clone(),
+                registry,
                 chksum: "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
                     .to_owned(),
             },
@@ -111,7 +111,7 @@ fn some_missing() {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
             source: Source::Registry {
-                registry: registry.clone(),
+                registry,
                 chksum: "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
                     .to_owned(),
             },
@@ -220,7 +220,7 @@ fn none_missing() {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
             source: Source::Registry {
-                registry: registry.clone(),
+                registry,
                 chksum: "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
                     .to_owned(),
             },

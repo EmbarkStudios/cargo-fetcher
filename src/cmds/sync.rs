@@ -19,7 +19,7 @@ pub(crate) fn cmd(ctx: Ctx, include_index: bool, _args: Args) -> Result<(), Erro
             }
 
             info!("syncing registries index");
-            sync::registry_indices(root, backend, registries)
+            sync::registry_indices(root, backend, registries);
         },
         || sync::crates(&ctx),
     );
