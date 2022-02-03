@@ -57,29 +57,7 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
         || write_tree(b_base, b_walker),
     );
 
-    if a != b {
-        let changeset = difference::Changeset::new(&a, &b, "\n");
-
-        let err = std::io::stderr();
-        let mut w = err.lock();
-
-        use std::io::Write;
-
-        // Only print the diffs
-        for d in &changeset.diffs {
-            match d {
-                difference::Difference::Add(dif) => {
-                    writeln!(&mut w, "\x1b[92m{}\x1b[0m", dif).unwrap()
-                }
-                difference::Difference::Rem(dif) => {
-                    writeln!(&mut w, "\x1b[91m{}\x1b[0m", dif).unwrap()
-                }
-                _ => {}
-            }
-        }
-
-        panic!("directories didn't match");
-    }
+    similar_asserts::assert_str_eq!(a, b);
 }
 
 fn walk_dir<P: AsRef<Path>>(path: P) -> Result<walkdir::IntoIter, std::io::Error> {

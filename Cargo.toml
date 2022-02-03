@@ -20,6 +20,7 @@ name = "cargo-fetcher"
 path = "src/cmds/main.rs"
 
 [dependencies]
+# Ergonomic error handling
 anyhow = "1.0"
 async-tar = "0.4"
 async-trait = "0.1"
@@ -85,7 +86,7 @@ blob = [
 ]
 
 [dev-dependencies]
-difference = "2.0"
+similar-asserts = "1.2"
 tempfile = "3.1"
 twox-hash = { version = "1.6", default-features = false }
 walkdir = "2.3"

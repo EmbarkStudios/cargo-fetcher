@@ -9,9 +9,9 @@ edition = "2018"
 tame-oauth = "=0.4.2"
 # contains several crates, which is important when patching, as they will share
 # the same db/checkout dir
-cpal = { version = "0.10.0" }
+cpal = { version = "0.13.5" }
 # this repo contains recursive submodules
-sentry-contrib-native = { git = "https://github.com/EmbarkStudios/sentry-contrib-native", rev = "6cac29f" }
+sentry-contrib-breakpad = { git = "https://github.com/EmbarkStudios/sentry-contrib-rust", rev = "5e10bd5ad" }
 
 [patch.crates-io]
-cpal = { git = "https://github.com/EmbarkStudios/cpal", rev = "e68e61f7d" }
+cpal = { git = "https://github.com/RustAudio/cpal", rev = "971c46346" }

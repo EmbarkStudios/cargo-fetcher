@@ -8,10 +8,7 @@ targets = [
 [advisories]
 unmaintained = "deny"
 unsound = "deny"
-ignore = [
-    # difference is unmaintained, but it suits our needs just fine
-    "RUSTSEC-2020-0095",
-]
+ignore = []
 
 [bans]
 multiple-versions = "deny"
