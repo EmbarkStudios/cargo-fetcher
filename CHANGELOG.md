@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.12.0] - 2022-02-03
 ### Changed
 - [PR#168](https://github.com/EmbarkStudios/cargo-fetcher/pull/168) updated all dependencies.
 - [PR#168](https://github.com/EmbarkStudios/cargo-fetcher/pull/168) removed all usage of async/await in favor of blocking HTTP requests and rayon parallelization. This seems to have resulted in noticeable speed ups depending on the size of your workload.
@@ -100,7 +101,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.11.0...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.0...HEAD
+[0.12.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.11.0...0.12.0
 [0.11.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.10.0...0.11.0
 [0.10.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.9.0...0.10.0
 [0.9.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.8.0...0.9.0
