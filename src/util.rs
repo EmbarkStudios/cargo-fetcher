@@ -271,6 +271,7 @@ pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
     // do a write until a previous one has succeeded, as otherwise
     // the stream could be corrupted regardless of the actual write
     // implementation, so this should be fine. :tm:
+    #[allow(unsafe_code)]
     unsafe impl<'z, W: io::Write + Sync> Sync for Writer<'z, W> {}
 
     impl<'z, W> futures::io::AsyncWrite for Writer<'z, W>
@@ -346,23 +347,19 @@ pub fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Error> {
     let digest = content_digest.as_ref();
 
     for (ind, exp) in expected.as_bytes().chunks(2).enumerate() {
-        let mut cur;
-
-        match exp[0] {
-            b'A'..=b'F' => cur = exp[0] - b'A' + 10,
-            b'a'..=b'f' => cur = exp[0] - b'a' + 10,
-            b'0'..=b'9' => cur = exp[0] - b'0',
-            c => bail!("invalid byte in expected checksum string {}", c),
+        #[inline]
+        fn parse_hex(b: u8) -> Result<u8, anyhow::Error> {
+            Ok(match b {
+                b'A'..=b'F' => b - b'A' + 10,
+                b'a'..=b'f' => b - b'a' + 10,
+                b'0'..=b'9' => b - b'0',
+                c => bail!("invalid byte in expected checksum string {}", c),
+            })
         }
 
+        let mut cur = parse_hex(exp[0])?;
         cur <<= 4;
-
-        match exp[1] {
-            b'A'..=b'F' => cur |= exp[1] - b'A' + 10,
-            b'a'..=b'f' => cur |= exp[1] - b'a' + 10,
-            b'0'..=b'9' => cur |= exp[1] - b'0',
-            c => bail!("invalid byte in expected checksum string {}", c),
-        }
+        cur |= parse_hex(exp[1])?;
 
         if digest[ind] != cur {
             bail!("checksum mismatch, expected {}", expected);

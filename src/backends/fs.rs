@@ -139,9 +139,7 @@ impl FilesystemDB {
     }
 }
 
-///
-/// A specialization of FilesystemDB that implements a Content-Addressed Storage (CAS) interface.
-///
+/// A specialization of [`FilesystemDB`] that implements a Content-Addressed Storage (CAS) interface.
 #[derive(Debug)]
 #[allow(clippy::upper_case_acronyms)]
 struct CasDB {
@@ -186,8 +184,6 @@ impl CasDB {
 pub struct FSBackend {
     krate_lookup: CasDB,
     krate_data: FilesystemDB,
-    krate_digest_mapping: FilesystemDB,
-    fetch_cache: FilesystemDB,
     // TODO: figure out if this `prefix` boilerplate can be simplified.
     prefix: String,
 }
@@ -198,14 +194,11 @@ impl FSBackend {
 
         let krate_lookup = CasDB::new(FilesystemDB::new(path.join("krate_lookup")).await?);
         let krate_data = FilesystemDB::new(path.join("krate_data")).await?;
-        let krate_digest_mapping = FilesystemDB::new(path.join("krate_digest_mapping")).await?;
-        let fetch_cache = FilesystemDB::new(path.join("fetch_cache")).await?;
 
         Ok(Self {
             krate_lookup,
             krate_data,
-            krate_digest_mapping,
-            fetch_cache,
+
             prefix: "".to_string(),
         })
     }
@@ -262,7 +255,7 @@ impl crate::Backend for FSBackend {
     async fn list(&self) -> Result<Vec<String>, Error> {
         let all_keys: Vec<Fingerprint> = self.krate_lookup.list_cas_keys().await?;
         let mut all_names: Vec<String> = vec![];
-        for key in all_keys.into_iter() {
+        for key in all_keys {
             let cur_krate: Krate = self
                 .krate_lookup
                 .lookup_cas(key)

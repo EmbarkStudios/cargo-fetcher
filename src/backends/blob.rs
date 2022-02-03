@@ -3,16 +3,13 @@ use crate::Krate;
 use anyhow::{Context, Error};
 use bloblock::blob;
 use bytes::Bytes;
-use chrono::Utc;
 use reqwest::Client;
-use std::convert::TryFrom;
 
 #[derive(Debug)]
 pub struct BlobBackend {
     prefix: String,
     instance: blob::Blob,
     client: Client,
-    container: String,
 }
 
 impl BlobBackend {
@@ -25,7 +22,6 @@ impl BlobBackend {
         let client = reqwest::Client::new();
         Ok(Self {
             prefix: loc.prefix.to_owned(),
-            container: loc.container.to_owned(),
             instance,
             client,
         })

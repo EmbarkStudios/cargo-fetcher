@@ -1,14 +1,18 @@
 [package]
 name = "cargo-fetcher"
 version = "0.11.0"
-authors = ["Embark <opensource@embark-studios.com>", "Jake Shadle <jake.shadle@embark-studios.com>"]
-edition = "2018"
-description = "🎁 Experimental alternative to cargo fetch"
+authors = [
+    "Embark <opensource@embark-studios.com>",
+    "Jake Shadle <jake.shadle@embark-studios.com>",
+]
+edition = "2021"
+description = "🎁 Alternative to cargo fetch"
 license = "MIT OR Apache-2.0"
 documentation = "https://docs.rs/cargo-fetcher"
 homepage = "https://github.com/EmbarkStudios/cargo-fetcher"
 repository = "https://github.com/EmbarkStudios/cargo-fetcher"
 keywords = ["fetch", "gcs", "s3"]
+categories = ["development-tools::cargo-plugins"]
 readme = "README.md"
 
 [[bin]]

@@ -35,7 +35,7 @@ async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::To
                 http::Method::POST => client.post(&uri),
                 http::Method::DELETE => client.delete(&uri),
                 http::Method::PUT => client.put(&uri),
-                method => unimplemented!("{} not implemented", method),
+                method => unreachable!("{} not implemented", method),
             };
 
             let req = builder.headers(parts.headers).body(body).build()?;
@@ -45,7 +45,7 @@ async fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::To
             let response = convert_response(res).await?;
             svc_account_access.parse_token_response(scope_hash, response)?
         }
-        _ => unreachable!(),
+        gcp::TokenOrRequest::Token(_) => unreachable!(),
     };
 
     Ok(token)

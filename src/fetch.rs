@@ -15,7 +15,7 @@ impl KrateSource {
     pub(crate) fn len(&self) -> usize {
         match self {
             Self::Registry(bytes) => bytes.len(),
-            Self::Git(gs) => gs.db.len() + gs.checkout.as_ref().map(|s| s.len()).unwrap_or(0),
+            Self::Git(gs) => gs.db.len() + gs.checkout.as_ref().map_or(0, |s| s.len()),
         }
     }
 }
@@ -31,7 +31,7 @@ pub(crate) async fn from_registry(client: &Client, krate: &Krate) -> Result<Krat
                 let res = util::convert_response(response).await?;
                 let content = res.into_body();
 
-                util::validate_checksum(&content, &chksum)?;
+                util::validate_checksum(&content, chksum)?;
 
                 Ok(KrateSource::Registry(content))
             }

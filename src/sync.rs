@@ -30,12 +30,11 @@ pub async fn registry_indices(
         })
         .buffer_unordered(32);
 
-    resu.fold((), |u, res| async move {
+    resu.fold((), |_u, res| async move {
         match res {
             Ok(a) => a,
             Err(e) => {
                 error!("{:#}", e);
-                u
             }
         }
     })
@@ -255,11 +254,11 @@ async fn sync_package(
     let (pack_write, unpack) = tokio::join!(pack_write, unpack);
 
     if let Err(err) = pack_write {
-        error!(?err, path = ?packed_krate_path, "failed to write tarball to disk")
+        error!(?err, path = ?packed_krate_path, "failed to write tarball to disk");
     }
 
     if let Err(err) = unpack {
-        error!(?err, "failed to unpack tarball to disk")
+        error!(?err, "failed to unpack tarball to disk");
     }
 
     Ok(())
@@ -272,7 +271,7 @@ fn get_missing_git_sources<'krate>(
 ) {
     for (rev, ident, krate) in ctx.krates.iter().filter_map(|k| match &k.source {
         Source::Git { rev, ident, .. } => Some((rev, ident, k)),
-        _ => None,
+        Source::Registry { .. } => None,
     }) {
         let path = git_co_dir.join(format!("{}/{}/.cargo-ok", ident, rev));
 
@@ -342,7 +341,7 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
         std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache")?;
         std::fs::create_dir_all(&src_dir).context("failed to create registry/src")?;
 
-        get_missing_registry_sources(ctx, &registry, &cache_dir, &mut to_sync)?;
+        get_missing_registry_sources(ctx, registry, &cache_dir, &mut to_sync)?;
     }
 
     // Remove duplicates, eg. when 2 crates are sourced from the same git repository
@@ -382,7 +381,7 @@ pub async fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                         let len = krate_data.len();
                         match &krate.source {
                             Source::Registry { registry, chksum } => {
-                                let (cache_dir, src_dir) = registry.sync_dirs(&root_dir);
+                                let (cache_dir, src_dir) = registry.sync_dirs(root_dir);
                                 if let Err(e) =
                                     sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
                                         .instrument(tracing::debug_span!("package"))

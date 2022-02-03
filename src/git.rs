@@ -180,7 +180,7 @@ where
                     debug_assert_eq!(Some(&s[..]), username);
                     attempts += 1;
                     if attempts == 1 {
-                        ssh_agent_attempts.push(s.to_string());
+                        ssh_agent_attempts.push(s.clone());
                         return git2::Cred::ssh_key_from_agent(&s);
                     }
                 }
@@ -307,7 +307,8 @@ pub(crate) async fn checkout(
         let mut checkout = git2::build::CheckoutBuilder::new();
         checkout.dry_run(); // we'll do this below during a `reset`
 
-        let src_url = url::Url::from_file_path(&src).map_err(|_| Error::msg("invalid path URL"))?;
+        let src_url =
+            url::Url::from_file_path(&src).map_err(|_err| Error::msg("invalid path URL"))?;
 
         let repo = git2::build::RepoBuilder::new()
             // use hard links and/or copy the database, we're doing a

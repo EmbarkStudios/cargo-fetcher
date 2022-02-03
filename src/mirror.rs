@@ -139,7 +139,7 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
             let client = &client;
             let backend = backend.clone();
             async move {
-                let res: Result<usize, String> = match fetch::from_registry(&client, &krate).await {
+                let res: Result<usize, String> = match fetch::from_registry(client, krate).await {
                     Err(e) => Err(format!("failed to retrieve {}: {}", krate, e)),
                     Ok(krate_data) => {
                         debug!(size = krate_data.len(), "fetched");
@@ -181,7 +181,7 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
                         };
 
                         match backend
-                            .upload(buffer, &krate)
+                            .upload(buffer, krate)
                             .instrument(tracing::debug_span!("upload"))
                             .await
                         {
