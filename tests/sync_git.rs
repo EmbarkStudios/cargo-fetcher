@@ -28,14 +28,14 @@ async fn multiple_from_same_repo() {
 
     fs_ctx.krates = vec![
         Krate {
-            name: "alsa-sys".to_owned(),
-            version: "0.1.1".to_owned(),
-            source: git_source!("git+https://github.com/EmbarkStudios/cpal?rev=e68e61f7d#e68e61f7d4c9b4c946b927e868a27193fa11c3f0"),
+            name: "asio-sys".to_owned(),
+            version: "0.2.1".to_owned(),
+            source: git_source!("git+https://github.com/RustAudio/cpal?rev=971c46346#971c463462e3560e66f7629e5afcd6b25c4411ab"),
         },
         Krate {
             name: "cpal".to_owned(),
-            version: "0.10.0".to_owned(),
-            source: git_source!("git+https://github.com/EmbarkStudios/cpal?rev=e68e61f7d#e68e61f7d4c9b4c946b927e868a27193fa11c3f0"),
+            version: "0.13.5".to_owned(),
+            source: git_source!("git+https://github.com/rustaudio/cpal?rev=971c46346#971c463462e3560e66f7629e5afcd6b25c4411ab"),
         },
     ];
 
@@ -51,8 +51,8 @@ async fn multiple_from_same_repo() {
         1,
     );
 
-    let ident = "a7ffd7cabefac714";
-    let rev = "e68e61f";
+    let ident = "c2179e82da06da7e";
+    let rev = "971c463";
 
     // Ensure there is a db for cpal
     {
