@@ -112,6 +112,12 @@ fn parse_level(s: &str) -> Result<LevelFilter, Error> {
 }
 
 #[derive(clap::Parser)]
+#[clap(
+    author,
+    version,
+    about,
+    long_about = "cargo plugin to quickly fetch crate sources from cloud or local storage"
+)]
 struct Opts {
     /// Path to a service account credentials file used to obtain
     /// oauth2 tokens. By default uses GOOGLE_APPLICATION_CREDENTIALS
