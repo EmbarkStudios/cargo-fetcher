@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Changed
+- [PR#168](https://github.com/EmbarkStudios/cargo-fetcher/pull/168) updated all dependencies.
+- [PR#168](https://github.com/EmbarkStudios/cargo-fetcher/pull/168) removed all usage of async/await in favor of blocking HTTP requests and rayon parallelization. This seems to have resulted in noticeable speed ups depending on the size of your workload.
+- [PR#168](https://github.com/EmbarkStudios/cargo-fetcher/pull/168) replaced usage of `structopt` with `clap`.
+- [PR#168](https://github.com/EmbarkStudios/cargo-fetcher/pull/168) removed all usage of the unmaintained `chrono` with `time`.
+- [PR#168](https://github.com/EmbarkStudios/cargo-fetcher/pull/168) temporarily vendored `bloblock` for Azure blob storage to reduce duplicate dependencies.
+
 ## [0.11.0] - 2021-07-22
 ### Changed
 - [PR#161](https://github.com/EmbarkStudios/cargo-fetcher/pull/161) replaced the bloated auto-generated crates for rusoto with much leaner [`rusty-s3`](https://crates.io/crates/rusty-s3) crate. Thanks [@m0ssc0de](https://github.com/m0ssc0de)!
