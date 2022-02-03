@@ -1,7 +1,6 @@
-use crate::{backends::gcs::convert_response, Krate};
+use crate::{backends::gcs::convert_response, HttpClient, Krate};
 use anyhow::{Context, Error};
 use bytes::Bytes;
-use reqwest::Client;
 
 mod vendor;
 use vendor as blob;
@@ -10,17 +9,17 @@ use vendor as blob;
 pub struct BlobBackend {
     prefix: String,
     instance: blob::Blob,
-    client: Client,
+    client: HttpClient,
 }
 
 impl BlobBackend {
-    pub async fn new(
+    pub fn new(
         loc: crate::BlobLocation<'_>,
         account: String,
         master_key: String,
     ) -> Result<Self, Error> {
         let instance = blob::Blob::new(&account, &master_key, loc.container, false);
-        let client = reqwest::Client::new();
+        let client = HttpClient::new();
         Ok(Self {
             prefix: loc.prefix.to_owned(),
             instance,
@@ -43,9 +42,8 @@ fn utc_now_to_str() -> String {
     time::OffsetDateTime::now_utc().format(&FMT).unwrap()
 }
 
-#[async_trait::async_trait]
 impl crate::Backend for BlobBackend {
-    async fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
+    fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
         let dl_req = self
             .instance
             .download(&self.make_key(krate), &utc_now_to_str())?;
@@ -56,14 +54,14 @@ impl crate::Backend for BlobBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let response = self.client.execute(request).await?.error_for_status()?;
-        let res = convert_response(response).await?;
+        let response = self.client.execute(request)?.error_for_status()?;
+        let res = convert_response(response)?;
         let content = res.into_body();
 
         Ok(content)
     }
 
-    async fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
         let content_len = source.len() as u64;
         let insert_req = self
             .instance
@@ -75,12 +73,12 @@ impl crate::Backend for BlobBackend {
 
         let request = builder.headers(parts.headers).body(body).build()?;
 
-        self.client.execute(request).await?.error_for_status()?;
+        self.client.execute(request)?.error_for_status()?;
 
         Ok(content_len as usize)
     }
 
-    async fn list(&self) -> Result<Vec<String>, Error> {
+    fn list(&self) -> Result<Vec<String>, Error> {
         let list_req = self.instance.list(&utc_now_to_str())?;
 
         let (parts, _) = list_req.into_parts();
@@ -89,11 +87,8 @@ impl crate::Backend for BlobBackend {
         let builder = self.client.get(&uri);
 
         let request = builder.headers(parts.headers).build()?;
-        let response = self.client.execute(request).await?.error_for_status()?;
-        let resp_body = response
-            .text()
-            .await
-            .context("failed to get list response")?;
+        let response = self.client.execute(request)?.error_for_status()?;
+        let resp_body = response.text().context("failed to get list response")?;
         let resp_body = resp_body.trim_start_matches('\u{feff}');
         let resp = blob::parse_list_body(resp_body)?;
         let a = resp
@@ -105,7 +100,7 @@ impl crate::Backend for BlobBackend {
         Ok(a)
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
+    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
         let request = self
             .instance
             .properties(&self.make_key(krate), &utc_now_to_str())?;
@@ -116,8 +111,8 @@ impl crate::Backend for BlobBackend {
 
         let request = builder.headers(parts.headers).build()?;
 
-        let response = self.client.execute(request).await?.error_for_status()?;
-        let properties = blob::PropertiesResponse::try_from(convert_response(response).await?)?;
+        let response = self.client.execute(request)?.error_for_status()?;
+        let properties = blob::PropertiesResponse::try_from(convert_response(response)?)?;
 
         // Ensure the offset is UTC, the azure datetime format is truly terrible
         let last_modified = crate::Timestamp::parse(&properties.last_modified, &FMT)?

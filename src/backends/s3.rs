@@ -1,6 +1,5 @@
-use crate::Krate;
+use crate::{HttpClient, Krate};
 use anyhow::{Context, Error};
-use reqwest::Client;
 use rusty_s3::{
     actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action},
     Bucket, Credentials,
@@ -13,7 +12,7 @@ pub struct S3Backend {
     prefix: String,
     bucket: Bucket,
     credential: Credentials,
-    client: Client,
+    client: HttpClient,
 }
 
 impl S3Backend {
@@ -30,7 +29,7 @@ impl S3Backend {
         )
         .context("failed to new Bucket")?;
         let credential = Credentials::new(key, secret);
-        let client = Client::new();
+        let client = HttpClient::new();
 
         Ok(Self {
             prefix: loc.prefix.to_owned(),
@@ -45,13 +44,12 @@ impl S3Backend {
         format!("{}{}", self.prefix, krate.cloud_id())
     }
 
-    pub async fn make_bucket(&self) -> Result<(), Error> {
+    pub fn make_bucket(&self) -> Result<(), Error> {
         let action = CreateBucket::new(&self.bucket, &self.credential);
         let signed_url = action.sign(ONE_HOUR);
         self.client
             .put(signed_url)
             .send()
-            .await
             .context("failed io when fetching s3")?
             .error_for_status()?;
 
@@ -59,9 +57,8 @@ impl S3Backend {
     }
 }
 
-#[async_trait::async_trait]
 impl crate::Backend for S3Backend {
-    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
+    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
         let obj = self.make_key(krate);
         let mut action = GetObject::new(&self.bucket, Some(&self.credential), &obj);
         action
@@ -73,13 +70,12 @@ impl crate::Backend for S3Backend {
             .client
             .get(signed_url)
             .send()
-            .await
             .context("failed io when fetching s3")?
             .error_for_status()?;
-        Ok(res.bytes().await?)
+        Ok(res.bytes()?)
     }
 
-    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
         let len = source.len();
         let obj = self.make_key(krate);
         let action = PutObject::new(&self.bucket, Some(&self.credential), &obj);
@@ -88,29 +84,27 @@ impl crate::Backend for S3Backend {
             .put(signed_url)
             .body(source)
             .send()
-            .await
             .context("failed io when uploading s3")?
             .error_for_status()?;
         Ok(len)
     }
 
-    async fn list(&self) -> Result<Vec<String>, Error> {
+    fn list(&self) -> Result<Vec<String>, Error> {
         let action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         let signed_url = action.sign(ONE_HOUR);
         let resp = self
             .client
             .get(signed_url)
             .send()
-            .await
             .context("failed io when listing s3")?
             .error_for_status()?;
-        let text = resp.text().await?;
+        let text = resp.text()?;
         let parsed =
             ListObjectsV2::parse_response(&text).context("failed parsing list response")?;
         Ok(parsed.contents.into_iter().map(|obj| obj.key).collect())
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
+    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
         let mut action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         action.query_mut().insert("prefix", self.make_key(krate));
         action.query_mut().insert("max-keys", "1");
@@ -119,10 +113,9 @@ impl crate::Backend for S3Backend {
             .client
             .get(signed_url)
             .send()
-            .await
             .context("failed io when getting updated info")?
             .error_for_status()?;
-        let text = resp.text().await?;
+        let text = resp.text()?;
         let parsed = ListObjectsV2::parse_response(&text).context("faild parsing updated info")?;
         let last_modified = &parsed
             .contents

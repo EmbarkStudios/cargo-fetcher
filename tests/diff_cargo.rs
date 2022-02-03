@@ -104,16 +104,16 @@ use cargo_fetcher as cf;
 mod tutil;
 use tutil as util;
 
-#[tokio::test(flavor = "multi_thread")]
+#[test]
 #[ignore]
-async fn diff_cargo() {
+fn diff_cargo() {
     util::hook_logger();
 
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
     let (the_krates, registries) =
         cf::cargo::read_lock_file("tests/full/Cargo.lock", vec![cf::Registry::default()]).unwrap();
 
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries);
     fs_ctx.krates = the_krates;
 
     let fetcher_root = tempfile::TempDir::new().expect("failed to create tempdir");
@@ -149,17 +149,12 @@ async fn diff_cargo() {
             fs_ctx.backend.clone(),
             std::time::Duration::new(10, 0),
             registry_sets,
-        )
-        .await
-        .expect("failed to mirror index");
-        cf::mirror::crates(&fs_ctx)
-            .await
-            .expect("failed to mirror crates");
+        );
+        cf::mirror::crates(&fs_ctx).expect("failed to mirror crates");
 
         fs_ctx.prep_sync_dirs().expect("create base dirs");
-        cf::sync::crates(&fs_ctx).await.expect("synced crates");
+        cf::sync::crates(&fs_ctx).expect("synced crates");
         cf::sync::registry_index(&fs_ctx.root_dir, fs_ctx.backend.clone(), the_registry)
-            .await
             .expect("failed to sync index");
     }
 

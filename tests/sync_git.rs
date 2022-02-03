@@ -14,14 +14,14 @@ macro_rules! git_source {
     }};
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn multiple_from_same_repo() {
+#[test]
+fn multiple_from_same_repo() {
     util::hook_logger();
 
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
     let registry = std::sync::Arc::new(Registry::default());
     let registries = vec![registry.clone()];
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries).await;
+    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries);
 
     let missing_root = tempfile::TempDir::new().expect("failed to create tempdir");
     fs_ctx.root_dir = missing_root.path().to_owned();
@@ -39,15 +39,10 @@ async fn multiple_from_same_repo() {
         },
     ];
 
-    cf::mirror::crates(&fs_ctx)
-        .await
-        .expect("failed to mirror crates");
+    cf::mirror::crates(&fs_ctx).expect("failed to mirror crates");
     fs_ctx.prep_sync_dirs().expect("create base dirs");
     assert_eq!(
-        cf::sync::crates(&fs_ctx)
-            .await
-            .expect("synced 1 git source")
-            .good,
+        cf::sync::crates(&fs_ctx).expect("synced 1 git source").good,
         1,
     );
 

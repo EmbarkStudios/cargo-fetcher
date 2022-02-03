@@ -156,7 +156,7 @@ Possible values:
     cmd: Command,
 }
 
-async fn init_backend(
+fn init_backend(
     loc: cf::CloudLocation<'_>,
     _credentials: Option<PathBuf>,
 ) -> Result<Arc<dyn cf::Backend + Sync + Send>, Error> {
@@ -165,7 +165,7 @@ async fn init_backend(
         cf::CloudLocation::Gcs(gcs) => {
             let cred_path = _credentials.context("GCS credentials not specified")?;
 
-            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path).await?;
+            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path)?;
             Ok(Arc::new(gcs))
         }
         #[cfg(not(feature = "gcs"))]
@@ -182,9 +182,7 @@ async fn init_backend(
             let s3 = cf::backends::s3::S3Backend::new(loc, key, secret)?;
 
             if make_bucket {
-                s3.make_bucket()
-                    .await
-                    .context("failed to create test bucket")?;
+                s3.make_bucket().context("failed to create test bucket")?;
             }
 
             Ok(Arc::new(s3))
@@ -192,7 +190,7 @@ async fn init_backend(
         #[cfg(not(feature = "s3"))]
         cf::CloudLocation::S3(_) => anyhow::bail!("S3 backend not enabled"),
         #[cfg(feature = "fs")]
-        cf::CloudLocation::Fs(loc) => Ok(Arc::new(cf::backends::fs::FSBackend::new(loc).await?)),
+        cf::CloudLocation::Fs(loc) => Ok(Arc::new(cf::backends::fs::FSBackend::new(loc)?)),
         #[cfg(not(feature = "fs"))]
         cf::CloudLocation::Fs(_) => anyhow::bail!("filesystem backend not enabled"),
         #[cfg(feature = "blob")]
@@ -201,16 +199,16 @@ async fn init_backend(
                 .context("Set env variable STORAGE_ACCOUNT first!")?;
             let master_key = std::env::var("STORAGE_MASTER_KEY")
                 .context("Set env variable STORAGE_MASTER_KEY first!")?;
-            Ok(Arc::new(
-                cf::backends::blob::BlobBackend::new(loc, account, master_key).await?,
-            ))
+            Ok(Arc::new(cf::backends::blob::BlobBackend::new(
+                loc, account, master_key,
+            )?))
         }
         #[cfg(not(feature = "blob"))]
         cf::CloudLocation::Blob(_) => anyhow::bail!("blob backend not enabled"),
     }
 }
 
-async fn real_main() -> Result<(), Error> {
+fn real_main() -> Result<(), Error> {
     use clap::Parser;
     let args = Opts::parse_from({
         std::env::args().enumerate().filter_map(|(i, a)| {
@@ -240,7 +238,7 @@ async fn real_main() -> Result<(), Error> {
 
     let cloud_location = cf::util::CloudLocationUrl::from_url(args.url.clone())?;
     let location = cf::util::parse_cloud_location(&cloud_location)?;
-    let backend = init_backend(location, args.credentials).await?;
+    let backend = init_backend(location, args.credentials)?;
 
     // Note that unlike cargo (since we require a Cargo.lock), we don't use the
     // current directory as the root when resolving cargo configurations, but
@@ -269,19 +267,19 @@ async fn real_main() -> Result<(), Error> {
         Command::Mirror(margs) => {
             let ctx = cf::Ctx::new(None, backend, krates, registries)
                 .context("failed to create context")?;
-            mirror::cmd(ctx, args.include_index, margs).await
+            mirror::cmd(ctx, args.include_index, margs)
         }
         Command::Sync(sargs) => {
             let ctx = cf::Ctx::new(Some(cargo_root), backend, krates, registries)
                 .context("failed to create context")?;
-            sync::cmd(ctx, args.include_index, sargs).await
+            sync::cmd(ctx, args.include_index, sargs)
         }
     }
 }
 
 #[tokio::main]
 async fn main() {
-    match real_main().await {
+    match real_main() {
         Ok(_) => {}
         Err(e) => {
             tracing::error!("{:#}", e);

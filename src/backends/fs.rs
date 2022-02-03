@@ -1,10 +1,10 @@
 use crate::Krate;
 
 use anyhow::{Context as _, Error};
-use async_std::{fs, io, stream::StreamExt};
 use bytes::Bytes;
 use digest::Digest as DigestTrait;
 use sha2::Sha256;
+use std::{fs, io};
 
 use std::{convert::Into, fmt, path::PathBuf, str, time};
 
@@ -58,54 +58,51 @@ struct FilesystemDB {
 }
 
 impl FilesystemDB {
-    async fn new(root: PathBuf) -> Result<Self, Error> {
-        fs::create_dir_all(&root).await?;
+    fn new(root: PathBuf) -> Result<Self, Error> {
+        fs::create_dir_all(&root)?;
         Ok(Self { root })
     }
 
-    async fn lookup_fingerprint(&self, key: Fingerprint) -> Result<Option<Bytes>, Error> {
+    fn lookup_fingerprint(&self, key: Fingerprint) -> Result<Option<Bytes>, Error> {
         let hex = key.to_hex();
         let entry_path = self.root.join(hex);
-        match fs::read(&entry_path).await {
+        match fs::read(&entry_path) {
             Ok(bytes) => Ok(Some(Bytes::from(bytes))),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
 
-    async fn lookup<K: Into<Fingerprint>, V: From<Bytes>>(
-        &self,
-        key: K,
-    ) -> Result<Option<V>, Error> {
+    fn lookup<K: Into<Fingerprint>, V: From<Bytes>>(&self, key: K) -> Result<Option<V>, Error> {
         let key = key.into();
-        let result = self.lookup_fingerprint(key).await?;
+        let result = self.lookup_fingerprint(key)?;
         Ok(result.map(|bytes| bytes.into()))
     }
 
-    async fn insert_fingerprint_bytes(
+    fn insert_fingerprint_bytes(
         &self,
         key: Fingerprint,
         value: Bytes,
     ) -> Result<Fingerprint, Error> {
         let hex = key.to_hex();
         let entry_path = self.root.join(hex);
-        fs::write(&entry_path, &value).await?;
+        fs::write(&entry_path, &value)?;
         Ok(key)
     }
 
-    async fn insert<K: Into<Fingerprint>, V: Into<Bytes>>(
+    fn insert<K: Into<Fingerprint>, V: Into<Bytes>>(
         &self,
         key: K,
         value: V,
     ) -> Result<Fingerprint, Error> {
         let key = key.into();
-        self.insert_fingerprint_bytes(key, value.into()).await
+        self.insert_fingerprint_bytes(key, value.into())
     }
 
-    async fn list_keys(&self) -> Result<Vec<Fingerprint>, Error> {
-        let mut entries = fs::read_dir(&self.root).await?;
+    fn list_keys(&self) -> Result<Vec<Fingerprint>, Error> {
+        let mut entries = fs::read_dir(&self.root)?;
         let mut results: Vec<Fingerprint> = vec![];
-        while let Some(res) = entries.next().await {
+        while let Some(res) = entries.next() {
             let entry = res?;
             let file_name = entry.file_name();
             results.push(Fingerprint::from_hex_string(&file_name.to_string_lossy())?);
@@ -113,13 +110,13 @@ impl FilesystemDB {
         Ok(results)
     }
 
-    async fn modified_time_fingerprint(
+    fn modified_time_fingerprint(
         &self,
         key: Fingerprint,
     ) -> Result<Option<time::SystemTime>, Error> {
         let hex = key.to_hex();
         let entry_path = self.root.join(hex);
-        let modified_time = match fs::metadata(&entry_path).await {
+        let modified_time = match fs::metadata(&entry_path) {
             Ok(metadata) => metadata.modified()?,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 return Ok(None);
@@ -131,11 +128,11 @@ impl FilesystemDB {
         Ok(Some(modified_time))
     }
 
-    async fn modified_time<K: Into<Fingerprint>>(
+    fn modified_time<K: Into<Fingerprint>>(
         &self,
         key: K,
     ) -> Result<Option<time::SystemTime>, Error> {
-        self.modified_time_fingerprint(key.into()).await
+        self.modified_time_fingerprint(key.into())
     }
 }
 
@@ -151,31 +148,28 @@ impl CasDB {
         Self { db }
     }
 
-    async fn lookup_cas_fingerprint(&self, key: Fingerprint) -> Result<Option<Bytes>, Error> {
-        self.db.lookup_fingerprint(key).await
+    fn lookup_cas_fingerprint(&self, key: Fingerprint) -> Result<Option<Bytes>, Error> {
+        self.db.lookup_fingerprint(key)
     }
 
-    async fn lookup_cas<K: Into<Fingerprint>, V: From<Bytes>>(
-        &self,
-        key: K,
-    ) -> Result<Option<V>, Error> {
+    fn lookup_cas<K: Into<Fingerprint>, V: From<Bytes>>(&self, key: K) -> Result<Option<V>, Error> {
         let key = key.into();
-        let result = self.lookup_cas_fingerprint(key).await?;
+        let result = self.lookup_cas_fingerprint(key)?;
         Ok(result.map(|bytes| bytes.into()))
     }
 
-    async fn insert_cas_bytes(&self, value: Bytes) -> Result<Fingerprint, Error> {
+    fn insert_cas_bytes(&self, value: Bytes) -> Result<Fingerprint, Error> {
         let key = Fingerprint::digest(&value);
-        self.db.insert_fingerprint_bytes(key, value).await
+        self.db.insert_fingerprint_bytes(key, value)
     }
 
-    async fn insert_cas<V: Into<Bytes>>(&self, value: V) -> Result<Fingerprint, Error> {
+    fn insert_cas<V: Into<Bytes>>(&self, value: V) -> Result<Fingerprint, Error> {
         let bytes = value.into();
-        self.insert_cas_bytes(bytes).await
+        self.insert_cas_bytes(bytes)
     }
 
-    async fn list_cas_keys(&self) -> Result<Vec<Fingerprint>, Error> {
-        self.db.list_keys().await
+    fn list_cas_keys(&self) -> Result<Vec<Fingerprint>, Error> {
+        self.db.list_keys()
     }
 }
 
@@ -189,11 +183,11 @@ pub struct FSBackend {
 }
 
 impl FSBackend {
-    pub async fn new(loc: crate::FilesystemLocation<'_>) -> Result<Self, Error> {
+    pub fn new(loc: crate::FilesystemLocation<'_>) -> Result<Self, Error> {
         let crate::FilesystemLocation { path } = loc;
 
-        let krate_lookup = CasDB::new(FilesystemDB::new(path.join("krate_lookup")).await?);
-        let krate_data = FilesystemDB::new(path.join("krate_data")).await?;
+        let krate_lookup = CasDB::new(FilesystemDB::new(path.join("krate_lookup"))?);
+        let krate_data = FilesystemDB::new(path.join("krate_data"))?;
 
         Ok(Self {
             krate_lookup,
@@ -230,36 +224,33 @@ impl From<Bytes> for Krate {
     }
 }
 
-#[async_trait::async_trait]
 impl crate::Backend for FSBackend {
-    async fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
+    fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
         self.krate_data
-            .lookup(krate.clone())
-            .await?
+            .lookup(krate.clone())?
             .ok_or_else(|| anyhow::Error::msg(format!("krate {:?} not found!", krate)))
     }
 
-    async fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
         // 1. Serialize the krate to json and store that in a separate table than the package
         // contents table. This will be consumed by list().
-        self.krate_lookup.insert_cas(krate.clone()).await?;
+        self.krate_lookup.insert_cas(krate.clone())?;
 
         // 2. Still using the Krate as the content-addressed key, store the package bytes into the
         // package contents table (in this case, writing a file). This will be consumed by fetch().
         let len = source.len();
-        self.krate_data.insert(krate.clone(), source).await?;
+        self.krate_data.insert(krate.clone(), source)?;
 
         Ok(len)
     }
 
-    async fn list(&self) -> Result<Vec<String>, Error> {
-        let all_keys: Vec<Fingerprint> = self.krate_lookup.list_cas_keys().await?;
+    fn list(&self) -> Result<Vec<String>, Error> {
+        let all_keys: Vec<Fingerprint> = self.krate_lookup.list_cas_keys()?;
         let mut all_names: Vec<String> = vec![];
         for key in all_keys {
             let cur_krate: Krate = self
                 .krate_lookup
-                .lookup_cas(key)
-                .await?
+                .lookup_cas(key)?
                 .expect("this key was provided by list_cas_keys()");
             let stripped_name = cur_krate.name[self.prefix.len()..].to_owned();
             all_names.push(stripped_name);
@@ -267,8 +258,8 @@ impl crate::Backend for FSBackend {
         Ok(all_names)
     }
 
-    async fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
-        if let Some(timestamp) = self.krate_data.modified_time(krate.clone()).await? {
+    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
+        if let Some(timestamp) = self.krate_data.modified_time(krate.clone())? {
             let unix_time = timestamp.duration_since(time::UNIX_EPOCH)?.as_secs();
 
             // TODO: figure out how to initialize a timestamp using a u64 instead of cutting

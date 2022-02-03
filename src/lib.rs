@@ -99,6 +99,8 @@ pub mod mirror;
 pub mod sync;
 pub mod util;
 
+pub type HttpClient = reqwest::blocking::Client;
+
 pub use cargo::{read_cargo_config, Registry, Source};
 
 #[derive(Eq, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -223,7 +225,7 @@ pub enum CloudLocation<'a> {
 pub type Storage = Arc<dyn Backend + Sync + Send>;
 
 pub struct Ctx {
-    pub client: reqwest::Client,
+    pub client: HttpClient,
     pub backend: Storage,
     pub krates: Vec<Krate>,
     pub registries: Vec<Arc<Registry>>,
@@ -238,7 +240,7 @@ impl Ctx {
         registries: Vec<Arc<Registry>>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: reqwest::Client::builder().build()?,
+            client: HttpClient::builder().build()?,
             backend,
             krates,
             registries,
@@ -289,11 +291,10 @@ impl fmt::Debug for Ctx {
 
 pub type Timestamp = time::OffsetDateTime;
 
-#[async_trait::async_trait]
 pub trait Backend: fmt::Debug {
-    async fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
-    async fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error>;
-    async fn list(&self) -> Result<Vec<String>, Error>;
-    async fn updated(&self, krate: &Krate) -> Result<Option<Timestamp>, Error>;
+    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
+    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error>;
+    fn list(&self) -> Result<Vec<String>, Error>;
+    fn updated(&self, krate: &Krate) -> Result<Option<Timestamp>, Error>;
     fn set_prefix(&mut self, prefix: &str);
 }

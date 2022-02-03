@@ -151,8 +151,8 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
     }
 }
 
-pub async fn convert_response(
-    res: reqwest::Response,
+pub fn convert_response(
+    res: reqwest::blocking::Response,
 ) -> Result<http::Response<bytes::Bytes>, Error> {
     let mut builder = http::Response::builder()
         .status(res.status())
@@ -168,24 +168,21 @@ pub async fn convert_response(
             .map(|(k, v)| (k.clone(), v.clone())),
     );
 
-    let body = res.bytes().await?;
+    let body = res.bytes()?;
 
     Ok(builder.body(body)?)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Encoding {
     Gzip,
     Zstd,
 }
 
 use bytes::Bytes;
-use std::{
-    io,
-    pin::Pin,
-    task::{Context as TaskCtx, Poll},
-};
+use std::io;
 
+#[tracing::instrument(level = "debug")]
 pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Result<(), Error> {
     enum Decoder<'z, R: io::Read + io::BufRead> {
         Gzip(flate2::read::GzDecoder<R>),
@@ -238,7 +235,8 @@ pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Resul
     Ok(())
 }
 
-pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
+#[tracing::instrument(level = "debug")]
+pub(crate) fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
     // If we don't allocate adequate space in our output buffer, things
     // go very poorly for everyone involved
     let mut estimated_size = 0;
@@ -271,39 +269,20 @@ pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
     // do a write until a previous one has succeeded, as otherwise
     // the stream could be corrupted regardless of the actual write
     // implementation, so this should be fine. :tm:
-    #[allow(unsafe_code)]
-    unsafe impl<'z, W: io::Write + Sync> Sync for Writer<'z, W> {}
+    // #[allow(unsafe_code)]
+    // unsafe impl<'z, W: io::Write + Sync> Sync for Writer<'z, W> {}
 
-    impl<'z, W> futures::io::AsyncWrite for Writer<'z, W>
+    impl<'z, W> io::Write for Writer<'z, W>
     where
-        W: io::Write + Send + Sync + std::marker::Unpin,
+        W: io::Write,
     {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            _: &mut TaskCtx<'_>,
-            buf: &[u8],
-        ) -> Poll<io::Result<usize>> {
-            let w = self.get_mut();
-            w.original += buf.len();
-            Poll::Ready(io::Write::write(&mut w.encoder, buf))
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.original += buf.len();
+            self.encoder.write(buf)
         }
 
-        fn poll_write_vectored(
-            self: Pin<&mut Self>,
-            _: &mut TaskCtx<'_>,
-            bufs: &[io::IoSlice<'_>],
-        ) -> Poll<io::Result<usize>> {
-            let w = self.get_mut();
-            Poll::Ready(io::Write::write_vectored(&mut w.encoder, bufs))
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _: &mut TaskCtx<'_>) -> Poll<io::Result<()>> {
-            let w = self.get_mut();
-            Poll::Ready(io::Write::flush(&mut w.encoder))
-        }
-
-        fn poll_close(self: Pin<&mut Self>, cx: &mut TaskCtx<'_>) -> Poll<io::Result<()>> {
-            self.poll_flush(cx)
+        fn flush(&mut self) -> io::Result<()> {
+            self.encoder.flush()
         }
     }
 
@@ -313,14 +292,14 @@ pub(crate) async fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
 
     let zstd_encoder = zstd::Encoder::new(buf_writer, 9)?;
 
-    let mut archiver = async_tar::Builder::new(Writer {
+    let mut archiver = tar::Builder::new(Writer {
         encoder: zstd_encoder,
         original: 0,
     });
-    archiver.append_dir_all(".", path).await?;
-    archiver.finish().await?;
+    archiver.append_dir_all(".", path)?;
+    archiver.finish()?;
 
-    let writer = archiver.into_inner().await?;
+    let writer = archiver.into_inner()?;
     let buf_writer = writer.encoder.finish()?;
     let out_buffer = buf_writer.into_inner();
 

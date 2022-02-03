@@ -4,10 +4,9 @@
 use cargo_fetcher as cf;
 use std::path::PathBuf;
 
-pub async fn fs_ctx(root: PathBuf, registries: Vec<std::sync::Arc<cf::Registry>>) -> cf::Ctx {
+pub fn fs_ctx(root: PathBuf, registries: Vec<std::sync::Arc<cf::Registry>>) -> cf::Ctx {
     let backend = std::sync::Arc::new(
         cf::backends::fs::FSBackend::new(cf::FilesystemLocation { path: &root })
-            .await
             .expect("failed to create fs backend"),
     );
 
