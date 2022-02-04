@@ -1,4 +1,6 @@
-# 🎁 cargo-fetcher
+<div align="center">
+
+# `🎁 cargo-fetcher`
 
 [![Embark](https://img.shields.io/badge/embark-open%20source-blueviolet.svg)](https://embark.dev)
 [![Embark](https://img.shields.io/badge/discord-ark-%237289da.svg?logo=discord)](https://discord.gg/dAuKfZS)
@@ -9,9 +11,11 @@
 
 Alternative to `cargo fetch` for use in CI or other "clean" environments that you want to quickly bootstrap with the necessary crates to compile/test etc your project(s).
 
+</div>
+
 ## Why?
 
-* You run many CI jobs inside of a cloud provider such as [GCP](https://cloud.google.com/) and you want to quickly fetch cargo registries and crates so that you can spend your compute resources on actually compiling and testing the code, rather than downloading dependencies.
+* You run many CI jobs in clean and/or containerized environments and you want to quickly fetch cargo registries and crates so that you can spend your compute resources on actually compiling and testing the code, rather than downloading dependencies.
 
 ## Why not?
 
@@ -20,6 +24,7 @@ Alternative to `cargo fetch` for use in CI or other "clean" environments that yo
 * `cargo-fetcher` assumes it is running in an environment with high network throughput and low latency.
 
 ## Supported Storage Backends
+
 ### `gcs`
 
 The `gcs` feature enables the use of [Google Cloud Storage](https://cloud.google.com/storage/) as a backend.
@@ -74,7 +79,7 @@ All 3 build jobs take around **1m2s** each to do `cargo fetch --target x86_64-un
 
 ### After
 
-All 3 build jobs take **3-4s** each to do `cargo fetcher --include-index mirror` followed by **5-7s** to do `cargo fetch --target x86_64-unknown-linux-gnu`.
+All 3 build jobs take **3-4s** each to do `cargo fetcher --include-index sync`.
 
 ## Usage
 
@@ -89,7 +94,7 @@ In addition to the backend specifics, the only required optional is the path to 
 
 ### `mirror`
 
-The `mirror` subcommand does the work of downloading crates and registry indexes from their original locations and reuploading them to your storage backend.
+The `mirror` subcommand does the work of downloading crates and registry indexes from their original locations and re-uploading them to your storage backend.
 
 It does have one additional option however, to determine how often it should take snapshots of the registry index(es).
 
@@ -119,7 +124,7 @@ Rather than wait for a registry index to be downloaded each time before fetching
 embark = { index = "<secret url>" }
 ```
 
-The environment variable is of the form `CARGO_FETCHER_<name>_DL` where name is the same name (uppercased) of the registry in the configuration file.
+The environment variable is of the form `CARGO_FETCHER_<name>_DL` where name is the same name (upper-cased) of the registry in the configuration file.
 
 ```sh
 CARGO_FETCHER_EMBARK_DL="https://secret/rust/cargo/{crate}-{version}.crate" cargo fetcher mirror
@@ -129,7 +134,7 @@ The [format](https://doc.rust-lang.org/cargo/reference/registries.html#index-for
 
 ### `sync`
 
-The `sync` subcommand is the actual replacement for `cargo fetch`, except instead of downloading crates aren registries from their normal location, it downloads them from your storage backend, and splats them to disk in the same way that cargo does, so that cargo won't have to do any actual work before it can start building code.
+The `sync` subcommand is the actual replacement for `cargo fetch`, except instead of downloading crates and registries from their normal location, it downloads them from your storage backend, and splats them to disk in the same way that cargo does, so that cargo won't have to do any actual work before it can start building code.
 
 ## Contributing
 
@@ -143,8 +148,8 @@ Please read our [Contributor Guide](CONTRIBUTING.md) for more information on how
 
 Licensed under either of
 
-* Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-* MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+* Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+* MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
 
