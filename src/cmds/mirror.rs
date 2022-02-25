@@ -45,7 +45,7 @@ pub(crate) fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error
 }
 
 fn parse_duration(src: &str) -> Result<Duration, Error> {
-    let suffix_pos = src.find(char::is_alphabetic).unwrap_or_else(|| src.len());
+    let suffix_pos = src.find(char::is_alphabetic).unwrap_or(src.len());
 
     let num: u64 = src[..suffix_pos].parse()?;
     let suffix = if suffix_pos == src.len() {

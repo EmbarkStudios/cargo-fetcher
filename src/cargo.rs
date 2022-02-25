@@ -540,7 +540,7 @@ mod test {
     fn gets_other_download_url() {
         let crates_io = Arc::new(
             super::Registry::new(
-                "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/index.git".to_owned(),
+                "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/index.git",
                 Some(
                     "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/{crate}-{version}.crate"
                         .to_owned(),
@@ -570,7 +570,7 @@ mod test {
     #[test]
     fn gets_other_complex_download_url() {
         let crates_io = Arc::new(super::Registry::new(
-            "https://complex.io/ohhi/embark/rust/cargo/index.git".to_owned(),
+            "https://complex.io/ohhi/embark/rust/cargo/index.git",
             Some(
                 "https://complex.io/ohhi/embark/rust/cargo/{lowerprefix}/{crate}/{crate}/{prefix}-{version}"
                     .to_owned(),
