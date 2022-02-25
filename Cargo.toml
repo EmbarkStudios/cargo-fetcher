@@ -59,7 +59,7 @@ walkdir = "2.3"
 zstd = "0.10"
 
 [dependencies.git2]
-version = "0.13"
+version = "0.14"
 # We enable this feature so that we can easily compile for eg. musl, and dodge
 # a bunch of shenanigans with openssl differences on different distros
 features = ["vendored-openssl"]
