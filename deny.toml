@@ -16,9 +16,6 @@ deny = []
 skip = [
     # tempfile uses an old version, but is only a dev-dep so it's fine
     { name = "remove_dir_all", version = "=0.5.3" },
-
-    # hyper depends on multiple versions
-    { name = "itoa", version = "=0.4.8" },
 ]
 skip-tree = []
 
