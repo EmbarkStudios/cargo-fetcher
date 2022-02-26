@@ -13,11 +13,12 @@ pub struct BlobBackend {
 }
 
 impl BlobBackend {
-    pub fn new(
-        loc: crate::BlobLocation<'_>,
-        account: String,
-        master_key: String,
-    ) -> Result<Self, Error> {
+    pub fn new(loc: crate::BlobLocation<'_>) -> Result<Self, Error> {
+        let account =
+            std::env::var("STORAGE_ACCOUNT").context("Set env variable STORAGE_ACCOUNT first!")?;
+        let master_key = std::env::var("STORAGE_MASTER_KEY")
+            .context("Set env variable STORAGE_MASTER_KEY first!")?;
+
         let instance = blob::Blob::new(&account, &master_key, loc.container, false);
         let client = HttpClient::new();
         Ok(Self {

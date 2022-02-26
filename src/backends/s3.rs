@@ -2,6 +2,7 @@ use crate::{HttpClient, Krate};
 use anyhow::{Context, Error};
 use rusty_s3::{
     actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action},
+    credentials::Ec2SecurityCredentialsMetadataResponse,
     Bucket, Credentials,
 };
 use std::time::Duration;
@@ -16,7 +17,7 @@ pub struct S3Backend {
 }
 
 impl S3Backend {
-    pub fn new(loc: crate::S3Location<'_>, key: String, secret: String) -> Result<Self, Error> {
+    pub fn new(loc: crate::S3Location<'_>) -> Result<Self, Error> {
         let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
             .parse()
             .context("failed to parse s3 endpoint")?;
@@ -28,8 +29,10 @@ impl S3Backend {
             loc.region.to_owned(),
         )
         .context("failed to new Bucket")?;
-        let credential = Credentials::new(key, secret);
         let client = HttpClient::new();
+        let credential = Credentials::from_env()
+            .map_or_else(|| ec2_credentials(&client).ok(), Some)
+            .context("Either set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or run from an ec2 instance with an assumed IAM role")?;
 
         Ok(Self {
             prefix: loc.prefix.to_owned(),
@@ -148,4 +151,26 @@ impl fmt::Debug for S3Backend {
             .field("prefix", &self.prefix)
             .finish()
     }
+}
+
+const AWS_IMDS_CREDENTIALS: &str =
+    "http://169.254.169.254/latest/meta-data/iam/security-credentials";
+
+fn ec2_credentials(client: &HttpClient) -> Result<Credentials, Error> {
+    let resp = client
+        .get(AWS_IMDS_CREDENTIALS)
+        .send()
+        .context("failed to get role name")?
+        .error_for_status()?;
+
+    let role_name = resp.text()?;
+    let resp = client
+        .get(format!("{}/{}", AWS_IMDS_CREDENTIALS, role_name))
+        .send()
+        .context("failed to get role name")?
+        .error_for_status()?;
+
+    let json = resp.text()?;
+    let ec2_creds = Ec2SecurityCredentialsMetadataResponse::deserialize(&json)?;
+    Ok(ec2_creds.into_credentials())
 }
