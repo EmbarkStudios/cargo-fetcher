@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.12.1] - 2022-02-28
 ### Added
 - [PR#171](https://github.com/EmbarkStudios/cargo-fetcher/pull/171) added EC2 credential sourcing from IMDS for the `s3` backend, allowing for easier configuration when running in AWS. Thanks [@jelmansouri](https://github.com/jelmansouri)!
 
@@ -104,7 +105,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.0...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.1...HEAD
+[0.12.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.0...0.12.1
 [0.12.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.11.0...0.12.0
 [0.11.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.10.0...0.11.0
 [0.10.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.9.0...0.10.0
