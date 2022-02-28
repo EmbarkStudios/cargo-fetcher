@@ -179,11 +179,7 @@ fn init_backend(
             // Special case local testing
             let make_bucket = loc.bucket == "testing" && loc.host.contains("localhost");
 
-            let key = std::env::var("AWS_ACCESS_KEY_ID")
-                .context("Set env variable AWS_ACCESS_KEY_ID first!")?;
-            let secret = std::env::var("AWS_SECRET_ACCESS_KEY")
-                .context("Set env variable AWS_SECRET_ACCESS_KEY first!")?;
-            let s3 = cf::backends::s3::S3Backend::new(loc, key, secret)?;
+            let s3 = cf::backends::s3::S3Backend::new(loc)?;
 
             if make_bucket {
                 s3.make_bucket().context("failed to create test bucket")?;
@@ -198,15 +194,7 @@ fn init_backend(
         #[cfg(not(feature = "fs"))]
         cf::CloudLocation::Fs(_) => anyhow::bail!("filesystem backend not enabled"),
         #[cfg(feature = "blob")]
-        cf::CloudLocation::Blob(loc) => {
-            let account = std::env::var("STORAGE_ACCOUNT")
-                .context("Set env variable STORAGE_ACCOUNT first!")?;
-            let master_key = std::env::var("STORAGE_MASTER_KEY")
-                .context("Set env variable STORAGE_MASTER_KEY first!")?;
-            Ok(Arc::new(cf::backends::blob::BlobBackend::new(
-                loc, account, master_key,
-            )?))
-        }
+        cf::CloudLocation::Blob(loc) => Ok(Arc::new(cf::backends::blob::BlobBackend::new(loc)?)),
         #[cfg(not(feature = "blob"))]
         cf::CloudLocation::Blob(_) => anyhow::bail!("blob backend not enabled"),
     }
@@ -281,8 +269,7 @@ fn real_main() -> Result<(), Error> {
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     match real_main() {
         Ok(_) => {}
         Err(e) => {

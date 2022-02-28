@@ -37,7 +37,7 @@ The `gcs` feature enables the use of [Google Cloud Storage](https://cloud.google
 The `s3` feature enables the use of [Amazon S3](https://aws.amazon.com/s3/) as a backend.
 
 * Must provide a url to the `-u | --url` parameter, it must of the form `http(s)?://<bucket>.s3(-<region>).<host>(/<prefix>)?`
-* Must provide AWS IAM user via the environment `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` described [here](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html).
+* Must provide AWS IAM user via the environment `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` described [here](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html) or run from an ec2 instance with an assumed role as described [here](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html).
 
 ### `fs`
 
