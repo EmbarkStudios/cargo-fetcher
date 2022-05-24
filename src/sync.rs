@@ -351,7 +351,7 @@ pub fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                     Err(e)
                 }
                 Ok(krate_data) => {
-                    let len = krate_data.len();
+                    let mut len = krate_data.len();
                     match &krate.source {
                         Source::Registry { registry, chksum } => {
                             let (cache_dir, src_dir) = registry.sync_dirs(root_dir);
@@ -376,6 +376,10 @@ pub fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
                                     backend.fetch(&checkout_id).ok()
                                 }
                             };
+
+                            if let Some(co) = &checkout {
+                                len += co.len();
+                            }
 
                             let git_source = crate::git::GitSource {
                                 db: krate_data,
