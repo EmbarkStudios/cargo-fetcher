@@ -1,5 +1,6 @@
 use crate::{util, Krate, Registry, Source};
 use anyhow::{Context, Error};
+//use indicatif as ia;
 use std::{io::Write, path::PathBuf};
 use tracing::{debug, error, info, warn};
 
@@ -301,22 +302,27 @@ pub fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
     std::fs::create_dir_all(&git_co_dir).context("failed to create git/checkouts/")?;
 
     info!("checking local cache for missing crates...");
-    let mut to_sync = Vec::with_capacity(ctx.krates.len());
-    get_missing_git_sources(ctx, &git_co_dir, &mut to_sync);
+    let mut git_sync = Vec::new();
+    get_missing_git_sources(ctx, &git_co_dir, &mut git_sync);
 
+    let mut registry_sync = Vec::new();
     for registry in &ctx.registries {
         let (cache_dir, src_dir) = registry.sync_dirs(root_dir);
         std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache")?;
         std::fs::create_dir_all(&src_dir).context("failed to create registry/src")?;
 
-        get_missing_registry_sources(ctx, registry, &cache_dir, &mut to_sync)?;
+        get_missing_registry_sources(ctx, registry, &cache_dir, &mut registry_sync)?;
     }
 
     // Remove duplicates, eg. when 2 crates are sourced from the same git repository
-    to_sync.sort();
-    to_sync.dedup();
+    git_sync.sort();
+    git_sync.dedup();
 
-    if to_sync.is_empty() {
+    // probably shouldn't be needed, but why not
+    registry_sync.sort();
+    registry_sync.dedup();
+
+    if git_sync.is_empty() && registry_sync.is_empty() {
         info!("all crates already available on local disk");
         return Ok(Summary {
             total_bytes: 0,
@@ -325,111 +331,142 @@ pub fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
         });
     }
 
-    info!("synchronizing {} missing crates...", to_sync.len());
-    use rayon::prelude::*;
+    info!(
+        "synchronizing {} missing crates...",
+        git_sync.len() + registry_sync.len()
+    );
 
-    let summary = to_sync
-        .into_par_iter()
-        .map(|krate| {
-            let span = tracing::debug_span!("sync", %krate);
-            let _ss = span.enter();
+    let sync = |to_sync: Vec<&Krate>| -> Summary {
+        use rayon::prelude::*;
 
-            let backend = ctx.backend.clone();
+        to_sync
+            .into_par_iter()
+            .map(|krate| {
+                let span = tracing::debug_span!("sync", %krate);
+                let _ss = span.enter();
 
-            let git_db_dir = git_db_dir.clone();
-            let git_co_dir = git_co_dir.clone();
+                let backend = ctx.backend.clone();
 
-            let res = {
-                let span = tracing::debug_span!("download");
-                let _ds = span.enter();
-                backend.fetch(krate)
-            };
+                let git_db_dir = git_db_dir.clone();
+                let git_co_dir = git_co_dir.clone();
 
-            match res {
-                Err(e) => {
-                    error!(err = ?e, krate = %krate, cloud = %krate.cloud_id(), "failed to download");
-                    Err(e)
-                }
-                Ok(krate_data) => {
-                    let mut len = krate_data.len();
-                    match &krate.source {
-                        Source::Registry { registry, chksum } => {
-                            let (cache_dir, src_dir) = registry.sync_dirs(root_dir);
-                            if let Err(e) =
-                                sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
-                            {
-                                error!(err = ?e, "failed to splat package");
-                                return Err(e);
-                            }
-                        }
-                        Source::Git { rev, .. } => {
-                            let checkout = {
-                                let mut checkout_id = krate.clone();
+                match &krate.source {
+                    Source::Registry { registry, chksum } => {
 
-                                if let Source::Git { rev, .. } = &mut checkout_id.source {
-                                    rev.push_str("-checkout");
-                                }
-
+                        match {
+                            let span = tracing::debug_span!("download");
+                            let _ds = span.enter();
+                            backend.fetch(krate)
+                        } {
+                            Ok(krate_data) => {
+                                let len = krate_data.len();
+                                let (cache_dir, src_dir) = registry.sync_dirs(root_dir);
+                                if let Err(e) =
+                                    sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
                                 {
-                                    let span = tracing::debug_span!("download_checkout");
-                                    let _ds = span.enter();
-                                    backend.fetch(&checkout_id).ok()
+                                    error!(err = ?e, "failed to splat package");
+                                    return Err(e);
                                 }
-                            };
 
-                            if let Some(co) = &checkout {
-                                len += co.len();
+                                Ok(len)
                             }
-
-                            let git_source = crate::git::GitSource {
-                                db: krate_data,
-                                checkout,
-                            };
-
-                            if let Err(e) = sync_git(git_db_dir, git_co_dir, krate, git_source, rev)
-                            {
-                                error!(err = ?e, "failed to splat git repo");
-                                return Err(e);
+                            Err(err) => {
+                                error!(err = ?err, krate = %krate, cloud = %krate.cloud_id(), "failed to download");
+                                Err(err)
                             }
                         }
-                    };
-
-                    Ok(len)
-                }
-            }
-        })
-        .fold(
-            || Summary {
-                total_bytes: 0,
-                bad: 0,
-                good: 0,
-            },
-            |mut acc, res| {
-                match res {
-                    Ok(len) => {
-                        acc.good += 1;
-                        acc.total_bytes += len;
                     }
-                    Err(_) => {
-                        acc.bad += 1;
+                    Source::Git { rev, .. } => {
+                        let (krate_data, checkout) = rayon::join(|| {
+                            let span = tracing::debug_span!("download");
+                            let _ds = span.enter();
+                            backend.fetch(krate)
+                        }, || {
+                            let mut checkout_id = krate.clone();
+
+                            if let Source::Git { rev, .. } = &mut checkout_id.source {
+                                rev.push_str("-checkout");
+                            }
+
+                            {
+                                let span = tracing::debug_span!("download_checkout");
+                                let _ds = span.enter();
+                                backend.fetch(&checkout_id).ok()
+                            }
+                        });
+
+                        let krate_data = match krate_data {
+                            Ok(krate_data) => {
+                                krate_data
+                            }
+                            Err(err) => {
+                                error!(err = ?err, krate = %krate, cloud = %krate.cloud_id(), "failed to download");
+                                return Err(err);
+                            }
+                        };
+
+                        let mut len = krate_data.len();
+
+                        if let Some(co) = &checkout {
+                            len += co.len();
+                        }
+
+                        let git_source = crate::git::GitSource {
+                            db: krate_data,
+                            checkout,
+                        };
+
+                        match sync_git(git_db_dir, git_co_dir, krate, git_source, rev) {
+                            Ok(_) => {
+                                Ok(len)
+                            }
+                            Err(err) => {
+                                error!(err = ?err, "failed to splat git repo");
+                                Err(err)
+                            }
+                        }
                     }
                 }
+            })
+            .fold(
+                || Summary {
+                    total_bytes: 0,
+                    bad: 0,
+                    good: 0,
+                },
+                |mut acc, res| {
+                    match res {
+                        Ok(len) => {
+                            acc.good += 1;
+                            acc.total_bytes += len;
+                        }
+                        Err(_) => {
+                            acc.bad += 1;
+                        }
+                    }
 
-                acc
-            },
-        )
-        .reduce(
-            || Summary {
-                total_bytes: 0,
-                bad: 0,
-                good: 0,
-            },
-            |a, b| Summary {
-                total_bytes: a.total_bytes + b.total_bytes,
-                bad: a.bad + b.bad,
-                good: a.good + b.good,
-            },
-        );
+                    acc
+                },
+            )
+            .reduce(
+                || Summary {
+                    total_bytes: 0,
+                    bad: 0,
+                    good: 0,
+                },
+                |a, b| Summary {
+                    total_bytes: a.total_bytes + b.total_bytes,
+                    bad: a.bad + b.bad,
+                    good: a.good + b.good,
+                },
+            )
+    };
 
-    Ok(summary)
+    let (gs, rs) = rayon::join(|| sync(git_sync), || sync(registry_sync));
+
+    Ok(Summary {
+        total_bytes: gs.total_bytes + rs.total_bytes,
+        bad: gs.bad + rs.bad,
+        good: gs.good + rs.good,
+    })
 }
