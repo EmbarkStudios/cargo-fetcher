@@ -347,7 +347,7 @@ pub fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
 
             match res {
                 Err(e) => {
-                    error!(err = ?e, "failed to download");
+                    error!(err = ?e, krate = %krate, "failed to download");
                     Err(e)
                 }
                 Ok(krate_data) => {
