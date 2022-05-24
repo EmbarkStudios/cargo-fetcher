@@ -4,12 +4,38 @@
 extern crate cargo_fetcher as cf;
 
 use anyhow::{anyhow, Context, Error};
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tracing_subscriber::filter::LevelFilter;
 use url::Url;
 
 mod mirror;
 mod sync;
+
+#[inline]
+fn parse_duration_s(src: &str) -> Result<Duration, Error> {
+    parse_duration(src, "s")
+}
+
+fn parse_duration(src: &str, def: &str) -> Result<Duration, Error> {
+    let suffix_pos = src.find(char::is_alphabetic).unwrap_or(src.len());
+
+    let num: u64 = src[..suffix_pos].parse()?;
+    let suffix = if suffix_pos == src.len() {
+        def
+    } else {
+        &src[suffix_pos..]
+    };
+
+    let duration = match suffix {
+        "s" | "S" => Duration::from_secs(num),
+        "m" | "M" => Duration::from_secs(num * 60),
+        "h" | "H" => Duration::from_secs(num * 60 * 60),
+        "d" | "D" => Duration::from_secs(num * 60 * 60 * 24),
+        s => return Err(anyhow::anyhow!("unknown duration suffix '{}'", s)),
+    };
+
+    Ok(duration)
+}
 
 #[derive(clap::Subcommand)]
 enum Command {
@@ -76,6 +102,21 @@ Possible values:
     /// A snapshot of the registry index is also included when mirroring or syncing
     #[clap(short, long)]
     include_index: bool,
+    #[clap(
+        short,
+        default_value = "30s",
+        parse(try_from_str = parse_duration_s),
+        long_help = "The maximum duration of a single crate request
+
+Times may be specified with no suffix (default seconds), or one of:
+* (s)econds
+* (m)inutes
+* (h)ours
+* (d)ays
+
+"
+    )]
+    timeout: Duration,
     #[clap(subcommand)]
     cmd: Command,
 }
@@ -83,13 +124,14 @@ Possible values:
 fn init_backend(
     loc: cf::CloudLocation<'_>,
     _credentials: Option<PathBuf>,
+    _timeout: Duration,
 ) -> Result<Arc<dyn cf::Backend + Sync + Send>, Error> {
     match loc {
         #[cfg(feature = "gcs")]
         cf::CloudLocation::Gcs(gcs) => {
             let cred_path = _credentials.context("GCS credentials not specified")?;
 
-            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path)?;
+            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path, _timeout)?;
             Ok(Arc::new(gcs))
         }
         #[cfg(not(feature = "gcs"))]
@@ -99,7 +141,7 @@ fn init_backend(
             // Special case local testing
             let make_bucket = loc.bucket == "testing" && loc.host.contains("localhost");
 
-            let s3 = cf::backends::s3::S3Backend::new(loc)?;
+            let s3 = cf::backends::s3::S3Backend::new(loc, _timeout)?;
 
             if make_bucket {
                 s3.make_bucket().context("failed to create test bucket")?;
@@ -114,7 +156,9 @@ fn init_backend(
         #[cfg(not(feature = "fs"))]
         cf::CloudLocation::Fs(_) => anyhow::bail!("filesystem backend not enabled"),
         #[cfg(feature = "blob")]
-        cf::CloudLocation::Blob(loc) => Ok(Arc::new(cf::backends::blob::BlobBackend::new(loc)?)),
+        cf::CloudLocation::Blob(loc) => Ok(Arc::new(cf::backends::blob::BlobBackend::new(
+            loc, _timeout,
+        )?)),
         #[cfg(not(feature = "blob"))]
         cf::CloudLocation::Blob(_) => anyhow::bail!("blob backend not enabled"),
     }
@@ -150,7 +194,7 @@ fn real_main() -> Result<(), Error> {
 
     let cloud_location = cf::util::CloudLocationUrl::from_url(args.url.clone())?;
     let location = cf::util::parse_cloud_location(&cloud_location)?;
-    let backend = init_backend(location, args.credentials)?;
+    let backend = init_backend(location, args.credentials, args.timeout)?;
 
     // Note that unlike cargo (since we require a Cargo.lock), we don't use the
     // current directory as the root when resolving cargo configurations, but
