@@ -104,7 +104,7 @@ Possible values:
     include_index: bool,
     #[clap(
         short,
-        env = "FETCHER_TIMEOUT",
+        env = "CARGO_FETCHER_TIMEOUT",
         default_value = "30s",
         parse(try_from_str = parse_duration_s),
         long_help = "The maximum duration of a single crate request
