@@ -56,7 +56,11 @@ pub struct GcsBackend {
 }
 
 impl GcsBackend {
-    pub fn new(loc: crate::GcsLocation<'_>, credentials: &std::path::Path) -> Result<Self, Error> {
+    pub fn new(
+        loc: crate::GcsLocation<'_>,
+        credentials: &std::path::Path,
+        timeout: std::time::Duration,
+    ) -> Result<Self, Error> {
         let bucket = BucketName::try_from(loc.bucket.to_owned())?;
 
         let token = acquire_gcs_token(credentials)?;
@@ -75,6 +79,7 @@ impl GcsBackend {
         let client = HttpClient::builder()
             .default_headers(hm)
             .use_rustls_tls()
+            .timeout(timeout)
             .build()?;
 
         Ok(Self {

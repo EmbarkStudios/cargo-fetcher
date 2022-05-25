@@ -65,7 +65,7 @@ fn all_missing() {
             match &krate.source {
                 Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
-                _ => unreachable!(),
+                Source::Git { .. } => unreachable!(),
             }
         }
     }
@@ -143,7 +143,7 @@ fn some_missing() {
             match &krate.source {
                 Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
-                _ => unreachable!(),
+                Source::Git { .. } => unreachable!(),
             }
         }
     }
@@ -173,7 +173,7 @@ fn some_missing() {
             match &krate.source {
                 Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
-                _ => unreachable!(),
+                Source::Git { .. } => unreachable!(),
             }
         }
     }
@@ -245,7 +245,7 @@ fn none_missing() {
             match &krate.source {
                 Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
-                _ => unreachable!(),
+                Source::Git { .. } => unreachable!(),
             }
         }
     }
@@ -277,7 +277,7 @@ fn none_missing() {
             match &krate.source {
                 Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
                     .expect("failed to validate checksum"),
-                _ => unreachable!(),
+                Source::Git { .. } => unreachable!(),
             }
         }
     }

@@ -13,6 +13,7 @@ pub struct PropertiesResponse {
     pub last_modified: String,
 }
 
+#[derive(Debug)]
 pub struct Blob {
     account: String,
     key: String,
@@ -63,7 +64,7 @@ impl Blob {
     }
 }
 
-impl fmt::Debug for Blob {
+impl fmt::Display for Blob {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Blob: {:#?}", self)
     }

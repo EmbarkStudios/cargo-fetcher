@@ -22,13 +22,9 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
 
         let mut tree = String::with_capacity(4 * 1024);
 
-        for item in walker.filter_entry(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .map(|s| s != ".git")
-                .unwrap_or(true)
-        }) {
+        for item in
+            walker.filter_entry(|entry| entry.file_name().to_str().map_or(true, |s| s != ".git"))
+        {
             let item = item.unwrap();
 
             let hash = if item.file_type().is_file() {

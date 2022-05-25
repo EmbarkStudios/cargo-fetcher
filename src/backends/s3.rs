@@ -17,7 +17,7 @@ pub struct S3Backend {
 }
 
 impl S3Backend {
-    pub fn new(loc: crate::S3Location<'_>) -> Result<Self, Error> {
+    pub fn new(loc: crate::S3Location<'_>, timeout: std::time::Duration) -> Result<Self, Error> {
         let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
             .parse()
             .context("failed to parse s3 endpoint")?;
@@ -29,7 +29,11 @@ impl S3Backend {
             loc.region.to_owned(),
         )
         .context("failed to new Bucket")?;
-        let client = HttpClient::new();
+
+        let client = HttpClient::builder()
+            .use_rustls_tls()
+            .timeout(timeout)
+            .build()?;
         let credential = Credentials::from_env()
             .map_or_else(|| ec2_credentials(&client).ok(), Some)
             .context("Either set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or run from an ec2 instance with an assumed IAM role")?;
