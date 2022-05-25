@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Added
+- [PR#172](https://github.com/EmbarkStudios/cargo-fetcher/pull/172) added the `--timeout | CARGO_FETCHER_TIMEOUT` option, allowing control over how long each individual HTTP request is allowed to take. Defaults to 30 seconds, which is the same default timeout as `reqwest`.
+
+### Changed
+- [PR#172](https://github.com/EmbarkStudios/cargo-fetcher/pull/172) split git packages (bare clones and checkouts) and registry packages and downloads them in parallel. In my local tests this reduced overall wall time as typically git packages are an order of magnitude or more larger than a registry package, so splitting them allows the git packages to take up threads and I/O slots earlier, and registry packages can then fill in the remaining capacity. In addition, the git bare clone and checkout for each crate are now downloaded in parallel, as previously the checkout download would wait until the bare clone was downloaded before doing the disk splat, but this was wasteful.
+- [PR#172](https://github.com/EmbarkStudios/cargo-fetcher/pull/172) updated dependencies.
+
 ## [0.12.1] - 2022-02-28
 ### Added
 - [PR#171](https://github.com/EmbarkStudios/cargo-fetcher/pull/171) added EC2 credential sourcing from IMDS for the `s3` backend, allowing for easier configuration when running in AWS. Thanks [@jelmansouri](https://github.com/jelmansouri)!
