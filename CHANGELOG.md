@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.13.0] - 2022-05-25
 ### Added
 - [PR#172](https://github.com/EmbarkStudios/cargo-fetcher/pull/172) added the `--timeout | CARGO_FETCHER_TIMEOUT` option, allowing control over how long each individual HTTP request is allowed to take. Defaults to 30 seconds, which is the same default timeout as `reqwest`.
 
@@ -112,7 +113,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.1...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.0...HEAD
+[0.13.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.1...0.13.0
 [0.12.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.0...0.12.1
 [0.12.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.11.0...0.12.0
 [0.11.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.10.0...0.11.0
