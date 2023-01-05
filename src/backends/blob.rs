@@ -55,7 +55,7 @@ impl crate::Backend for BlobBackend {
         let (parts, _) = dl_req.into_parts();
 
         let uri = parts.uri.to_string();
-        let builder = self.client.get(&uri);
+        let builder = self.client.get(uri);
 
         let request = builder.headers(parts.headers).build()?;
 
@@ -74,7 +74,7 @@ impl crate::Backend for BlobBackend {
         let (parts, body) = insert_req.into_parts();
 
         let uri = parts.uri.to_string();
-        let builder = self.client.put(&uri);
+        let builder = self.client.put(uri);
 
         let request = builder.headers(parts.headers).body(body).build()?;
 
@@ -89,7 +89,7 @@ impl crate::Backend for BlobBackend {
         let (parts, _) = list_req.into_parts();
 
         let uri = parts.uri.to_string();
-        let builder = self.client.get(&uri);
+        let builder = self.client.get(uri);
 
         let request = builder.headers(parts.headers).build()?;
         let response = self.client.execute(request)?.error_for_status()?;
@@ -112,7 +112,7 @@ impl crate::Backend for BlobBackend {
         let (parts, _) = request.into_parts();
 
         let uri = parts.uri.to_string();
-        let builder = self.client.head(&uri);
+        let builder = self.client.head(uri);
 
         let request = builder.headers(parts.headers).build()?;
 
