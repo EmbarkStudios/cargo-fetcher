@@ -1,6 +1,6 @@
 use crate::{HttpClient, Krate};
 use anyhow::{anyhow, Context, Error};
-use tame_gcs::{BucketName, ObjectName};
+use tame_gcs::{objects::Object, BucketName, ObjectName};
 use tracing::debug;
 
 fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, Error> {
@@ -12,7 +12,7 @@ fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, E
     debug!("using credentials in {}", cred_path.display());
 
     let svc_account_info =
-        gcp::ServiceAccountInfo::deserialize(std::fs::read_to_string(&cred_path)?)
+        gcp::ServiceAccountInfo::deserialize(std::fs::read_to_string(cred_path)?)
             .context("failed to deserilize service account")?;
     let svc_account_access = gcp::ServiceAccountProvider::new(svc_account_info)?;
 
@@ -33,7 +33,7 @@ fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, E
                 http::Method::POST => client.post(&uri),
                 http::Method::DELETE => client.delete(&uri),
                 http::Method::PUT => client.put(&uri),
-                method => unreachable!("{} not implemented", method),
+                method => unreachable!("{method} not implemented"),
             };
 
             let req = builder.headers(parts.headers).body(body).build()?;
@@ -53,6 +53,7 @@ pub struct GcsBackend {
     client: HttpClient,
     bucket: BucketName<'static>,
     prefix: String,
+    obj: Object,
 }
 
 impl GcsBackend {
@@ -86,6 +87,7 @@ impl GcsBackend {
             bucket,
             client,
             prefix: loc.prefix.to_owned(),
+            obj: Object::default(),
         })
     }
 
@@ -112,13 +114,14 @@ impl fmt::Debug for GcsBackend {
 
 impl crate::Backend for GcsBackend {
     fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
-        let dl_req =
-            tame_gcs::objects::Object::download(&(&self.bucket, &self.obj_name(krate)?), None)?;
+        let dl_req = self
+            .obj
+            .download(&(&self.bucket, &self.obj_name(krate)?), None)?;
 
         let (parts, _) = dl_req.into_parts();
 
         let uri = parts.uri.to_string();
-        let builder = self.client.get(&uri);
+        let builder = self.client.get(uri);
 
         let request = builder.headers(parts.headers).build()?;
 
@@ -130,11 +133,11 @@ impl crate::Backend for GcsBackend {
     }
 
     fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
-        use tame_gcs::objects::{InsertObjectOptional, Object};
+        use tame_gcs::objects::InsertObjectOptional;
 
         let content_len = source.len() as u64;
 
-        let insert_req = Object::insert_simple(
+        let insert_req = self.obj.insert_simple(
             &(&self.bucket, &self.obj_name(krate)?),
             source,
             content_len,
@@ -147,7 +150,7 @@ impl crate::Backend for GcsBackend {
         let (parts, body) = insert_req.into_parts();
 
         let uri = parts.uri.to_string();
-        let builder = self.client.post(&uri);
+        let builder = self.client.post(uri);
 
         let request = builder.headers(parts.headers).body(body).build()?;
 
@@ -157,7 +160,7 @@ impl crate::Backend for GcsBackend {
     }
 
     fn list(&self) -> Result<Vec<String>, Error> {
-        use tame_gcs::objects::{ListOptional, ListResponse, Object};
+        use tame_gcs::objects::{ListOptional, ListResponse};
 
         // Get a list of all crates already present in gcs, the list
         // operation can return a maximum of 1000 entries per request,
@@ -167,7 +170,7 @@ impl crate::Backend for GcsBackend {
         let mut page_token: Option<String> = None;
 
         loop {
-            let ls_req = Object::list(
+            let ls_req = self.obj.list(
                 &self.bucket,
                 Some(ListOptional {
                     // We only care about a single directory
@@ -181,7 +184,7 @@ impl crate::Backend for GcsBackend {
             let (parts, _) = ls_req.into_parts();
 
             let uri = parts.uri.to_string();
-            let builder = self.client.get(&uri);
+            let builder = self.client.get(uri);
 
             let request = builder.headers(parts.headers).build()?;
 
@@ -213,9 +216,9 @@ impl crate::Backend for GcsBackend {
     }
 
     fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
-        use tame_gcs::objects::{GetObjectOptional, GetObjectResponse, Object};
+        use tame_gcs::objects::{GetObjectOptional, GetObjectResponse};
 
-        let get_req = Object::get(
+        let get_req = self.obj.get(
             &(&self.bucket, &self.obj_name(krate)?),
             Some(GetObjectOptional {
                 standard_params: tame_gcs::common::StandardQueryParameters {
@@ -229,7 +232,7 @@ impl crate::Backend for GcsBackend {
         let (parts, _) = get_req.into_parts();
 
         let uri = parts.uri.to_string();
-        let builder = self.client.get(&uri);
+        let builder = self.client.get(uri);
 
         let request = builder.headers(parts.headers).build()?;
 

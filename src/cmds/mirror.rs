@@ -1,6 +1,5 @@
 use anyhow::Error;
 use cf::{mirror, Ctx};
-use std::time::Duration;
 use tracing::{error, info};
 
 #[derive(clap::Parser)]
@@ -8,10 +7,9 @@ pub struct Args {
     #[clap(
         short,
         default_value = "1d",
-        parse(try_from_str = parse_duration_d),
         long_help = "The duration for which the index will not be replaced after its most recent update.
 
-Times may be specified with no suffix (default days), or one of:
+Times may be specified with no suffix (default seconds), or one of:
 * (s)econds
 * (m)inutes
 * (h)ours
@@ -19,7 +17,7 @@ Times may be specified with no suffix (default days), or one of:
 
 "
     )]
-    max_stale: Duration,
+    max_stale: crate::Dur,
 }
 
 pub(crate) fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
@@ -32,7 +30,7 @@ pub(crate) fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error
                 return;
             }
 
-            mirror::registry_indices(backend, args.max_stale, regs);
+            mirror::registry_indices(backend, args.max_stale.0, regs);
             info!("finished uploading registry indices");
         },
         || match mirror::crates(&ctx) {
@@ -42,9 +40,4 @@ pub(crate) fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error
     );
 
     Ok(())
-}
-
-#[inline]
-fn parse_duration_d(src: &str) -> Result<Duration, Error> {
-    crate::parse_duration(src, "d")
 }

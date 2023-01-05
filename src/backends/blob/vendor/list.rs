@@ -70,7 +70,7 @@ pub struct Properties {
 }
 
 pub fn parse_list_body(s: &str) -> Result<EnumerationResults, Error> {
-    match serde_xml_rs::from_str(s) {
+    match quick_xml::de::from_str(s) {
         Ok(d) => Ok(d),
         Err(e) => Err(anyhow!("failed to parse list action body. {}", e)),
     }
