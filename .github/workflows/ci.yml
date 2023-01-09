@@ -57,15 +57,21 @@ jobs:
   publish-check:
     name: Publish Check
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Install musl
         run: sudo apt install -y musl-tools
       - run: cargo fetch
       - name: cargo publish
-        run: cargo publish --dry-run --all-features --target aarch64-unknown-linux-musl
+        run: cargo publish --dry-run --all-features --target ${{ matrix.target }}
 
   release:
     name: Release
