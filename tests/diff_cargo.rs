@@ -53,7 +53,7 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
         || write_tree(b_base, b_walker),
     );
 
-    similar_asserts::assert_str_eq!(a, b);
+    similar_asserts::assert_eq!(a, b);
 }
 
 fn walk_dir<P: AsRef<Path>>(path: P) -> Result<walkdir::IntoIter, std::io::Error> {
