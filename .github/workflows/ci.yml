@@ -68,7 +68,9 @@ jobs:
           target: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Install musl
-        run: sudo apt install -y musl-tools musl-dev:arm64 libc-dev:arm64 libgcc-10-dev:arm64
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt install -y musl-tools musl-dev:arm64 libc-dev:arm64 libgcc-10-dev:arm64
       - run: cargo fetch
       - name: cargo publish
         run: cargo publish --dry-run --all-features --target ${{ matrix.target }}
