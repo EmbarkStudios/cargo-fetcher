@@ -119,6 +119,10 @@ jobs:
       - name: Package
         shell: bash
         run: |
+          # When run in a container, the ownership will be messed up, so mark the
+          # checkout dir as safe regardless of our env
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+
           name=cargo-fetcher
           tag=$(git describe --tags --abbrev=0 --always)
           release_name="$name-$tag-${{ matrix.target }}"
