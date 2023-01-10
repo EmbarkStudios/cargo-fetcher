@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Changed
+- [PR#174](https://github.com/EmbarkStudios/cargo-fetcher/pull/174) made it so that git sources can now be specified however the user likes instead of just supporting the `rev` specifier, as the exact revision is now acquired via the fragment in the source url instead.
+
+### Added
+- [PR#174](https://github.com/EmbarkStudios/cargo-fetcher/pull/174) added release binaries for `aarch64-unknown-linux-musl`.
+
 ## [0.13.0] - 2022-05-25
 ### Added
 - [PR#172](https://github.com/EmbarkStudios/cargo-fetcher/pull/172) added the `--timeout | CARGO_FETCHER_TIMEOUT` option, allowing control over how long each individual HTTP request is allowed to take. Defaults to 30 seconds, which is the same default timeout as `reqwest`.
