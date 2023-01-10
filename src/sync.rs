@@ -242,7 +242,7 @@ fn get_missing_git_sources<'krate>(
         Source::Git { rev, ident, .. } => Some((rev, ident, k)),
         Source::Registry { .. } => None,
     }) {
-        let path = git_co_dir.join(format!("{}/{}/.cargo-ok", ident, rev));
+        let path = git_co_dir.join(format!("{ident}/{rev}/.cargo-ok"));
 
         if !path.exists() {
             to_sync.push(krate);
@@ -256,7 +256,7 @@ fn get_missing_registry_sources<'krate>(
     cache_dir: &Path,
     to_sync: &mut Vec<&'krate Krate>,
 ) -> Result<(), Error> {
-    let cache_iter = std::fs::read_dir(&cache_dir)?;
+    let cache_iter = std::fs::read_dir(cache_dir)?;
 
     let mut cached_crates: Vec<String> = cache_iter
         .filter_map(|entry| {
@@ -309,7 +309,7 @@ pub fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
     for registry in &ctx.registries {
         let (cache_dir, src_dir) = registry.sync_dirs(root_dir);
         std::fs::create_dir_all(&cache_dir).context("failed to create registry/cache")?;
-        std::fs::create_dir_all(&src_dir).context("failed to create registry/src")?;
+        std::fs::create_dir_all(src_dir).context("failed to create registry/src")?;
 
         get_missing_registry_sources(ctx, registry, &cache_dir, &mut registry_sync)?;
     }

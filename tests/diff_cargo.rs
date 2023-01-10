@@ -39,7 +39,7 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
             // Strip off the root prefix so only the stems are matched against
             let path = item.path().strip_prefix(p).unwrap();
 
-            writeln!(&mut tree, "{} {:o} {}", path.display(), perms, hash).unwrap();
+            writeln!(&mut tree, "{} {perms:o} {hash}", path.display()).unwrap();
         }
 
         tree
@@ -53,7 +53,7 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
         || write_tree(b_base, b_walker),
     );
 
-    similar_asserts::assert_str_eq!(a, b);
+    similar_asserts::assert_eq!(a, b);
 }
 
 fn walk_dir<P: AsRef<Path>>(path: P) -> Result<walkdir::IntoIter, std::io::Error> {
@@ -121,7 +121,7 @@ fn diff_cargo() {
     let cargo_fetch = std::thread::spawn(move || {
         std::process::Command::new("cargo")
             .env("CARGO_HOME", &cargo_home_path)
-            .args(&[
+            .args([
                 "fetch",
                 "--quiet",
                 "--locked",

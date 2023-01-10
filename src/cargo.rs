@@ -182,23 +182,11 @@ pub enum Source {
 
 impl Source {
     pub fn from_git_url(url: &Url) -> Result<Self, Error> {
-        let rev = match url.query_pairs().find(|(k, _)| k == "rev") {
-            Some((_, rev)) => {
-                if rev.len() < 7 {
-                    anyhow::bail!("revision specifier {} is too short", rev);
-                } else {
-                    rev
-                }
-            }
-            None => {
-                anyhow::bail!("url doesn't contain a revision specifier");
-            }
-        };
+        let rev = url.fragment().context("url doesn't contain a revision")?;
 
-        // This will handle
-        // 1. 7 character short_id
-        // 2. Full 40 character sha-1
-        // 3. 7 character short_id#sha-1
+        // The revision fragment in the cargo.lock will always be the full
+        // sha-1, but we only use the short-id since that is how cargo calculates
+        // the local identity of a specific
         let rev = &rev[..7];
 
         let canonicalized = util::Canonicalized::try_from(url)?;

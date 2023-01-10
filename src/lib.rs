@@ -79,7 +79,7 @@ impl fmt::Display for Krate {
             Source::Registry { .. } => "registry",
         };
 
-        write!(f, "{}-{}({})", self.name, self.version, typ)
+        write!(f, "{}-{}({typ})", self.name, self.version)
     }
 }
 
@@ -90,7 +90,7 @@ pub struct LocalId<'a> {
 impl<'a> fmt::Display for LocalId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
-            Source::Git { ident, .. } => write!(f, "{}", &ident),
+            Source::Git { ident, .. } => f.write_str(ident),
             Source::Registry { .. } => {
                 write!(f, "{}-{}.crate", self.inner.name, self.inner.version)
             }
@@ -105,8 +105,8 @@ pub struct CloudId<'a> {
 impl<'a> fmt::Display for CloudId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
-            Source::Git { ident, rev, .. } => write!(f, "{}-{}", ident, rev),
-            Source::Registry { chksum, .. } => write!(f, "{}", chksum),
+            Source::Git { ident, rev, .. } => write!(f, "{ident}-{rev}"),
+            Source::Registry { chksum, .. } => f.write_str(chksum),
         }
     }
 }

@@ -66,7 +66,7 @@ impl FilesystemDB {
     fn lookup_fingerprint(&self, key: Fingerprint) -> Result<Option<Bytes>, Error> {
         let hex = key.to_hex();
         let entry_path = self.root.join(hex);
-        match fs::read(&entry_path) {
+        match fs::read(entry_path) {
             Ok(bytes) => Ok(Some(Bytes::from(bytes))),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
@@ -86,7 +86,7 @@ impl FilesystemDB {
     ) -> Result<Fingerprint, Error> {
         let hex = key.to_hex();
         let entry_path = self.root.join(hex);
-        fs::write(&entry_path, &value)?;
+        fs::write(entry_path, &value)?;
         Ok(key)
     }
 
@@ -115,7 +115,7 @@ impl FilesystemDB {
     ) -> Result<Option<time::SystemTime>, Error> {
         let hex = key.to_hex();
         let entry_path = self.root.join(hex);
-        let modified_time = match fs::metadata(&entry_path) {
+        let modified_time = match fs::metadata(entry_path) {
             Ok(metadata) => metadata.modified()?,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 return Ok(None);

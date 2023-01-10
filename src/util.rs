@@ -184,6 +184,7 @@ use std::io;
 
 #[tracing::instrument(level = "debug")]
 pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Result<(), Error> {
+    #[allow(clippy::large_enum_variant)]
     enum Decoder<'z, R: io::Read + io::BufRead> {
         Gzip(flate2::read::GzDecoder<R>),
         Zstd(zstd::Decoder<'z, R>),
@@ -509,8 +510,8 @@ pub fn parse_cloud_location(
 }
 
 pub(crate) fn write_ok(to: &Path) -> Result<(), Error> {
-    let mut f = std::fs::File::create(&to)
-        .with_context(|| format!("failed to create: {}", to.display()))?;
+    let mut f =
+        std::fs::File::create(to).with_context(|| format!("failed to create: {}", to.display()))?;
 
     use std::io::Write;
     f.write_all(b"ok")?;

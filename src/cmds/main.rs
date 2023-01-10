@@ -3,7 +3,7 @@
 
 extern crate cargo_fetcher as cf;
 
-use anyhow::{anyhow, Context, Error};
+use anyhow::Context as _;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tracing_subscriber::filter::LevelFilter;
 use url::Url;
@@ -11,30 +11,39 @@ use url::Url;
 mod mirror;
 mod sync;
 
-#[inline]
-fn parse_duration_s(src: &str) -> Result<Duration, Error> {
-    parse_duration(src, "s")
-}
+#[derive(Clone)]
+struct Dur(Duration);
 
-fn parse_duration(src: &str, def: &str) -> Result<Duration, Error> {
-    let suffix_pos = src.find(char::is_alphabetic).unwrap_or(src.len());
+impl std::str::FromStr for Dur {
+    type Err = clap::Error;
 
-    let num: u64 = src[..suffix_pos].parse()?;
-    let suffix = if suffix_pos == src.len() {
-        def
-    } else {
-        &src[suffix_pos..]
-    };
+    fn from_str(src: &str) -> Result<Self, Self::Err> {
+        let suffix_pos = src.find(char::is_alphabetic).unwrap_or(src.len());
 
-    let duration = match suffix {
-        "s" | "S" => Duration::from_secs(num),
-        "m" | "M" => Duration::from_secs(num * 60),
-        "h" | "H" => Duration::from_secs(num * 60 * 60),
-        "d" | "D" => Duration::from_secs(num * 60 * 60 * 24),
-        s => return Err(anyhow::anyhow!("unknown duration suffix '{}'", s)),
-    };
+        let num: u64 = src[..suffix_pos]
+            .parse()
+            .map_err(|err| clap::Error::raw(clap::error::ErrorKind::ValueValidation, err))?;
+        let suffix = if suffix_pos == src.len() {
+            "s"
+        } else {
+            &src[suffix_pos..]
+        };
 
-    Ok(duration)
+        let duration = match suffix {
+            "s" | "S" => Duration::from_secs(num),
+            "m" | "M" => Duration::from_secs(num * 60),
+            "h" | "H" => Duration::from_secs(num * 60 * 60),
+            "d" | "D" => Duration::from_secs(num * 60 * 60 * 24),
+            s => {
+                return Err(clap::Error::raw(
+                    clap::error::ErrorKind::ValueValidation,
+                    format!("unknown duration suffix '{s}'"),
+                ))
+            }
+        };
+
+        Ok(Dur(duration))
+    }
 }
 
 #[derive(clap::Subcommand)]
@@ -49,12 +58,6 @@ enum Command {
     Sync(sync::Args),
 }
 
-#[inline]
-fn parse_level(s: &str) -> Result<LevelFilter, Error> {
-    s.parse::<LevelFilter>()
-        .map_err(|_err| anyhow!("failed to parse level '{}'", s))
-}
-
 #[derive(clap::Parser)]
 #[clap(
     author,
@@ -66,25 +69,19 @@ struct Opts {
     /// Path to a service account credentials file used to obtain
     /// oauth2 tokens. By default uses GOOGLE_APPLICATION_CREDENTIALS
     /// environment variable.
-    #[clap(
-        short,
-        long,
-        env = "GOOGLE_APPLICATION_CREDENTIALS",
-        parse(from_os_str)
-    )]
+    #[clap(short, long, env = "GOOGLE_APPLICATION_CREDENTIALS")]
     credentials: Option<PathBuf>,
     /// A url to a cloud storage bucket and prefix path at which to store
     /// or retrieve archives
     #[clap(short, long)]
     url: Url,
     /// Path to the lockfile used for determining what crates to operate on
-    #[clap(short, long, default_value = "Cargo.lock", parse(from_os_str))]
+    #[clap(short, long, default_value = "Cargo.lock")]
     lock_file: PathBuf,
     #[clap(
         short = 'L',
         long,
         default_value = "info",
-        parse(try_from_str = parse_level),
         long_help = "The log level for messages, only log messages at or above the level will be emitted.
 
 Possible values:
@@ -106,7 +103,6 @@ Possible values:
         short,
         env = "CARGO_FETCHER_TIMEOUT",
         default_value = "30s",
-        parse(try_from_str = parse_duration_s),
         long_help = "The maximum duration of a single crate request
 
 Times may be specified with no suffix (default seconds), or one of:
@@ -117,7 +113,7 @@ Times may be specified with no suffix (default seconds), or one of:
 
 "
     )]
-    timeout: Duration,
+    timeout: Dur,
     #[clap(subcommand)]
     cmd: Command,
 }
@@ -126,7 +122,7 @@ fn init_backend(
     loc: cf::CloudLocation<'_>,
     _credentials: Option<PathBuf>,
     _timeout: Duration,
-) -> Result<Arc<dyn cf::Backend + Sync + Send>, Error> {
+) -> anyhow::Result<Arc<dyn cf::Backend + Sync + Send>> {
     match loc {
         #[cfg(feature = "gcs")]
         cf::CloudLocation::Gcs(gcs) => {
@@ -165,7 +161,7 @@ fn init_backend(
     }
 }
 
-fn real_main() -> Result<(), Error> {
+fn real_main() -> anyhow::Result<()> {
     use clap::Parser;
     let args = Opts::parse_from({
         std::env::args().enumerate().filter_map(|(i, a)| {
@@ -195,7 +191,7 @@ fn real_main() -> Result<(), Error> {
 
     let cloud_location = cf::util::CloudLocationUrl::from_url(args.url.clone())?;
     let location = cf::util::parse_cloud_location(&cloud_location)?;
-    let backend = init_backend(location, args.credentials, args.timeout)?;
+    let backend = init_backend(location, args.credentials, args.timeout.0)?;
 
     // Note that unlike cargo (since we require a Cargo.lock), we don't use the
     // current directory as the root when resolving cargo configurations, but

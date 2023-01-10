@@ -14,22 +14,20 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
+          components: "clippy, rustfmt"
+      - uses: Swatinem/rust-cache@v2
 
       # make sure all code has been formatted with rustfmt
-      - run: rustup component add rustfmt
       - name: check rustfmt
         run: cargo fmt -- --check --color always
 
       # run clippy to verify we have no warnings
       - run: cargo fetch
-      - run: rustup component add clippy
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
@@ -37,14 +35,12 @@ jobs:
     name: Test
     strategy:
       matrix:
-        os: [ubuntu-20.04, windows-latest, macOS-latest]
+        os: [ubuntu-22.04, windows-2022, macOS-12]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fetch
       - name: cargo test build
         run: cargo build --tests --features=gcs,fs_test
@@ -53,57 +49,69 @@ jobs:
 
   deny-check:
     name: cargo-deny check
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: EmbarkStudios/cargo-deny-action@v1
 
   publish-check:
     name: Publish Check
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
+    container: ghcr.io/cross-rs/aarch64-unknown-linux-musl:edge
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-musl
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
+          target: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fetch
       - name: cargo publish
-        run: cargo publish --dry-run --all-features
+        run: cargo publish --dry-run --all-features --target ${{ matrix.target }}
 
   release:
     name: Release
-    needs: [test, deny-check]
+    needs: [deny-check]
     if: startsWith(github.ref, 'refs/tags/')
     strategy:
       matrix:
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             rust: stable
             target: x86_64-unknown-linux-musl
             bin: cargo-fetcher
-          - os: windows-latest
+          - os: ubuntu-22.04
+            rust: stable
+            target: aarch64-unknown-linux-musl
+            bin: cargo-fetcher
+            container: ghcr.io/cross-rs/aarch64-unknown-linux-musl:edge
+          - os: windows-2022
             rust: stable
             target: x86_64-pc-windows-msvc
             bin: cargo-fetcher.exe
-          - os: macOS-latest
+          - os: macOS-12
             rust: stable
             target: x86_64-apple-darwin
             bin: cargo-fetcher
+          - os: macOS-12
+            rust: stable
+            target: aarch64-apple-darwin
+            bin: cargo-fetcher
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     steps:
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust }}
-          override: true
           target: ${{ matrix.target }}
       - name: Install musl tools
-        if: matrix.os == 'ubuntu-20.04'
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
-          sudo apt-get install -y musl-tools
+          sudo apt install -y musl-tools
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: cargo fetch
         run: cargo fetch --target ${{ matrix.target }}
       - name: Release build
@@ -111,14 +119,25 @@ jobs:
       - name: Package
         shell: bash
         run: |
+          # When run in a container, the ownership will be messed up, so mark the
+          # checkout dir as safe regardless of our env
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+
           name=cargo-fetcher
-          tag=$(git describe --tags --abbrev=0)
+          tag=$(git describe --tags --abbrev=0 --always)
           release_name="$name-$tag-${{ matrix.target }}"
           release_tar="${release_name}.tar.gz"
           mkdir "$release_name"
 
           if [ "${{ matrix.target }}" != "x86_64-pc-windows-msvc" ]; then
-              strip "target/${{ matrix.target }}/release/${{ matrix.bin }}"
+              if [ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ] ; then
+                # Sigh, strip is incapable of stripping non-host binaries, use
+                # llvm-strip instead
+                apt install -y llvm
+                llvm-strip "target/${{ matrix.target }}/release/${{ matrix.bin }}"
+              else
+                strip "target/${{ matrix.target }}/release/${{ matrix.bin }}"
+              fi
           fi
 
           cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "$release_name/"
@@ -129,7 +148,7 @@ jobs:
 
           # Windows environments in github actions don't have the gnu coreutils installed,
           # which includes the shasum exe, so we just use powershell instead
-          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          if [ "${{ matrix.os }}" == "windows-2022" ]; then
             echo "(Get-FileHash \"${release_tar}\" -Algorithm SHA256).Hash | Out-File -Encoding ASCII -NoNewline \"${release_tar}.sha256\"" | pwsh -c -
           else
             echo -n "$(shasum -ba 256 "${release_tar}" | cut -d " " -f 1)" > "${release_tar}.sha256"

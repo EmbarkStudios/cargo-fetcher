@@ -28,7 +28,7 @@ pub(crate) fn from_registry(
         Source::Registry { registry, chksum } => {
             let url = registry.download_url(krate);
 
-            let response = client.get(&url).send()?.error_for_status()?;
+            let response = client.get(url).send()?.error_for_status()?;
             let res = util::convert_response(response)?;
             let content = res.into_body();
 
