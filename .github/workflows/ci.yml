@@ -75,7 +75,7 @@ jobs:
   release:
     name: Release
     needs: [test, deny-check]
-    if: startsWith(github.ref, 'refs/tags/')
+    #if: startsWith(github.ref, 'refs/tags/')
     strategy:
       matrix:
         include:
@@ -87,6 +87,7 @@ jobs:
             rust: stable
             target: aarch64-unknown-linux-musl
             bin: cargo-fetcher
+            container: ghcr.io/cross-rs/aarch64-unknown-linux-musl:edge
           - os: windows-2022
             rust: stable
             target: x86_64-pc-windows-msvc
@@ -100,6 +101,7 @@ jobs:
             target: aarch64-apple-darwin
             bin: cargo-fetcher
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     steps:
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -140,10 +142,10 @@ jobs:
           else
             echo -n "$(shasum -ba 256 "${release_tar}" | cut -d " " -f 1)" > "${release_tar}.sha256"
           fi
-      - name: Publish
-        uses: softprops/action-gh-release@v1
-        with:
-          draft: true
-          files: "cargo-fetcher*"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Publish
+      #   uses: softprops/action-gh-release@v1
+      #   with:
+      #     draft: true
+      #     files: "cargo-fetcher*"
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
