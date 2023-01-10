@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.13.1] - 2023-01-10
 ### Changed
 - [PR#174](https://github.com/EmbarkStudios/cargo-fetcher/pull/174) made it so that git sources can now be specified however the user likes instead of just supporting the `rev` specifier, as the exact revision is now acquired via the fragment in the source url instead.
 
@@ -119,7 +120,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.0...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.1...HEAD
+[0.13.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.0...0.13.1
 [0.13.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.1...0.13.0
 [0.12.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.0...0.12.1
 [0.12.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.11.0...0.12.0
