@@ -107,7 +107,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
       - name: Install musl tools
-        if: ${{ matrix.target }} == 'x86_64-unknown-linux-musl'
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           sudo apt install -y musl-tools
       - name: Checkout
