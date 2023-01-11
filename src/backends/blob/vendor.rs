@@ -66,7 +66,7 @@ impl Blob {
 
 impl fmt::Display for Blob {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Blob: {:#?}", self)
+        write!(f, "Blob: {self:#?}")
     }
 }
 
@@ -88,14 +88,15 @@ impl From<&Actions> for http::Method {
 }
 
 pub fn hmacsha256(key: &str, string_to_sign: &str) -> Result<String, Error> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use ring::hmac;
 
-    let key_bytes = base64::decode(key)?;
+    let key_bytes = STANDARD.decode(key)?;
 
     let key = hmac::Key::new(hmac::HMAC_SHA256, &key_bytes);
     let tag = hmac::sign(&key, string_to_sign.as_bytes());
 
-    Ok(base64::encode(tag.as_ref()))
+    Ok(STANDARD.encode(tag.as_ref()))
 }
 
 fn prepare_to_sign(
@@ -126,36 +127,21 @@ fn prepare_to_sign(
         let range = "";
         let canonicalized_headers = match action {
             Actions::Properties => {
-                format!("x-ms-date:{}\nx-ms-version:{}", time_str, version_value)
+                format!("x-ms-date:{time_str}\nx-ms-version:{version_value}")
             }
             _ => format!(
-                "x-ms-blob-type:{}\nx-ms-date:{}\nx-ms-version:{}",
-                "BlockBlob", time_str, version_value
+                "x-ms-blob-type:BlockBlob\nx-ms-date:{time_str}\nx-ms-version:{version_value}"
             ),
         };
         // let canonicalized_headers =
         //     format!("x-ms-date:{}\nx-ms-version:{}", time_str, version_value);
         let verb = http::Method::from(action).to_string();
         let canonicalized_resource = match action {
-            Actions::List => format!("/{}{}\ncomp:list\nrestype:container", account, path),
-            _ => format!("/{}{}", account, path),
+            Actions::List => format!("/{account}{path}\ncomp:list\nrestype:container"),
+            _ => format!("/{account}{path}"),
         };
         format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-            verb,
-            content_encoding,
-            content_language,
-            content_length,
-            content_md5,
-            content_type,
-            date,
-            if_modified_since,
-            if_match,
-            if_none_match,
-            if_unmodified_since,
-            range,
-            canonicalized_headers,
-            canonicalized_resource,
+            "{verb}\n{content_encoding}\n{content_language}\n{content_length}\n{content_md5}\n{content_type}\n{date}\n{if_modified_since}\n{if_match}\n{if_none_match}\n{if_unmodified_since}\n{range}\n{canonicalized_headers}\n{canonicalized_resource}"
         )
     }
 }
