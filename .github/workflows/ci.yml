@@ -74,8 +74,7 @@ jobs:
 
   release:
     name: Release
-    #needs: [deny-check]
-    #if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/')
     strategy:
       matrix:
         include:
@@ -112,10 +111,10 @@ jobs:
           NAME: cargo-fetcher
           TARGET: ${{ matrix.target }}
         run: .github/scripts/package.sh
-      # - name: Publish
-      #   uses: softprops/action-gh-release@v1
-      #   with:
-      #     draft: true
-      #     files: "cargo-fetcher*"
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: "cargo-fetcher*"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
