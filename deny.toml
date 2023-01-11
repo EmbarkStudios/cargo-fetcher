@@ -19,6 +19,10 @@ deny = []
 skip = [
     # tempfile uses an old version, but is only a dev-dep so it's fine
     { name = "remove_dir_all", version = "=0.5.3" },
+    # reqwest uses this old version (and tame-* :-()
+    { name = "base64", version = "=0.13.1" },
+    # rusty-s3 uses this older version
+    { name = "base64", version = "=0.20.0" },
 ]
 skip-tree = []
 
