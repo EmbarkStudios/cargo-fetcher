@@ -17,6 +17,8 @@ ignore = []
 multiple-versions = "deny"
 deny = []
 skip = [
+    # this one is actually our fault! yay!
+    { name = "base64", version = "=0.13.1" },
     # Only a couple of crates still on this old version
     { name = "syn", version = "1.0" },
     # Dev-only at least
@@ -30,6 +32,7 @@ unlicensed = "deny"
 confidence-threshold = 0.92
 allow = [
     "Apache-2.0",
+    "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
     "MIT",

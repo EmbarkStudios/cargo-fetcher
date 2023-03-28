@@ -103,7 +103,7 @@ dependencies = [
  "home",
  "http",
  "memchr",
- "quick-xml 0.28.1",
+ "quick-xml",
  "rayon",
  "remove_dir_all",
  "reqwest",
@@ -940,16 +940,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quick-xml"
-version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5c1a97b1bc42b1d550bfb48d4262153fe400a12bab1511821736f7eac76d7e2"
-dependencies = [
- "memchr",
- "serde",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1128,7 +1118,7 @@ dependencies = [
  "hmac",
  "md-5",
  "percent-encoding",
- "quick-xml 0.27.1",
+ "quick-xml",
  "serde",
  "serde_json",
  "sha2",
