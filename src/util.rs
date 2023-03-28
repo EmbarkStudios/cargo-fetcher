@@ -254,9 +254,12 @@ pub(crate) fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
             // get around an issue where unpacking tar files on
             // Windows will result in errors if there are read-only
             // directories
-            let mut perms = md.permissions();
-            perms.set_readonly(false);
-            std::fs::set_permissions(entry.path(), perms)?;
+            #[cfg(windows)]
+            {
+                let mut perms = md.permissions();
+                perms.set_readonly(false);
+                std::fs::set_permissions(entry.path(), perms)?;
+            }
         }
     }
 

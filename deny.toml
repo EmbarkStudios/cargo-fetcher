@@ -17,12 +17,12 @@ ignore = []
 multiple-versions = "deny"
 deny = []
 skip = [
-    # tempfile uses an old version, but is only a dev-dep so it's fine
-    { name = "remove_dir_all", version = "=0.5.3" },
-    # reqwest uses this old version (and tame-* :-()
+    # this one is actually our fault! yay!
     { name = "base64", version = "=0.13.1" },
-    # rusty-s3 uses this older version
-    { name = "base64", version = "=0.20.0" },
+    # Only a couple of crates still on this old version
+    { name = "syn", version = "1.0" },
+    # Dev-only at least
+    { name = "windows-sys", version = "0.42.0" },
 ]
 skip-tree = []
 
