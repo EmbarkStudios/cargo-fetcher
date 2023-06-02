@@ -138,8 +138,7 @@ fn sync_git(
     // otherwise do a checkout
     match checkout {
         Some(checkout) => {
-            let unpack_path = co_path.clone();
-            util::unpack_tar(checkout, util::Encoding::Zstd, &unpack_path)?;
+            util::unpack_tar(checkout, util::Encoding::Zstd, &co_path)?;
         }
         None => {
             // Do a checkout of the bare clone
@@ -169,7 +168,7 @@ fn sync_package(
     let packed_krate_path = cache_dir.join(format!("{}", krate.local_id()));
 
     let pack_data = data.clone();
-    let packed_path = packed_krate_path.clone();
+    let packed_path = packed_krate_path;
 
     let (pack_write, unpack) = rayon::join(
         // Spawn a worker thread to write the original pack file to disk as we don't
@@ -223,7 +222,7 @@ fn sync_package(
     );
 
     if let Err(err) = pack_write {
-        error!(?err, path = ?packed_krate_path, "failed to write tarball to disk");
+        error!(?err, path = ?packed_path, "failed to write tarball to disk");
     }
 
     if let Err(err) = unpack {
