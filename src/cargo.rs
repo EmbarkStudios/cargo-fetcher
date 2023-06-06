@@ -1,10 +1,9 @@
-use crate::{util, Krate};
-use anyhow::{Context, Error};
+use crate::{util, Krate, Path, PathBuf};
+use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 use std::{
     convert::TryFrom,
     hash::{Hash, Hasher},
-    path::{Path, PathBuf},
     sync::Arc,
 };
 use url::Url;
@@ -29,7 +28,7 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn new(index: impl AsRef<str>, dl: Option<String>) -> Result<Self, Error> {
+    pub fn new(index: impl AsRef<str>, dl: Option<String>) -> anyhow::Result<Self> {
         let index = Url::parse(index.as_ref())?;
         Ok(Self { index, dl })
     }
@@ -78,7 +77,7 @@ impl Registry {
     pub fn short_name(&self) -> String {
         let hash = util::short_hash(self);
         let ident = self.index.host_str().unwrap_or("").to_string();
-        format!("{}-{}", ident, hash)
+        format!("{ident}-{hash}")
     }
 
     pub fn cache_dir(&self, root: &Path) -> PathBuf {
@@ -142,11 +141,15 @@ impl PartialOrd for Registry {
     }
 }
 
-pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> Result<PathBuf, Error> {
-    match explicit {
-        Some(exp) => home::cargo_home_with_cwd(exp).context("failed to retrieve cargo home"),
+pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> anyhow::Result<PathBuf> {
+    let root = match explicit {
+        Some(exp) => {
+            home::cargo_home_with_cwd(exp.as_std_path()).context("failed to retrieve cargo home")
+        }
         None => home::cargo_home().context("failed to retrieve cargo home for cwd"),
-    }
+    }?;
+
+    Ok(util::path(&root)?.to_owned())
 }
 
 #[derive(Deserialize)]
@@ -181,7 +184,7 @@ pub enum Source {
 }
 
 impl Source {
-    pub fn from_git_url(url: &Url) -> Result<Self, Error> {
+    pub fn from_git_url(url: &Url) -> anyhow::Result<Self> {
         let rev = url.fragment().context("url doesn't contain a revision")?;
 
         // The revision fragment in the cargo.lock will always be the full
@@ -211,7 +214,7 @@ impl Source {
 pub fn read_cargo_config(
     mut cargo_home_path: PathBuf,
     dir: PathBuf,
-) -> Result<Vec<Registry>, Error> {
+) -> anyhow::Result<Vec<Registry>> {
     use tracing::{error, info};
 
     let mut configs = Vec::new();
@@ -234,7 +237,7 @@ pub fn read_cargo_config(
         }
     }
 
-    let mut dir = dir.canonicalize()?;
+    let mut dir = dir.canonicalize_utf8()?;
 
     for _ in 0..dir.ancestors().count() {
         dir.push(".cargo");
@@ -266,11 +269,7 @@ pub fn read_cargo_config(
             let config_contents = match std::fs::read_to_string(config_path) {
                 Ok(s) => s,
                 Err(e) => {
-                    error!(
-                        "failed to read cargo config({}): {}",
-                        config_path.display(),
-                        e
-                    );
+                    error!("failed to read cargo config({config_path}): {e}");
                     continue;
                 }
             };
@@ -278,11 +277,7 @@ pub fn read_cargo_config(
             match toml::from_str(&config_contents) {
                 Ok(cfg) => cfg,
                 Err(e) => {
-                    error!(
-                        "failed to deserialize cargo config({}): {}",
-                        config_path.display(),
-                        e
-                    );
+                    error!("failed to deserialize cargo config({config_path}): {e}");
                     continue;
                 }
             }
@@ -290,7 +285,7 @@ pub fn read_cargo_config(
 
         if let Some(registries) = config.registries {
             for (name, value) in registries {
-                info!("found registry '{}' in {}", name, config_path.display());
+                info!("found registry '{name}' in {config_path}");
                 if regs.insert(name, value).is_some() {
                     info!("registry overriden");
                 }
@@ -311,7 +306,7 @@ pub fn read_cargo_config(
         .map(|(name, mut registry)| {
             if registry.dl.is_none() {
                 if let Ok(dl) = std::env::var(format!("CARGO_FETCHER_{}_DL", name.to_uppercase())) {
-                    info!("Found DL location for registry '{}'", name);
+                    info!("Found DL location for registry '{name}'");
                     registry.dl = Some(dl);
                 }
             }
@@ -324,7 +319,7 @@ pub fn read_cargo_config(
 pub fn read_lock_file<P: AsRef<std::path::Path>>(
     lock_path: P,
     registries: Vec<Registry>,
-) -> Result<(Vec<Krate>, Vec<Arc<Registry>>), Error> {
+) -> anyhow::Result<(Vec<Krate>, Vec<Arc<Registry>>)> {
     use std::fmt::Write;
     use tracing::{error, info, trace, warn};
 
@@ -340,56 +335,46 @@ pub fn read_lock_file<P: AsRef<std::path::Path>>(
     let mut regs_to_sync = vec![0u32; registries.len()];
 
     for pkg in locks.package {
-        let source = match pkg.source.as_ref() {
-            Some(s) => s,
-            None => {
-                trace!("skipping 'path' source {}-{}", pkg.name, pkg.version);
-                continue;
-            }
+        let Some(source) = &pkg.source else {
+            trace!("skipping 'path' source {}-{}", pkg.name, pkg.version);
+            continue;
         };
 
         if let Some(reg_src) = source.strip_prefix("registry+") {
             // This will most likely be an extremely short list, so we just do a
             // linear search
-            let registry = match registries
+            let Some((ind, registry)) = registries
                 .iter()
                 .enumerate()
                 .find(|(_, reg)| source.ends_with(reg.index.as_str()))
-            {
-                Some((ind, reg)) => {
-                    regs_to_sync[ind] += 1;
-                    reg
-                }
-                None => {
-                    warn!(
-                        "skipping '{}:{}': unknown registry index '{}' encountered",
-                        pkg.name, pkg.version, reg_src
-                    );
-                    continue;
-                }
+            else {
+                warn!(
+                    "skipping '{}:{}': unknown registry index '{reg_src}' encountered",
+                    pkg.name, pkg.version
+                );
+                continue;
             };
 
-            let chksum = match pkg.checksum {
-                Some(chksum) => chksum,
-                None => {
-                    lookup.clear();
-                    let _ = write!(
-                        &mut lookup,
-                        "checksum {} {} ({})",
-                        pkg.name, pkg.version, source
-                    );
+            regs_to_sync[ind] += 1;
 
-                    match locks.metadata.remove(&lookup) {
-                        Some(chksum) => chksum,
-                        None => {
-                            warn!(
-                                "skipping '{}:{}': unable to retrieve package checksum",
-                                pkg.name, pkg.version,
-                            );
-                            continue;
-                        }
-                    }
-                }
+            let chksum = if let Some(chksum) = pkg.checksum {
+                chksum
+            } else {
+                lookup.clear();
+                let _ = write!(
+                    &mut lookup,
+                    "checksum {} {} ({source})",
+                    pkg.name, pkg.version
+                );
+
+                let Some(chksum) = locks.metadata.remove(&lookup) else {
+                        warn!(
+                            "skipping '{}:{}': unable to retrieve package checksum",
+                            pkg.name, pkg.version,
+                        );
+                        continue;
+                    };
+                chksum
             };
 
             krates.push(Krate {

@@ -1,13 +1,6 @@
-// crate-specific exceptions:
-#![allow(clippy::single_match_else)]
-
 use anyhow::Error;
-use std::{
-    convert::From,
-    fmt,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+pub use camino::{Utf8Path as Path, Utf8PathBuf as PathBuf};
+use std::{convert::From, fmt, sync::Arc};
 pub use url::Url;
 
 pub mod backends;
@@ -28,12 +21,6 @@ pub struct Krate {
     pub version: String, // We just treat versions as opaque strings
     pub source: Source,
 }
-
-// impl tracing::Value for Krate {
-//     fn record(&self, key: &tracing::field::Field, visitor: &mut dyn tracing::field::Visit) {
-//         visitor.record_debug(key, self)
-//     }
-// }
 
 impl Ord for Krate {
     fn cmp(&self, b: &Self) -> std::cmp::Ordering {

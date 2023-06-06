@@ -125,20 +125,18 @@ fn prepare_to_sign(
         let if_none_match = "";
         let if_unmodified_since = "";
         let range = "";
-        let canonicalized_headers = match action {
-            Actions::Properties => {
-                format!("x-ms-date:{time_str}\nx-ms-version:{version_value}")
-            }
-            _ => format!(
-                "x-ms-blob-type:BlockBlob\nx-ms-date:{time_str}\nx-ms-version:{version_value}"
-            ),
+        let canonicalized_headers = if matches!(action, Actions::Properties) {
+            format!("x-ms-date:{time_str}\nx-ms-version:{version_value}")
+        } else {
+            format!("x-ms-blob-type:BlockBlob\nx-ms-date:{time_str}\nx-ms-version:{version_value}")
         };
         // let canonicalized_headers =
         //     format!("x-ms-date:{}\nx-ms-version:{}", time_str, version_value);
         let verb = http::Method::from(action).to_string();
-        let canonicalized_resource = match action {
-            Actions::List => format!("/{account}{path}\ncomp:list\nrestype:container"),
-            _ => format!("/{account}{path}"),
+        let canonicalized_resource = if matches!(action, Actions::List) {
+            format!("/{account}{path}\ncomp:list\nrestype:container")
+        } else {
+            format!("/{account}{path}")
         };
         format!(
             "{verb}\n{content_encoding}\n{content_language}\n{content_length}\n{content_md5}\n{content_type}\n{date}\n{if_modified_since}\n{if_match}\n{if_none_match}\n{if_unmodified_since}\n{range}\n{canonicalized_headers}\n{canonicalized_resource}"

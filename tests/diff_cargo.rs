@@ -109,13 +109,13 @@ fn diff_cargo() {
     let (the_krates, registries) =
         cf::cargo::read_lock_file("tests/full/Cargo.lock", vec![cf::Registry::default()]).unwrap();
 
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries);
+    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
     fs_ctx.krates = the_krates;
 
     let fetcher_root = tempfile::TempDir::new().expect("failed to create tempdir");
 
     let cargo_home = tempfile::TempDir::new().expect("failed to create tempdir");
-    let cargo_home_path = cargo_home.path().to_str().unwrap().to_owned();
+    let cargo_home_path = util::temp_path(&cargo_home).into_string();
 
     // Fetch with cargo
     let cargo_fetch = std::thread::spawn(move || {
@@ -134,7 +134,7 @@ fn diff_cargo() {
 
     // Synchronize with cargo-fetcher
     {
-        fs_ctx.root_dir = fetcher_root.path().to_owned();
+        fs_ctx.root_dir = util::temp_path(&fetcher_root);
 
         let registry_sets = fs_ctx.registry_sets();
 

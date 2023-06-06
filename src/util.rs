@@ -1,9 +1,9 @@
-use anyhow::{anyhow, bail, Context, Error};
+use crate::{Path, PathBuf};
+use anyhow::{bail, Context as _};
 #[allow(deprecated)]
 use std::{
     fmt,
     hash::{Hash, Hasher, SipHasher},
-    path::{Path, PathBuf},
 };
 use tracing::debug;
 use url::Url;
@@ -36,6 +36,7 @@ fn to_hex(num: u64) -> String {
     String::from_utf8(output).expect("valid utf-8 hex string")
 }
 
+#[inline]
 fn hash_u64<H: Hash>(hashable: H) -> u64 {
     #[allow(deprecated)]
     let mut hasher = SipHasher::new_with_keys(0, 0);
@@ -43,6 +44,7 @@ fn hash_u64<H: Hash>(hashable: H) -> u64 {
     hasher.finish()
 }
 
+#[inline]
 pub fn short_hash<H: Hash>(hashable: &H) -> String {
     to_hex(hash_u64(hashable))
 }
@@ -85,7 +87,7 @@ impl Into<Url> for Canonicalized {
 }
 
 impl std::convert::TryFrom<&Url> for Canonicalized {
-    type Error = Error;
+    type Error = anyhow::Error;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         // This is the same canonicalization that cargo does, except the URLs
@@ -153,14 +155,14 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
 
 pub fn convert_response(
     res: reqwest::blocking::Response,
-) -> Result<http::Response<bytes::Bytes>, Error> {
+) -> anyhow::Result<http::Response<bytes::Bytes>> {
     let mut builder = http::Response::builder()
         .status(res.status())
         .version(res.version());
 
     let headers = builder
         .headers_mut()
-        .ok_or_else(|| anyhow!("failed to convert response headers"))?;
+        .context("failed to convert response headers")?;
 
     headers.extend(
         res.headers()
@@ -183,7 +185,7 @@ use bytes::Bytes;
 use std::io;
 
 #[tracing::instrument(level = "debug")]
-pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Result<(), Error> {
+pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> anyhow::Result<()> {
     #[allow(clippy::large_enum_variant)]
     enum Decoder<'z, R: io::Read + io::BufRead> {
         Gzip(flate2::read::GzDecoder<R>),
@@ -222,11 +224,7 @@ pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Resul
         // _hopefully_ don't mess up cargo itself
         if dir.exists() {
             if let Err(e) = remove_dir_all::remove_dir_all(dir) {
-                tracing::error!(
-                    "error trying to remove contents of {}: {}",
-                    dir.display(),
-                    e
-                );
+                tracing::error!("error trying to remove contents of {dir}: {e}");
             }
         }
 
@@ -237,7 +235,7 @@ pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> Resul
 }
 
 #[tracing::instrument(level = "debug")]
-pub(crate) fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
+pub(crate) fn pack_tar(path: &Path) -> anyhow::Result<Bytes> {
     // If we don't allocate adequate space in our output buffer, things
     // go very poorly for everyone involved
     let mut estimated_size = 0;
@@ -318,7 +316,7 @@ pub(crate) fn pack_tar(path: &std::path::Path) -> Result<Bytes, Error> {
 }
 
 // All of cargo's checksums are currently SHA256
-pub fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Error> {
+pub fn validate_checksum(buffer: &[u8], expected: &str) -> anyhow::Result<()> {
     if expected.len() != 64 {
         bail!(
             "hex checksum length is {} instead of expected 64",
@@ -352,7 +350,7 @@ pub fn validate_checksum(buffer: &[u8], expected: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn parse_s3_url(url: &Url) -> Result<crate::S3Location<'_>, Error> {
+fn parse_s3_url(url: &Url) -> anyhow::Result<crate::S3Location<'_>> {
     let host = url.host().context("url has no host")?;
 
     let host_dns = match host {
@@ -431,25 +429,33 @@ pub struct CloudLocationUrl {
 }
 
 impl CloudLocationUrl {
-    pub fn from_url(url: Url) -> Result<Self, Error> {
-        match url.scheme() {
-            "file" => {
-                let path = url.to_file_path().map_err(|()| {
-                    Error::msg(format!("failed to parse file path from url {:?}", url))
+    pub fn from_url(url: Url) -> anyhow::Result<Self> {
+        if url.scheme() == "file" {
+            let path = url
+                .to_file_path()
+                .map_err(|_sigh| anyhow::anyhow!("failed to parse file path from url {url:?}"))
+                .and_then(|path| match PathBuf::from_path_buf(path) {
+                    Ok(p) => Ok(p),
+                    Err(err) => Err(anyhow::anyhow!("url path '{}' is not utf-8", err.display())),
                 })?;
-                Ok(CloudLocationUrl {
-                    url,
-                    path: Some(path),
-                })
-            }
-            _ => Ok(CloudLocationUrl { url, path: None }),
+            Ok(CloudLocationUrl {
+                url,
+                path: Some(path),
+            })
+        } else {
+            Ok(CloudLocationUrl { url, path: None })
         }
     }
 }
 
+#[inline]
+pub fn path(p: &std::path::Path) -> anyhow::Result<&Path> {
+    p.try_into().context("path is not utf-8")
+}
+
 pub fn parse_cloud_location(
     cloud_url: &CloudLocationUrl,
-) -> Result<crate::CloudLocation<'_>, Error> {
+) -> anyhow::Result<crate::CloudLocation<'_>> {
     let CloudLocationUrl { url, path: _path } = cloud_url;
     match url.scheme() {
         #[cfg(feature = "gcs")]
@@ -512,9 +518,8 @@ pub fn parse_cloud_location(
     }
 }
 
-pub(crate) fn write_ok(to: &Path) -> Result<(), Error> {
-    let mut f =
-        std::fs::File::create(to).with_context(|| format!("failed to create: {}", to.display()))?;
+pub(crate) fn write_ok(to: &Path) -> anyhow::Result<()> {
+    let mut f = std::fs::File::create(to).with_context(|| format!("failed to create: {to}"))?;
 
     use std::io::Write;
     f.write_all(b"ok")?;

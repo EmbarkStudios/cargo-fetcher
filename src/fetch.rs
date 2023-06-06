@@ -1,7 +1,7 @@
+use crate::Path;
 use crate::{cargo::Source, util, Krate};
-use anyhow::{Context, Error};
+use anyhow::Context as _;
 use bytes::Bytes;
-use std::path::Path;
 use tracing::{error, warn};
 
 pub(crate) enum KrateSource {
@@ -22,7 +22,7 @@ impl KrateSource {
 pub(crate) fn from_registry(
     client: &crate::HttpClient,
     krate: &Krate,
-) -> Result<KrateSource, Error> {
+) -> anyhow::Result<KrateSource> {
     match &krate.source {
         Source::Git { url, rev, .. } => via_git(&url.clone(), rev).map(KrateSource::Git),
         Source::Registry { registry, chksum } => {
@@ -40,7 +40,7 @@ pub(crate) fn from_registry(
 }
 
 #[tracing::instrument(level = "debug")]
-pub fn via_git(url: &url::Url, rev: &str) -> Result<crate::git::GitSource, Error> {
+pub fn via_git(url: &url::Url, rev: &str) -> anyhow::Result<crate::git::GitSource> {
     // Create a temporary directory to fetch the repo into
     let temp_dir = tempfile::tempdir()?;
     // Create another temporary directory where we *may* checkout submodules into
@@ -80,23 +80,24 @@ pub fn via_git(url: &url::Url, rev: &str) -> Result<crate::git::GitSource, Error
 
         // Ensure that the repo actually contains the revision we need
         repo.revparse_single(&fetch_rev)
-            .with_context(|| format!("{} doesn't contain rev '{}'", fetch_url, fetch_rev))?;
+            .with_context(|| format!("'{fetch_url}' doesn't contain rev '{fetch_url}'"))?;
     }
 
     let fetch_rev = rev.to_owned();
-    let temp_db_path = temp_dir.path().to_owned();
+    let temp_db_path = util::path(temp_dir.path())?;
+    let sub_dir_path = util::path(submodule_dir.path())?;
 
     let (checkout, db) = rayon::join(
-        || -> Result<_, Error> {
+        || -> anyhow::Result<_> {
             crate::git::prepare_submodules(
-                temp_db_path,
-                submodule_dir.path().to_owned(),
+                temp_db_path.to_owned(),
+                sub_dir_path.to_owned(),
                 fetch_rev.clone(),
             )?;
 
-            util::pack_tar(submodule_dir.path())
+            util::pack_tar(sub_dir_path)
         },
-        || -> Result<_, Error> { util::pack_tar(temp_dir.path()) },
+        || -> anyhow::Result<_> { util::pack_tar(temp_db_path) },
     );
 
     Ok(crate::git::GitSource {
@@ -109,7 +110,7 @@ pub fn via_git(url: &url::Url, rev: &str) -> Result<crate::git::GitSource, Error
 pub fn registry(
     url: &url::Url,
     krates: impl Iterator<Item = String> + Send + 'static,
-) -> Result<Bytes, Error> {
+) -> anyhow::Result<Bytes> {
     // We don't bother to suport older versions of cargo that don't support
     // bare checkouts of registry indexes, as that has been in since early 2017
     // See https://github.com/rust-lang/cargo/blob/0e38712d4d7b346747bf91fb26cce8df6934e178/src/cargo/sources/registry/remote.rs#L61
@@ -148,7 +149,7 @@ pub fn registry(
 
         write_cache.in_scope(|| {
             if let Err(e) = write_cache_entries(repo, krates) {
-                error!("Failed to write all .cache entries: {:#}", e);
+                error!("Failed to write all .cache entries: {e:#}");
             }
         });
     }
@@ -158,7 +159,7 @@ pub fn registry(
     std::fs::File::create(temp_dir.path().join(".last-updated"))
         .context("failed to create .last-updated")?;
 
-    util::pack_tar(temp_dir.path())
+    util::pack_tar(util::path(temp_dir.path())?)
 }
 
 /// Writes .cache entries in the registry's directory for all of the specified
@@ -168,7 +169,7 @@ pub fn registry(
 fn write_cache_entries(
     repo: git2::Repository,
     krates: impl Iterator<Item = String>,
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     // the path to the repository itself for bare repositories.
     let cache = if repo.is_bare() {
         repo.path().join(".cache")
@@ -251,9 +252,9 @@ fn write_summary<'blob>(
     tree: &git2::Tree<'blob>,
     version: &[u8],
     buffer: &mut Vec<u8>,
-) -> Result<usize, Error> {
+) -> anyhow::Result<usize> {
     let entry = tree
-        .get_path(path)
+        .get_path(path.as_std_path())
         .context("failed to get entry for path")?;
     let object = entry
         .to_object(repo)

@@ -35,6 +35,7 @@ strip = "debuginfo"
 anyhow = "1.0"
 base64 = { version = "0.21", optional = true }
 bytes = "1.0"
+camino = "1.1"
 clap = { version = "4.0", features = ["derive", "env"] }
 digest = { version = "0.10", optional = true }
 flate2 = { version = "1.0", default-features = false, features = [

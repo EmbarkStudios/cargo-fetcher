@@ -4,7 +4,8 @@
 extern crate cargo_fetcher as cf;
 
 use anyhow::Context as _;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use cf::PathBuf;
+use std::{sync::Arc, time::Duration};
 use tracing_subscriber::filter::LevelFilter;
 use url::Url;
 
@@ -197,9 +198,9 @@ fn real_main() -> anyhow::Result<()> {
     // current directory as the root when resolving cargo configurations, but
     // rather the directory in which the lockfile is located
     let root_dir = if args.lock_file.is_relative() {
-        let mut root_dir = std::env::current_dir()
-            .context("unable to acquire current directory")?
-            .join(&args.lock_file);
+        let root_dir = std::env::current_dir().context("unable to acquire current directory")?;
+        let mut root_dir = cf::util::path(&root_dir)?.to_owned();
+        root_dir.push(&args.lock_file);
         root_dir.pop();
         root_dir
     } else {
