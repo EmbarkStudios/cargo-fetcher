@@ -13,7 +13,7 @@ pub mod util;
 
 pub type HttpClient = reqwest::blocking::Client;
 
-pub use cargo::{read_cargo_config, Registry, Source};
+pub use cargo::{read_cargo_config, Registry, RegistryProtocol, Source};
 
 #[derive(Eq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Krate {

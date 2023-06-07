@@ -107,7 +107,8 @@ fn diff_cargo() {
 
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
     let (the_krates, registries) =
-        cf::cargo::read_lock_file("tests/full/Cargo.lock", vec![cf::Registry::default()]).unwrap();
+        cf::cargo::read_lock_file("tests/full/Cargo.lock", vec![util::crates_io_registry()])
+            .unwrap();
 
     let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
     fs_ctx.krates = the_krates;

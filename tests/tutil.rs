@@ -22,6 +22,17 @@ pub fn get_sync_dirs(ctx: &cf::Ctx) -> (PathBuf, PathBuf) {
     ctx.registries[0].sync_dirs(&ctx.root_dir)
 }
 
+#[inline]
+pub fn crates_io_registry() -> cf::Registry {
+    use anyhow::Context as _;
+    let protocol = std::env::var("CARGO_FETCHER_CRATES_IO_PROTOCOL")
+        .context("invalid env")
+        .and_then(|prot| prot.parse())
+        .unwrap_or(cf::RegistryProtocol::Sparse);
+
+    cf::Registry::crates_io(protocol)
+}
+
 pub fn hook_logger() {
     static HOOK: std::sync::Once = std::sync::Once::new();
 

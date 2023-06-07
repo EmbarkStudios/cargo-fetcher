@@ -47,7 +47,7 @@ pub fn short_hash<H: Hash>(hashable: &H) -> String {
 }
 
 #[derive(Clone)]
-pub struct Canonicalized(Url);
+pub struct Canonicalized(pub Url);
 
 impl Canonicalized {
     pub(crate) fn ident(&self) -> String {
@@ -60,7 +60,7 @@ impl Canonicalized {
 
         let ident = if ident.is_empty() { "_empty" } else { ident };
 
-        format!("{}-{}", ident, short_hash(&self.0))
+        format!("{ident}-{}", short_hash(&self.0))
     }
 }
 
@@ -122,7 +122,7 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
         if let Some(port) = url.port() {
             use std::fmt::Write;
             url_str.push(':');
-            write!(&mut url_str, "{}", port)?;
+            write!(&mut url_str, "{port}")?;
         }
 
         if is_github {
@@ -553,11 +553,19 @@ mod test {
 
     #[test]
     fn gets_proper_registry_ident() {
-        let crates_io_registry = crate::Registry::default();
+        use crate::cargo::RegistryProtocol;
+        let crates_io_registry = crate::Registry::crates_io(RegistryProtocol::Git);
 
         assert_eq!(
             "github.com-1ecc6299db9ec823",
             crates_io_registry.short_name()
+        );
+
+        let crates_io_sparse_registry = crate::Registry::crates_io(RegistryProtocol::Sparse);
+
+        assert_eq!(
+            "index.crates.io-6f17d22bba15001f",
+            crates_io_sparse_registry.short_name()
         );
     }
 

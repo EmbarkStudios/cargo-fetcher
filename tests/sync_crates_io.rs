@@ -1,6 +1,6 @@
 use anyhow::Context;
 use cargo_fetcher as cf;
-use cf::{Krate, Registry, Source};
+use cf::{Krate, Source};
 
 mod tutil;
 use tutil as util;
@@ -8,7 +8,7 @@ use tutil as util;
 #[test]
 fn all_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registry = std::sync::Arc::new(Registry::default());
+    let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
     let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
 
@@ -82,7 +82,7 @@ fn all_missing() {
 #[test]
 fn some_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registry = std::sync::Arc::new(Registry::default());
+    let registry = std::sync::Arc::new(util::crates_io_registry());
     let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), vec![registry.clone()]);
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
@@ -190,7 +190,7 @@ fn some_missing() {
 #[test]
 fn none_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registry = std::sync::Arc::new(Registry::default());
+    let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
     let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
 
