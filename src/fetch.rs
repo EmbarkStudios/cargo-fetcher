@@ -163,9 +163,11 @@ pub fn registry(
 }
 
 /// Writes .cache entries in the registry's directory for all of the specified
-/// crates. Cargo will write these entries itself if they don't exist the first
-/// time it tries to access the crate's metadata, but this noticeably increases
-/// initial fetch times. (see src/cargo/sources/registry/index.rs)
+/// crates.
+///
+/// Cargo will write these entries itself if they don't exist the first time it
+/// tries to access the crate's metadata, but this noticeably increases initial
+/// fetch times. (see src/cargo/sources/registry/index.rs)
 fn write_cache_entries(
     repo: git2::Repository,
     krates: impl Iterator<Item = String>,
@@ -217,9 +219,9 @@ fn write_cache_entries(
             let _s = write_cache.enter();
 
             match write_summary(path, &repo, &tree, head_commit_str.as_bytes(), &mut buffer) {
-                Ok(num_versions) => tracing::debug!("wrote entries for {} versions", num_versions),
+                Ok(num_versions) => tracing::debug!("wrote entries for {num_versions} versions"),
                 Err(e) => {
-                    warn!("unable to create cache entry for crate: {:#}", e);
+                    warn!("unable to create cache entry for crate: {e:#}");
                     continue;
                 }
             }

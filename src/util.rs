@@ -37,16 +37,13 @@ fn to_hex(num: u64) -> String {
 }
 
 #[inline]
-fn hash_u64<H: Hash>(hashable: H) -> u64 {
+pub fn short_hash<H: Hash>(hashable: &H) -> String {
     #[allow(deprecated)]
     let mut hasher = SipHasher::new_with_keys(0, 0);
     hashable.hash(&mut hasher);
-    hasher.finish()
-}
+    let hash = hasher.finish();
 
-#[inline]
-pub fn short_hash<H: Hash>(hashable: &H) -> String {
-    to_hex(hash_u64(hashable))
+    to_hex(hash)
 }
 
 #[derive(Clone)]
@@ -97,10 +94,7 @@ impl std::convert::TryFrom<&Url> for Canonicalized {
         // cannot-be-a-base-urls (e.g., `github.com:rust-lang-nursery/rustfmt.git`)
         // are not supported.
         if url.cannot_be_a_base() {
-            bail!(
-                "invalid url `{}`: cannot-be-a-base-URLs are not supported",
-                url
-            )
+            bail!("invalid url `{url}`: cannot-be-a-base-URLs are not supported")
         }
 
         let mut url_str = String::new();

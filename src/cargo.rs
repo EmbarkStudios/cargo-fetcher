@@ -8,6 +8,7 @@ use std::{
 };
 use url::Url;
 
+/// The canonical git index location
 pub const CRATES_IO_URL: &str = "https://github.com/rust-lang/crates.io-index";
 /// The normal crates.io DL url, note that this is not the one actually advertised
 /// by cargo (<https://crates.io/api/v1/crates>) as that is just a redirect to this
@@ -386,14 +387,12 @@ pub fn read_lock_file<P: AsRef<std::path::Path>>(
                 },
             });
         } else {
-            // We support exactly one form of git sources, rev specififers
-            // eg. git+https://github.com/EmbarkStudios/rust-build-helper?rev=9135717#91357179ba2ce6ec7e430a2323baab80a8f7d9b3
             let url = match Url::parse(source) {
                 Ok(u) => u,
                 Err(e) => {
                     error!(
-                        "failed to parse url for '{}:{}': {}",
-                        pkg.name, pkg.version, e
+                        "failed to parse url for '{}:{}': {e}",
+                        pkg.name, pkg.version
                     );
                     continue;
                 }
@@ -409,8 +408,8 @@ pub fn read_lock_file<P: AsRef<std::path::Path>>(
                 }
                 Err(e) => {
                     error!(
-                        "unable to use git url {} for '{}:{}': {}",
-                        url, pkg.name, pkg.version, e
+                        "unable to use git url '{url}' for '{}:{}': {e}",
+                        pkg.name, pkg.version
                     );
                 }
             }
@@ -462,7 +461,7 @@ pub fn get_crate_prefix(name: &str) -> String {
 #[cfg(test)]
 mod test {
     use super::get_crate_prefix as gcp;
-    use super::Arc;
+    use super::*;
 
     macro_rules! krate {
         ($name:expr, $vs:expr, $reg:expr) => {
