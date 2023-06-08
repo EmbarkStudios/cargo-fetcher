@@ -188,6 +188,6 @@ fn diff_cargo() {
         let cargo_home = cargo_home.into_path();
 
         // Compare the outputs to ensure they match "exactly"
-        assert_diff(&fetcher_root, &cargo_home);
+        assert_diff(fetcher_root, cargo_home);
     }
 }
