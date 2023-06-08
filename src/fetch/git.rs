@@ -125,148 +125,31 @@ pub(super) fn write_cache_entries(
             let write_cache = tracing::span!(tracing::Level::DEBUG, "summary", %krate);
             let _s = write_cache.enter();
 
-            match write_summary(path, &repo, &tree, head_commit_str.as_bytes(), &mut buffer) {
-                Ok(num_versions) => tracing::debug!("wrote entries for {num_versions} versions"),
-                Err(e) => {
-                    warn!("unable to create cache entry for crate: {e:#}");
-                    continue;
-                }
-            }
+            let entry = tree
+                .get_path(path.as_std_path())
+                .context("failed to get entry for path")?;
+            let object = entry
+                .to_object(&repo)
+                .context("failed to get object for entry")?;
+            let blob = object.as_blob().context("object is not a blob")?;
+            let content = blob.content();
+
+            let num_versions =
+                super::write_summary(head_commit_str.as_bytes(), content, &mut buffer);
+            tracing::debug!("wrote entries for {num_versions} versions");
         }
 
         let cache_path = cache.join(rel_path);
 
         if let Err(e) = std::fs::create_dir_all(cache_path.parent().unwrap()) {
-            warn!(
-                "failed to create parent .cache directories for crate '{}': {:#}",
-                krate, e
-            );
+            warn!("failed to create parent .cache directories for crate '{krate}': {e:#}");
             continue;
         }
 
         if let Err(e) = std::fs::write(&cache_path, &buffer) {
-            warn!(
-                "failed to write .cache entry for crate '{}': {:#}",
-                krate, e
-            );
+            warn!("failed to write .cache entry for crate '{krate}': {e:#}");
         }
     }
 
     Ok(())
-}
-
-fn write_summary<'blob>(
-    path: &Path,
-    repo: &'blob git2::Repository,
-    tree: &git2::Tree<'blob>,
-    version: &[u8],
-    buffer: &mut Vec<u8>,
-) -> anyhow::Result<usize> {
-    let entry = tree
-        .get_path(path.as_std_path())
-        .context("failed to get entry for path")?;
-    let object = entry
-        .to_object(repo)
-        .context("failed to get object for entry")?;
-    let blob = object.as_blob().context("object is not a blob")?;
-
-    // Writes the binary summary for the crate to a buffer, see
-    // src/cargo/sources/registry/index.rs for details
-    const CURRENT_CACHE_VERSION: u8 = 1;
-
-    buffer.push(CURRENT_CACHE_VERSION);
-    buffer.extend_from_slice(version);
-    buffer.push(0);
-
-    let mut version_count = 0;
-
-    for (version, data) in iter_index_entries(blob.content()) {
-        buffer.extend_from_slice(version);
-        buffer.push(0);
-        buffer.extend_from_slice(data);
-        buffer.push(0);
-
-        version_count += 1;
-    }
-
-    Ok(version_count)
-}
-
-fn iter_index_entries(blob: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
-    fn split_blob(haystack: &[u8]) -> impl Iterator<Item = &[u8]> {
-        struct Split<'a> {
-            haystack: &'a [u8],
-        }
-
-        impl<'a> Iterator for Split<'a> {
-            type Item = &'a [u8];
-
-            fn next(&mut self) -> Option<&'a [u8]> {
-                if self.haystack.is_empty() {
-                    return None;
-                }
-                let (ret, remaining) = match memchr::memchr(b'\n', self.haystack) {
-                    Some(pos) => (&self.haystack[..pos], &self.haystack[pos + 1..]),
-                    None => (self.haystack, &[][..]),
-                };
-                self.haystack = remaining;
-                Some(ret)
-            }
-        }
-
-        Split { haystack }
-    }
-
-    split_blob(blob).filter_map(|line| {
-        std::str::from_utf8(line).ok().and_then(|lstr| {
-            // We need to get the version, as each entry in the .cache
-            // entry is a tuple of the version and the summary
-            lstr.find("\"vers\":")
-                .map(|ind| ind + 7)
-                .and_then(|ind| lstr[ind..].find('"').map(|bind| ind + bind + 1))
-                .and_then(|bind| {
-                    lstr[bind..]
-                        .find('"')
-                        .map(|eind| (&line[bind..bind + eind], line))
-                })
-        })
-    })
-}
-
-#[cfg(test)]
-mod test {
-    use super::iter_index_entries;
-
-    #[test]
-    fn parses_unpretty() {
-        const BLOB: &[u8] = include_bytes!("../../tests/unpretty-wasi");
-        let expected = [
-            "0.0.0",
-            "0.3.0",
-            "0.4.0",
-            "0.5.0",
-            "0.6.0",
-            "0.7.0",
-            "0.9.0+wasi-snapshot-preview1",
-            "0.10.0+wasi-snapshot-preview1",
-        ];
-
-        assert_eq!(expected.len(), iter_index_entries(BLOB).count());
-
-        for (exp, (actual, _)) in expected.iter().zip(iter_index_entries(BLOB)) {
-            assert_eq!(exp.as_bytes(), actual);
-        }
-    }
-
-    #[test]
-    fn parses_pretty() {
-        const BLOB: &[u8] = include_bytes!("../../tests/pretty-crate");
-        let expected = ["0.2.0", "0.3.0", "0.3.1", "0.4.0", "0.5.0"];
-
-        assert_eq!(expected.len(), iter_index_entries(BLOB).count());
-
-        for (exp, (actual, _)) in expected.iter().zip(iter_index_entries(BLOB)) {
-            assert_eq!(exp.as_bytes(), actual);
-        }
-    }
 }
