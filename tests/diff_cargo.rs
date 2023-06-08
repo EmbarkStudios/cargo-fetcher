@@ -126,6 +126,15 @@ use tutil as util;
 
 #[test]
 fn diff_cargo() {
+    if std::env::var("CARGO_FETCHER_CRATES_IO_PROTOCOL")
+        .ok()
+        .as_deref()
+        == Some("git")
+    {
+        // Git registry is too unstable for diffing as the index changes too often
+        return;
+    }
+
     util::hook_logger();
 
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
@@ -143,20 +152,17 @@ fn diff_cargo() {
 
     // Fetch with cargo
     let cargo_fetch = std::thread::spawn(move || {
-        let mut cmd = std::process::Command::new("cargo");
-        cmd.env("CARGO_HOME", &cargo_home_path).args([
-            "fetch",
-            "--quiet",
-            "--locked",
-            "--manifest-path",
-            "tests/full/Cargo.toml",
-        ]);
-
-        if let Some(protocol) = std::env::var_os("CARGO_FETCHER_CRATES_IO_PROTOCOL") {
-            cmd.env("CARGO_REGISTRIES_CRATES_IO_PROTOCOL", protocol);
-        }
-
-        cmd.status().unwrap();
+        std::process::Command::new("cargo")
+            .env("CARGO_HOME", &cargo_home_path)
+            .args([
+                "fetch",
+                "--quiet",
+                "--locked",
+                "--manifest-path",
+                "tests/full/Cargo.toml",
+            ])
+            .status()
+            .unwrap();
     });
 
     // Synchronize with cargo-fetcher
