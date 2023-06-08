@@ -143,17 +143,20 @@ fn diff_cargo() {
 
     // Fetch with cargo
     let cargo_fetch = std::thread::spawn(move || {
-        std::process::Command::new("cargo")
-            .env("CARGO_HOME", &cargo_home_path)
-            .args([
-                "fetch",
-                "--quiet",
-                "--locked",
-                "--manifest-path",
-                "tests/full/Cargo.toml",
-            ])
-            .status()
-            .unwrap();
+        let mut cmd = std::process::Command::new("cargo");
+        cmd.env("CARGO_HOME", &cargo_home_path).args([
+            "fetch",
+            "--quiet",
+            "--locked",
+            "--manifest-path",
+            "tests/full/Cargo.toml",
+        ]);
+
+        if let Some(protocol) = std::env::var_os("CARGO_FETCHER_CRATES_IO_PROTOCOL") {
+            cmd.env("CARGO_REGISTRIES_CRATES_IO_PROTOCOL", protocol);
+        }
+
+        cmd.status().unwrap();
     });
 
     // Synchronize with cargo-fetcher
