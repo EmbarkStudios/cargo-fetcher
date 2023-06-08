@@ -1,6 +1,6 @@
 use anyhow::Context;
 use cargo_fetcher as cf;
-use cf::{Krate, Registry, Source};
+use cf::{Krate, Source};
 
 mod tutil;
 use tutil as util;
@@ -8,12 +8,12 @@ use tutil as util;
 #[test]
 fn all_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registry = std::sync::Arc::new(Registry::default());
+    let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries);
+    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = missing_root.path().to_owned();
+    fs_ctx.root_dir = util::temp_path(&missing_root);
 
     fs_ctx.krates = vec![
         Krate {
@@ -58,7 +58,7 @@ fn all_missing() {
                 let path = cache_root.join(format!("{}-{}.crate", krate.name, krate.version));
 
                 std::fs::read(&path)
-                    .with_context(|| format!("{:#} {}", krate, path.display()))
+                    .with_context(|| format!("{krate:#} {path}"))
                     .expect("can't read")
             };
 
@@ -74,7 +74,7 @@ fn all_missing() {
     {
         for krate in &fs_ctx.krates {
             let path = src_root.join(format!("{}-{}/Cargo.toml", krate.name, krate.version));
-            assert!(path.exists(), "didn't find unpacked {}", path.display());
+            assert!(path.exists(), "didn't find unpacked {path}");
         }
     }
 }
@@ -82,11 +82,11 @@ fn all_missing() {
 #[test]
 fn some_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registry = std::sync::Arc::new(Registry::default());
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), vec![registry.clone()]);
+    let registry = std::sync::Arc::new(util::crates_io_registry());
+    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), vec![registry.clone()]);
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = missing_root.path().to_owned();
+    fs_ctx.root_dir = util::temp_path(&missing_root);
 
     fs_ctx.krates = vec![
         Krate {
@@ -182,7 +182,7 @@ fn some_missing() {
     {
         for krate in &fs_ctx.krates {
             let path = src_root.join(format!("{}-{}/Cargo.toml", krate.name, krate.version));
-            assert!(path.exists(), "didn't find unpacked {}", path.display());
+            assert!(path.exists(), "didn't find unpacked {path}");
         }
     }
 }
@@ -190,12 +190,12 @@ fn some_missing() {
 #[test]
 fn none_missing() {
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registry = std::sync::Arc::new(Registry::default());
+    let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries);
+    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
 
     let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = missing_root.path().to_owned();
+    fs_ctx.root_dir = util::temp_path(&missing_root);
 
     fs_ctx.krates = vec![
         Krate {
@@ -286,7 +286,7 @@ fn none_missing() {
     {
         for krate in &fs_ctx.krates {
             let path = src_root.join(format!("{}-{}/Cargo.toml", krate.name, krate.version));
-            assert!(path.exists(), "didn't find unpacked {}", path.display());
+            assert!(path.exists(), "didn't find unpacked {path}");
         }
     }
 }

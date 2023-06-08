@@ -1,7 +1,6 @@
-use crate::{util, Krate, Registry, Source};
-use anyhow::{Context, Error};
-//use indicatif as ia;
-use std::{io::Write, path::PathBuf};
+use crate::{util, Krate, Path, PathBuf, Registry, Source};
+use anyhow::Context as _;
+use std::io::Write;
 use tracing::{debug, error, info, warn};
 
 pub const INDEX_DIR: &str = "registry/index";
@@ -15,13 +14,11 @@ pub fn registry_indices(
     backend: crate::Storage,
     registries: Vec<std::sync::Arc<Registry>>,
 ) {
-    let root_dir = &root_dir;
-
     use rayon::prelude::*;
 
     registries.into_par_iter().for_each(|registry| {
-        if let Err(err) = registry_index(root_dir, backend.clone(), registry) {
-            error!("{:#}", err);
+        if let Err(err) = registry_index(&root_dir, backend.clone(), registry) {
+            error!("{err:#}");
         }
     });
 }
@@ -31,7 +28,7 @@ pub fn registry_index(
     root_dir: &Path,
     backend: crate::Storage,
     registry: std::sync::Arc<Registry>,
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     let ident = registry.short_name();
 
     let index_path = root_dir.join(INDEX_DIR).join(ident.clone());
@@ -110,7 +107,7 @@ fn sync_git(
     krate: &Krate,
     src: crate::git::GitSource,
     rev: &str,
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     let db_path = db_dir.join(format!("{}", krate.local_id()));
 
     // Always just blow away and do a sync from the remote tar
@@ -123,23 +120,22 @@ fn sync_git(
     let unpack_path = db_path.clone();
     util::unpack_tar(db, util::Encoding::Zstd, &unpack_path)?;
 
-    let co_path = co_dir.join(format!("{}/{}", krate.local_id(), rev));
+    let co_path = co_dir.join(format!("{}/{rev}", krate.local_id()));
 
     // If we get here, it means there wasn't a .cargo-ok in the dir, even if the
     // rest of it is checked out and ready, so blow it away just in case as we are
     // doing a clone/checkout from a local bare repository rather than a remote one
     if co_path.exists() {
-        debug!("removing checkout dir {} for {}", co_path.display(), krate);
+        debug!("removing checkout dir {co_path} for {krate}");
         remove_dir_all::remove_dir_all(&co_path)
-            .with_context(|| format!("unable to remove {}", co_path.display()))?;
+            .with_context(|| format!("unable to remove {co_path}"))?;
     }
 
     // If we have a checkout tarball, use that, as it will include submodules,
     // otherwise do a checkout
     match checkout {
         Some(checkout) => {
-            let unpack_path = co_path.clone();
-            util::unpack_tar(checkout, util::Encoding::Zstd, &unpack_path)?;
+            util::unpack_tar(checkout, util::Encoding::Zstd, &co_path)?;
         }
         None => {
             // Do a checkout of the bare clone
@@ -149,12 +145,10 @@ fn sync_git(
 
     let ok = co_path.join(".cargo-ok");
     // The non-git .cargo-ok has "ok" in it, however the git ones do not
-    std::fs::File::create(&ok).with_context(|| ok.display().to_string())?;
+    std::fs::File::create(&ok).with_context(|| ok.to_string())?;
 
     Ok(())
 }
-
-use std::path::Path;
 
 #[tracing::instrument(level = "debug", skip(data))]
 fn sync_package(
@@ -163,18 +157,18 @@ fn sync_package(
     krate: &Krate,
     data: bytes::Bytes,
     chksum: &str,
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     util::validate_checksum(&data, chksum)?;
 
     let packed_krate_path = cache_dir.join(format!("{}", krate.local_id()));
 
     let pack_data = data.clone();
-    let packed_path = packed_krate_path.clone();
+    let packed_path = packed_krate_path;
 
     let (pack_write, unpack) = rayon::join(
         // Spawn a worker thread to write the original pack file to disk as we don't
         // particularly care when it is done
-        || -> Result<(), Error> {
+        || -> anyhow::Result<()> {
             let s = tracing::debug_span!("pack_write");
             let _ = s.enter();
             let mut f = std::fs::File::create(&packed_path)?;
@@ -186,7 +180,7 @@ fn sync_package(
             debug!(bytes = pack_data.len(), path = ?packed_path, "wrote pack file to disk");
             Ok(())
         },
-        || -> Result<(), Error> {
+        || -> anyhow::Result<()> {
             let mut src_path = src_dir.join(format!("{}", krate.local_id()));
 
             // Remove the .crate extension
@@ -223,7 +217,7 @@ fn sync_package(
     );
 
     if let Err(err) = pack_write {
-        error!(?err, path = ?packed_krate_path, "failed to write tarball to disk");
+        error!(?err, path = ?packed_path, "failed to write tarball to disk");
     }
 
     if let Err(err) = unpack {
@@ -255,7 +249,7 @@ fn get_missing_registry_sources<'krate>(
     registry: &Registry,
     cache_dir: &Path,
     to_sync: &mut Vec<&'krate Krate>,
-) -> Result<(), Error> {
+) -> anyhow::Result<()> {
     let cache_iter = std::fs::read_dir(cache_dir)?;
 
     let mut cached_crates: Vec<String> = cache_iter
@@ -291,7 +285,7 @@ pub struct Summary {
     pub good: u32,
 }
 
-pub fn crates(ctx: &crate::Ctx) -> Result<Summary, Error> {
+pub fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
     info!("synchronizing {} crates...", ctx.krates.len());
 
     let root_dir = &ctx.root_dir;

@@ -1,6 +1,6 @@
 use anyhow::Context;
 use cargo_fetcher as cf;
-use cf::{Krate, Registry, Source};
+use cf::{Krate, Source};
 
 mod tutil;
 use tutil as util;
@@ -19,12 +19,12 @@ fn multiple_from_same_repo() {
     util::hook_logger();
 
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let registry = std::sync::Arc::new(Registry::default());
+    let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry];
-    let mut fs_ctx = util::fs_ctx(fs_root.path().to_owned(), registries);
+    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
 
     let missing_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    fs_ctx.root_dir = missing_root.path().to_owned();
+    fs_ctx.root_dir = util::temp_path(&missing_root);
 
     fs_ctx.krates = vec![
         Krate {
@@ -81,12 +81,12 @@ fn multiple_from_same_repo() {
     {
         let co_root = fs_ctx.root_dir.join(cf::sync::GIT_CO_DIR);
 
-        let cpal_root = co_root.join(format!("cpal-{}", ident));
+        let cpal_root = co_root.join(format!("cpal-{ident}"));
         assert!(cpal_root.exists(), "unable to find cpal checkout");
 
         assert!(cpal_root.join(rev).exists(), "unable to find cpal checkout");
 
-        let ok = cpal_root.join(format!("{}/.cargo-ok", rev));
+        let ok = cpal_root.join(format!("{rev}/.cargo-ok"));
         assert!(ok.exists(), "unable to find .cargo-ok");
 
         assert_eq!(std::fs::read_to_string(ok).unwrap(), "");

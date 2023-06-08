@@ -1,4 +1,4 @@
-use crate::Krate;
+use crate::{Krate, PathBuf};
 
 use anyhow::{Context as _, Error};
 use bytes::Bytes;
@@ -6,7 +6,7 @@ use digest::Digest as DigestTrait;
 use sha2::Sha256;
 use std::{fs, io};
 
-use std::{convert::Into, fmt, path::PathBuf, str, time};
+use std::{convert::Into, fmt, str, time};
 
 const FINGERPRINT_SIZE: usize = 32;
 
@@ -23,9 +23,8 @@ impl Fingerprint {
     fn from_sha256_bytes(sha256_bytes: &[u8]) -> Self {
         if sha256_bytes.len() != FINGERPRINT_SIZE {
             panic!(
-                "Input value was not a fingerprint; has length: {} (must be {})",
+                "Input value was not a fingerprint; has length: {} (must be {FINGERPRINT_SIZE})",
                 sha256_bytes.len(),
-                FINGERPRINT_SIZE,
             );
         }
         let mut fingerprint = [0; FINGERPRINT_SIZE];
@@ -40,9 +39,9 @@ impl Fingerprint {
     }
 
     fn to_hex(self) -> String {
-        let mut s = String::new();
+        let mut s = String::with_capacity(FINGERPRINT_SIZE * 2);
         for &byte in &self.0 {
-            fmt::Write::write_fmt(&mut s, format_args!("{:02x}", byte)).unwrap();
+            fmt::Write::write_fmt(&mut s, format_args!("{byte:02x}")).unwrap();
         }
         s
     }

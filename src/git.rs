@@ -1,3 +1,4 @@
+use crate::PathBuf;
 use anyhow::{Context, Error};
 
 pub(crate) fn with_fetch_options(
@@ -293,8 +294,8 @@ pub struct GitSource {
 
 #[tracing::instrument(level = "debug")]
 pub(crate) fn checkout(
-    src: std::path::PathBuf,
-    target: std::path::PathBuf,
+    src: PathBuf,
+    target: PathBuf,
     rev: String,
 ) -> Result<git2::Repository, Error> {
     // We require the target directory to be clean
@@ -315,7 +316,7 @@ pub(crate) fn checkout(
         .clone_local(git2::build::CloneLocal::Local)
         .with_checkout(checkout)
         .fetch_options(fopts)
-        .clone(src_url.as_str(), &target)
+        .clone(src_url.as_str(), target.as_std_path())
         .context("failed to clone")?;
 
     if let Ok(mut cfg) = repo.config() {
@@ -334,11 +335,7 @@ pub(crate) fn checkout(
 }
 
 #[tracing::instrument(level = "debug")]
-pub(crate) fn prepare_submodules(
-    src: std::path::PathBuf,
-    target: std::path::PathBuf,
-    rev: String,
-) -> Result<(), Error> {
+pub(crate) fn prepare_submodules(src: PathBuf, target: PathBuf, rev: String) -> Result<(), Error> {
     let repo = checkout(src, target, rev)?;
 
     fn update_submodules(repo: &git2::Repository, git_cfg: &git2::Config) -> Result<(), Error> {
@@ -369,15 +366,12 @@ pub(crate) fn prepare_submodules(
 
         // A submodule which is listed in .gitmodules but not actually
         // checked out will not have a head id, so we should ignore it.
-        let head = match child.head_id() {
-            Some(head) => head,
-            None => {
-                tracing::debug!(
-                    "skipping submodule '{}' without HEAD",
-                    child.name().unwrap_or("")
-                );
-                return Ok(());
-            }
+        let Some(head) = child.head_id() else {
+            tracing::debug!(
+                "skipping submodule '{}' without HEAD",
+                child.name().unwrap_or("")
+            );
+            return Ok(());
         };
 
         // If the submodule hasn't been checked out yet, we need to
@@ -389,22 +383,19 @@ pub(crate) fn prepare_submodules(
             Ok((target, repo))
         });
 
-        let repo = match head_and_repo {
-            Ok((head, repo)) => {
-                if child.head_id() == head {
-                    return update_submodules(&repo, git_cfg);
-                }
-                repo
+        let repo = if let Ok((head, repo)) = head_and_repo {
+            if child.head_id() == head {
+                return update_submodules(&repo, git_cfg);
             }
-            Err(_) => {
-                let path = parent.workdir().unwrap().join(child.path());
-                let _ = remove_dir_all::remove_dir_all(&path);
+            repo
+        } else {
+            let path = parent.workdir().unwrap().join(child.path());
+            let _ = remove_dir_all::remove_dir_all(&path);
 
-                let mut opts = git2::RepositoryInitOptions::new();
-                opts.external_template(false);
-                opts.bare(false);
-                git2::Repository::init_opts(&path, &opts)?
-            }
+            let mut opts = git2::RepositoryInitOptions::new();
+            opts.external_template(false);
+            opts.bare(false);
+            git2::Repository::init_opts(&path, &opts)?
         };
 
         with_fetch_options(git_cfg, url, &mut |mut fopts| {

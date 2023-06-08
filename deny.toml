@@ -17,14 +17,13 @@ ignore = []
 multiple-versions = "deny"
 deny = []
 skip = [
-    # this one is actually our fault! yay!
-    { name = "base64", version = "=0.13.1" },
-    # Only a couple of crates still on this old version
-    { name = "syn", version = "1.0" },
-    # Dev-only at least
-    { name = "windows-sys", version = "0.42.0" },
+    # tracing-subscriber and similar-asserts
+    { name = "regex-syntax", version = "=0.6.29" },
 ]
-skip-tree = []
+skip-tree = [
+    # ugh
+    { name = "windows-sys" },
+]
 
 [licenses]
 unlicensed = "deny"
@@ -56,6 +55,11 @@ license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
 [[licenses.clarify]]
 name = "webpki"
+expression = "ISC"
+license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
+
+[[licenses.clarify]]
+name = "rustls-webpki"
 expression = "ISC"
 license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
 

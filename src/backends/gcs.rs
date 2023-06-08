@@ -1,15 +1,15 @@
-use crate::{HttpClient, Krate};
-use anyhow::{anyhow, Context, Error};
+use crate::{HttpClient, Krate, Path};
+use anyhow::Context as _;
 use tame_gcs::{objects::Object, BucketName, ObjectName};
 use tracing::debug;
 
-fn acquire_gcs_token(cred_path: &std::path::Path) -> Result<tame_oauth::Token, Error> {
+fn acquire_gcs_token(cred_path: &Path) -> anyhow::Result<tame_oauth::Token> {
     // If we're not completing whatever task in under an hour then we
     // have more problems than the token expiring
     use tame_oauth::gcp::{self, TokenProvider};
 
     #[cfg(feature = "gcs")]
-    debug!("using credentials in {}", cred_path.display());
+    debug!("using credentials in {cred_path}");
 
     let svc_account_info =
         gcp::ServiceAccountInfo::deserialize(std::fs::read_to_string(cred_path)?)
@@ -59,9 +59,9 @@ pub struct GcsBackend {
 impl GcsBackend {
     pub fn new(
         loc: crate::GcsLocation<'_>,
-        credentials: &std::path::Path,
+        credentials: &Path,
         timeout: std::time::Duration,
-    ) -> Result<Self, Error> {
+    ) -> anyhow::Result<Self> {
         let bucket = BucketName::try_from(loc.bucket.to_owned())?;
 
         let token = acquire_gcs_token(credentials)?;
@@ -92,7 +92,7 @@ impl GcsBackend {
     }
 
     #[inline]
-    fn obj_name(&self, krate: &Krate) -> Result<ObjectName<'static>, Error> {
+    fn obj_name(&self, krate: &Krate) -> anyhow::Result<ObjectName<'static>> {
         Ok(ObjectName::try_from(format!(
             "{}{}",
             self.prefix,
@@ -113,7 +113,7 @@ impl fmt::Debug for GcsBackend {
 }
 
 impl crate::Backend for GcsBackend {
-    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
+    fn fetch(&self, krate: &Krate) -> anyhow::Result<bytes::Bytes> {
         let dl_req = self
             .obj
             .download(&(&self.bucket, &self.obj_name(krate)?), None)?;
@@ -132,7 +132,7 @@ impl crate::Backend for GcsBackend {
         Ok(content)
     }
 
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> anyhow::Result<usize> {
         use tame_gcs::objects::InsertObjectOptional;
 
         let content_len = source.len() as u64;
@@ -159,7 +159,7 @@ impl crate::Backend for GcsBackend {
         Ok(content_len as usize)
     }
 
-    fn list(&self) -> Result<Vec<String>, Error> {
+    fn list(&self) -> anyhow::Result<Vec<String>> {
         use tame_gcs::objects::{ListOptional, ListResponse};
 
         // Get a list of all crates already present in gcs, the list
@@ -215,7 +215,7 @@ impl crate::Backend for GcsBackend {
             .collect())
     }
 
-    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
+    fn updated(&self, krate: &Krate) -> anyhow::Result<Option<crate::Timestamp>> {
         use tame_gcs::objects::{GetObjectOptional, GetObjectResponse};
 
         let get_req = self.obj.get(
@@ -251,14 +251,14 @@ impl crate::Backend for GcsBackend {
 
 pub fn convert_response(
     res: reqwest::blocking::Response,
-) -> Result<http::Response<bytes::Bytes>, Error> {
+) -> anyhow::Result<http::Response<bytes::Bytes>> {
     let mut builder = http::Response::builder()
         .status(res.status())
         .version(res.version());
 
     let headers = builder
         .headers_mut()
-        .ok_or_else(|| anyhow!("failed to convert response headers"))?;
+        .context("failed to convert response headers")?;
 
     headers.extend(
         res.headers()
