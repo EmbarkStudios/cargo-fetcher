@@ -52,7 +52,7 @@ pub struct Registry {
     pub index: Url,
     dl: Option<String>,
     #[serde(default)]
-    protocol: RegistryProtocol,
+    pub protocol: RegistryProtocol,
 }
 
 impl Registry {
