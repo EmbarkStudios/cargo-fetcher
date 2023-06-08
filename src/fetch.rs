@@ -200,7 +200,7 @@ fn write_summary(version: &[u8], blob: &[u8], buffer: &mut Vec<u8>) -> usize {
 #[cfg(test)]
 mod test {
     use super::iter_index_entries;
-    const BLOB: &[u8] = include_bytes!("../tests/unpretty-wasi");
+    const BLOB: &[u8] = include_bytes!("../tests/unpretty-wasi.txt");
     const WASI_VERSIONS: &[&str] = &[
         "0.0.0",
         "0.3.0",
@@ -223,7 +223,7 @@ mod test {
 
     #[test]
     fn parses_pretty() {
-        const BLOB_PRETTY: &[u8] = include_bytes!("../tests/pretty-crate");
+        const BLOB_PRETTY: &[u8] = include_bytes!("../tests/pretty-crate.txt");
         let expected = ["0.2.0", "0.3.0", "0.3.1", "0.4.0", "0.5.0"];
 
         assert_eq!(expected.len(), iter_index_entries(BLOB_PRETTY).count());
