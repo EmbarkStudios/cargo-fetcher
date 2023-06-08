@@ -22,9 +22,25 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
 
         let mut tree = String::with_capacity(4 * 1024);
 
-        for item in
-            walker.filter_entry(|entry| entry.file_name().to_str().map_or(true, |s| s != ".git"))
-        {
+        for item in walker.filter_entry(|entry| {
+            let path = entry.path();
+            if entry.metadata().unwrap().is_dir() {
+                // Both .git and git/db contain things like pack files that are
+                // non-deterministic, and are otherwise just uninteresting to check
+                // as the checkoued out source matching is what actually matters
+                !(path.ends_with(".git") || path.strip_prefix(p).unwrap().starts_with("git/db"))
+            } else {
+                !(
+                    // We don't write this file, it's a nicety added by cargo but
+                    // not really relevant for the primary use case of short-lived CI
+                    // jobs
+                    path.ends_with("CACHEDIR.TAG") ||
+                    // We don't write this file, again, not really relevant for
+                    // primary use case
+                    path.ends_with(".package-cache")
+                )
+            }
+        }) {
             let item = item.unwrap();
 
             let hash = if item.file_type().is_file() {
@@ -53,7 +69,14 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
         || write_tree(b_base, b_walker),
     );
 
-    similar_asserts::assert_eq!(a, b);
+    if a != b {
+        panic!(
+            "{}\nfetcher: {} cargo: {}",
+            similar_asserts::SimpleDiff::from_str(&a, &b, "fetcher", "cargo"),
+            a_base.display(),
+            b_base.display()
+        );
+    }
 }
 
 fn walk_dir<P: AsRef<Path>>(path: P) -> Result<walkdir::IntoIter, std::io::Error> {
@@ -65,6 +88,7 @@ fn walk_dir<P: AsRef<Path>>(path: P) -> Result<walkdir::IntoIter, std::io::Error
     }
 }
 
+#[inline]
 fn compare_by_file_name(a: &DirEntry, b: &DirEntry) -> Ordering {
     a.file_name().cmp(b.file_name())
 }
@@ -101,7 +125,6 @@ mod tutil;
 use tutil as util;
 
 #[test]
-#[ignore]
 fn diff_cargo() {
     util::hook_logger();
 
@@ -157,15 +180,12 @@ fn diff_cargo() {
 
     cargo_fetch.join().unwrap();
 
-    if true {
+    if std::env::var_os("CARGO_FETCHER_DEBUG_DIFF_CARGO").is_none() {
         assert_diff(&fetcher_root, &cargo_home);
     } else {
         // Can be useful when iterating to keep the temp directories
         let fetcher_root = fetcher_root.into_path();
         let cargo_home = cargo_home.into_path();
-
-        println!("FETCHER: {}", fetcher_root.display());
-        println!("CARGO: {}", cargo_home.display());
 
         // Compare the outputs to ensure they match "exactly"
         assert_diff(&fetcher_root, &cargo_home);
