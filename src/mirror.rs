@@ -21,7 +21,7 @@ pub fn registry_indices(
             |rset| match registry_index(backend.clone(), max_stale, rset) {
                 Ok(size) => size,
                 Err(err) => {
-                    error!("{:#}", err);
+                    error!("{err:#}");
                     0
                 }
             },
@@ -56,14 +56,14 @@ pub fn registry_index(
 
         if now - last_updated < max_stale {
             info!(
-                    "the registry ({}) was last updated {}, skipping update as it is less than {:?} old",
-                    rset.registry.index, last_updated, max_stale
+                    "the registry ({}) was last updated {last_updated}, skipping update as it is less than {max_stale:?} old",
+                    rset.registry.index
                 );
             return Ok(0);
         }
     }
 
-    let index = fetch::registry(&rset.registry.index, rset.krates.into_iter())?;
+    let index = fetch::registry(&rset.registry, rset.krates.into_iter())?;
 
     debug!(
         size = index.len(),
@@ -83,7 +83,7 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
 
     let mut to_mirror = Vec::with_capacity(names.len());
     for krate in &ctx.krates {
-        let cid = format!("{}", krate.cloud_id());
+        let cid = krate.cloud_id().to_string();
         if names
             .binary_search_by(|name| name.as_str().cmp(&cid))
             .is_err()
@@ -140,11 +140,7 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
 
                                     match backend.upload(checkout, &checkout_id) {
                                         Err(e) => {
-                                            tracing::warn!(
-                                                "failed to upload  {}: {}",
-                                                checkout_id,
-                                                e
-                                            );
+                                            tracing::warn!("failed to upload  {checkout_id}: {e}");
                                         }
                                         Ok(len) => {
                                             checkout_size = Some(len);
@@ -162,7 +158,7 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
                         let _us = span.enter();
                         match backend.upload(buffer, krate) {
                             Err(e) => {
-                                error!("failed to upload: {}", e);
+                                error!("failed to upload: {e}");
                                 0
                             }
                             Ok(len) => len + checkout_size.unwrap_or(0),
