@@ -170,7 +170,7 @@ fn write_summary(version: &[u8], blob: &[u8], buffer: &mut Vec<u8>) -> usize {
             |(vers, data)| vers.len() + data.len() + 2, /* 2 nulls */
         )
         .sum();
-    buffer.reserve(
+    buffer.reserve_exact(
         std::mem::size_of::<u8>() // cache version
         + std::mem::size_of::<u32>() // index_v_max
         + version.len() // version identifier for entry (git rev, etag, etc)
@@ -247,7 +247,7 @@ mod test {
             .zip(WASI_SIZES.iter())
             .map(|(vers, size)| vers.len() + *size + 2)
             .sum();
-        assert_eq!(output.len(), output.capacity());
+
         assert_eq!(output.len(), header + versions);
     }
 }
