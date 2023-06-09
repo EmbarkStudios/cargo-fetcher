@@ -206,19 +206,17 @@ pub fn determine_cargo_root(explicit: Option<&PathBuf>) -> anyhow::Result<PathBu
 
 #[derive(Deserialize)]
 struct LockContents {
+    // Note this _could_ be a BTreeSet, but a well-formed Cargo.lock will already
+    // be ordered and deduped so no need
     package: Vec<Package>,
-    /// V2 lock format doesn't have a metadata section
-    #[serde(default)]
-    metadata: std::collections::BTreeMap<String, String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Eq)]
 struct Package {
     name: String,
     version: String,
     source: Option<String>,
-    /// V2 lock format has the package checksum at the package definition
-    /// instead of the separate metadata
+    /// Only applies to crates with a registry source, git sources do not have it
     checksum: Option<String>,
 }
 
@@ -436,7 +434,7 @@ pub fn read_lock_file<P: AsRef<std::path::Path>>(
             continue;
         };
 
-        if let Some(reg_src) = source.strip_prefix("registry+") {
+        let krate = if let Some(reg_src) = source.strip_prefix("registry+") {
             // This will most likely be an extremely short list, so we just do a
             // linear search
             let Some((ind, registry)) = registries
@@ -455,34 +453,22 @@ pub fn read_lock_file<P: AsRef<std::path::Path>>(
 
             regs_to_sync[ind] += 1;
 
-            let chksum = if let Some(chksum) = pkg.checksum {
-                chksum
-            } else {
-                lookup.clear();
-                let _ = write!(
-                    &mut lookup,
-                    "checksum {} {} ({source})",
-                    pkg.name, pkg.version
+            let Some(chksum) = pkg.checksum else {
+                warn!(
+                    "skipping '{}:{}': unable to retrieve package checksum",
+                    pkg.name, pkg.version,
                 );
-
-                let Some(chksum) = locks.metadata.remove(&lookup) else {
-                        warn!(
-                            "skipping '{}:{}': unable to retrieve package checksum",
-                            pkg.name, pkg.version,
-                        );
-                        continue;
-                    };
-                chksum
+                continue;
             };
 
-            krates.push(Krate {
+            Krate {
                 name: pkg.name,
                 version: pkg.version,
                 source: Source::Registry {
                     registry: registry.clone(),
                     chksum,
                 },
-            });
+            }
         } else {
             let url = match Url::parse(source) {
                 Ok(u) => u,
@@ -496,21 +482,22 @@ pub fn read_lock_file<P: AsRef<std::path::Path>>(
             };
 
             match Source::from_git_url(&url) {
-                Ok(src) => {
-                    krates.push(Krate {
-                        name: pkg.name,
-                        version: pkg.version,
-                        source: src,
-                    });
-                }
+                Ok(src) => Krate {
+                    name: pkg.name,
+                    version: pkg.version,
+                    source: src,
+                },
                 Err(e) => {
                     error!(
                         "unable to use git url '{url}' for '{}:{}': {e}",
                         pkg.name, pkg.version
                     );
+                    continue;
                 }
             }
-        }
+        };
+
+        krates.push(krate);
     }
 
     Ok((
