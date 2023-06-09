@@ -1,0 +1,45 @@
+[[package]]
+name = "autometrics-macros"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2edb1335006ff621fe85b2c876f8e77ce31779fce866867b99a300891133aed9"
+
+[[package]]
+name = "axum"
+version = "0.6.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+[[package]]
+name = "axum-core"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "759fa577a247914fd3f7f76d62972792636412fbfd634cd452f6a385a74d2d2c"
+
+[[package]]
+name = "axum-extra"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "febf23ab04509bd7672e6abe76bd8277af31b679e89fa5ffc6087dc289a448a3"
+
+[[package]]
+name = "axum-live-view"
+version = "0.1.0"
+source = "git+https://github.com/EmbarkStudios/axum-live-view?branch=main#165e11655aa0094388df1905da8758d7a4f60e3c"
+
+[[package]]
+name = "axum-live-view-macros"
+version = "0.1.0"
+source = "git+https://github.com/EmbarkStudios/axum-live-view?branch=main#165e11655aa0094388df1905da8758d7a4f60e3c"
+
+[[package]]
+name = "axum-macros"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bb524613be645939e280b7279f7b017f98cf7f5ef084ec374df373530e73277"
+
+[[package]]
+name = "backtrace"
+version = "0.3.67"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "233d376d6d185f2a3093e58f283f60f880315b6c60075b01f36b3b85154564ca"
