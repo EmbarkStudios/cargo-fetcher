@@ -27,7 +27,7 @@ fn assert_diff<A: AsRef<Path>, B: AsRef<Path>>(a_base: A, b_base: B) {
             if entry.metadata().unwrap().is_dir() {
                 // Both .git and git/db contain things like pack files that are
                 // non-deterministic, and are otherwise just uninteresting to check
-                // as the checkoued out source matching is what actually matters
+                // as the checked out source matching is what actually matters
                 !(path.ends_with(".git") || path.strip_prefix(p).unwrap().starts_with("git/db"))
             } else {
                 !(
@@ -138,9 +138,11 @@ fn diff_cargo() {
     util::hook_logger();
 
     let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    let (the_krates, registries) =
-        cf::cargo::read_lock_file("tests/full/Cargo.lock", vec![util::crates_io_registry()])
-            .unwrap();
+    let (the_krates, registries) = cf::cargo::read_lock_files(
+        vec!["tests/full/Cargo.lock".into()],
+        vec![util::crates_io_registry()],
+    )
+    .unwrap();
 
     let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
     fs_ctx.krates = the_krates;

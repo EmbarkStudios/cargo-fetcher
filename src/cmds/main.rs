@@ -78,7 +78,7 @@ struct Opts {
     url: Url,
     /// Path to the lockfile used for determining what crates to operate on
     #[clap(short, long, default_value = "Cargo.lock")]
-    lock_file: PathBuf,
+    lock_files: Vec<PathBuf>,
     #[clap(
         short = 'L',
         long,
@@ -194,17 +194,28 @@ fn real_main() -> anyhow::Result<()> {
     let location = cf::util::parse_cloud_location(&cloud_location)?;
     let backend = init_backend(location, args.credentials, args.timeout.0)?;
 
+    // Since we can take multiple lock files unlike...every? other cargo command,
+    // we'll just decide that the first one is the most important and where config
+    // data is pulled from
+    let lock_files = args.lock_files;
+    anyhow::ensure!(
+        !lock_files.is_empty(),
+        "must provide at least one Cargo.lock"
+    );
+
+    let lock_file = &lock_files[0];
+
     // Note that unlike cargo (since we require a Cargo.lock), we don't use the
     // current directory as the root when resolving cargo configurations, but
     // rather the directory in which the lockfile is located
-    let root_dir = if args.lock_file.is_relative() {
+    let root_dir = if lock_file.is_relative() {
         let root_dir = std::env::current_dir().context("unable to acquire current directory")?;
         let mut root_dir = cf::util::path(&root_dir)?.to_owned();
-        root_dir.push(&args.lock_file);
+        root_dir.push(lock_file);
         root_dir.pop();
         root_dir
     } else {
-        let mut root_dir = args.lock_file.clone();
+        let mut root_dir = lock_file.clone();
         root_dir.pop();
         root_dir
     };
@@ -214,7 +225,7 @@ fn real_main() -> anyhow::Result<()> {
 
     let registries = cf::read_cargo_config(cargo_root.clone(), root_dir)?;
 
-    let (krates, registries) = cf::cargo::read_lock_file(args.lock_file, registries)
+    let (krates, registries) = cf::cargo::read_lock_files(lock_files, registries)
         .context("failed to get crates from lock file")?;
 
     match args.cmd {

@@ -1,7 +1,10 @@
 use crate::{util, Krate, Path, PathBuf};
 use anyhow::Context as _;
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use std::{
+    cmp::Ordering,
+    collections::{BTreeSet, HashMap},
     convert::TryFrom,
     hash::{Hash, Hasher},
     sync::Arc,
@@ -22,7 +25,7 @@ pub const CRATES_IO_DL: &str = "https://static.crates.io/crates/{crate}/{crate}-
 
 #[derive(Deserialize)]
 pub struct CargoConfig {
-    pub registries: Option<std::collections::HashMap<String, Registry>>,
+    pub registries: Option<HashMap<String, Registry>>,
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Copy, Clone, Debug, Default)]
@@ -182,13 +185,13 @@ impl PartialEq for Registry {
 }
 
 impl Ord for Registry {
-    fn cmp(&self, b: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, b: &Self) -> Ordering {
         self.index.cmp(&b.index)
     }
 }
 
 impl PartialOrd for Registry {
-    fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, b: &Self) -> Option<Ordering> {
         Some(self.cmp(b))
     }
 }
@@ -218,6 +221,65 @@ struct Package {
     source: Option<String>,
     /// Only applies to crates with a registry source, git sources do not have it
     checksum: Option<String>,
+}
+
+impl PartialEq for Package {
+    fn eq(&self, b: &Self) -> bool {
+        self.cmp(b) == Ordering::Equal
+    }
+}
+
+impl Ord for Package {
+    /// This follows (roughly) how cargo implements `Ord` as well
+    fn cmp(&self, b: &Self) -> Ordering {
+        match self.name.cmp(&b.name) {
+            Ordering::Equal => {}
+            other => return other,
+        }
+
+        match self.version.cmp(&b.version) {
+            Ordering::Equal => {}
+            other => return other,
+        }
+
+        // path dependencies are none
+        match (&self.source, &b.source) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (Some(a), Some(b)) => {
+                let (a_kind, a_url) = a.split_once('+').expect("invalid source id");
+                let (b_kind, b_url) = b.split_once('+').expect("invalid source id");
+
+                match a_kind.cmp(b_kind) {
+                    Ordering::Equal => {}
+                    other => return other,
+                }
+
+                if a_kind == "registry" {
+                    a_url.cmp(b_url)
+                } else if a_kind == "git" {
+                    let a_url = Url::parse(a_url).expect("invalid url");
+                    let b_url = Url::parse(b_url).expect("invalid url");
+
+                    let a_can: util::Canonicalized =
+                        (&a_url).try_into().expect("unable to canonicalize url");
+                    let b_can: util::Canonicalized =
+                        (&b_url).try_into().expect("unable to canonicalize url");
+
+                    a_can.0.cmp(&b_can.0)
+                } else {
+                    panic!("unexpected package source '{a_kind}'");
+                }
+            }
+        }
+    }
+}
+
+impl PartialOrd for Package {
+    fn partial_cmp(&self, b: &Self) -> Option<Ordering> {
+        Some(self.cmp(b))
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
@@ -310,7 +372,7 @@ pub fn read_cargo_config(
         configs.push(home_config);
     }
 
-    let mut regs = std::collections::HashMap::new();
+    let mut regs = HashMap::new();
 
     for config_path in configs.iter().rev() {
         let config: CargoConfig = {
@@ -410,25 +472,37 @@ pub fn read_cargo_config(
         .collect())
 }
 
-pub fn read_lock_file<P: AsRef<std::path::Path>>(
-    lock_path: P,
+pub fn read_lock_files(
+    lock_paths: Vec<PathBuf>,
     registries: Vec<Registry>,
 ) -> anyhow::Result<(Vec<Krate>, Vec<Arc<Registry>>)> {
-    use std::fmt::Write;
     use tracing::{error, info, trace, warn};
 
-    let mut locks: LockContents = {
-        let toml_contents = std::fs::read_to_string(lock_path)?;
-        toml::from_str(&toml_contents)?
+    let packages = {
+        let all_packages = lock_paths
+            .into_par_iter()
+            .map(|lock_path| -> anyhow::Result<Vec<Package>> {
+                let toml_contents = std::fs::read_to_string(lock_path)?;
+                let lock: LockContents = toml::from_str(&toml_contents)?;
+                Ok(lock.package)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let mut packages = BTreeSet::<Package>::new();
+
+        for lp in all_packages {
+            packages.extend(lp);
+        }
+
+        packages
     };
 
-    let mut lookup = String::with_capacity(128);
-    let mut krates = Vec::with_capacity(locks.package.len());
+    let mut krates = Vec::with_capacity(packages.len());
 
     let registries: Vec<_> = registries.into_iter().map(Arc::new).collect();
     let mut regs_to_sync = vec![0u32; registries.len()];
 
-    for pkg in locks.package {
+    for pkg in packages {
         let Some(source) = &pkg.source else {
             trace!("skipping 'path' source {}-{}", pkg.name, pkg.version);
             continue;
@@ -649,5 +723,96 @@ mod test {
             crates_io.download_url(&krate!("aBc-123", "0.1.0", crates_io)),
             "https://complex.io/ohhi/embark/rust/cargo/ab/c-/aBc-123/aBc-123/aB/c--0.1.0"
         );
+    }
+
+    // Ensures that krates are deduplicated correctly when loading multiple
+    // lockfiles
+    #[test]
+    fn merges_lockfiles() {
+        let (krates, regs) = read_lock_files(
+            vec!["tests/multi_one.lock".into(), "tests/multi_two.lock".into()],
+            vec![Registry::crates_io(RegistryProtocol::Sparse)],
+        )
+        .unwrap();
+
+        let crates_io = regs[0].clone();
+
+        let expected = [
+            Krate {
+                name: "autometrics-macros".to_owned(),
+                version: "0.4.1".to_owned(),
+                source: Source::Registry {
+                    registry: crates_io.clone(),
+                    chksum: String::new(),
+                },
+            },
+            Krate {
+                name: "axum".to_owned(),
+                version: "0.6.17".to_owned(),
+                source: Source::Registry {
+                    registry: crates_io.clone(),
+                    chksum: String::new(),
+                },
+            },
+            Krate {
+                name: "axum".to_owned(),
+                version: "0.6.18".to_owned(),
+                source: Source::Registry {
+                    registry: crates_io.clone(),
+                    chksum: String::new(),
+                },
+            },
+            Krate {
+                name: "axum-core".to_owned(),
+                version: "0.3.4".to_owned(),
+                source: Source::Registry {
+                    registry: crates_io.clone(),
+                    chksum: String::new(),
+                },
+            },
+            Krate {
+                name: "axum-extra".to_owned(),
+                version: "0.7.4".to_owned(),
+                source: Source::Registry {
+                    registry: crates_io.clone(),
+                    chksum: String::new(),
+                },
+            },
+            Krate {
+                name: "axum-live-view".to_owned(),
+                version: "0.1.0".to_owned(),
+                source: Source::from_git_url(&Url::parse("https://github.com/EmbarkStudios/axum-live-view?branch=main#165e11655aa0094388df1905da8758d7a4f60e3c").unwrap()).unwrap(),
+            },
+            Krate {
+                name: "axum-live-view-macros".to_owned(),
+                version: "0.1.0".to_owned(),
+                source: Source::from_git_url(&Url::parse("https://github.com/EmbarkStudios/axum-live-view?branch=main#165e11655aa0094388df1905da8758d7a4f60e3c").unwrap()).unwrap(),
+            },
+            Krate {
+                name: "axum-macros".to_owned(),
+                version: "0.3.7".to_owned(),
+                source: Source::Registry {
+                    registry: crates_io.clone(),
+                    chksum: String::new(),
+                },
+            },
+            Krate {
+                name: "backtrace".to_owned(),
+                version: "0.3.67".to_owned(),
+                source: Source::Registry {
+                    registry: crates_io,
+                    chksum: String::new(),
+                },
+            },
+        ];
+
+        assert_eq!(krates.len(), expected.len());
+
+        for (actual, expected) in krates.into_iter().zip(expected.into_iter()) {
+            assert_eq!(
+                (actual.name, actual.version),
+                (expected.name, expected.version)
+            );
+        }
     }
 }
