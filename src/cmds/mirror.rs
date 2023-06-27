@@ -21,7 +21,6 @@ Times may be specified with no suffix (default seconds), or one of:
 }
 
 pub(crate) fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
-    let backend = ctx.backend.clone();
     let regs = ctx.registry_sets();
 
     rayon::join(
@@ -30,7 +29,7 @@ pub(crate) fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error
                 return;
             }
 
-            mirror::registry_indices(backend, args.max_stale.0, regs);
+            mirror::registry_indices(&ctx, args.max_stale.0, regs);
             info!("finished uploading registry indices");
         },
         || match mirror::crates(&ctx) {

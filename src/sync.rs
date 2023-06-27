@@ -29,9 +29,13 @@ pub fn registry_index(
     backend: crate::Storage,
     registry: std::sync::Arc<Registry>,
 ) -> anyhow::Result<()> {
-    let ident = registry.short_name();
+    let ident = registry.short_name().to_owned();
 
-    let index_path = root_dir.join(INDEX_DIR).join(ident.clone());
+    let index_path = {
+        let mut ip = root_dir.join(INDEX_DIR);
+        ip.push(&ident);
+        ip
+    };
     std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
 
     // Just skip the index if the git directory already exists,
@@ -83,7 +87,7 @@ pub fn registry_index(
 
     let krate = Krate {
         name: ident.clone(),
-        version: "1.0.0".to_owned(),
+        version: "2.0.0".to_owned(),
         source: Source::Git {
             url: registry.index.clone(),
             ident,

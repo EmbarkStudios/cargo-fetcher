@@ -1,150 +1,7 @@
 use crate::{Path, PathBuf};
 use anyhow::{bail, Context as _};
-#[allow(deprecated)]
-use std::{
-    fmt,
-    hash::{Hash, Hasher, SipHasher},
-};
 use tracing::debug;
 use url::Url;
-
-fn to_hex(num: u64) -> String {
-    const CHARS: &[u8] = b"0123456789abcdef";
-
-    let bytes = &[
-        num as u8,
-        (num >> 8) as u8,
-        (num >> 16) as u8,
-        (num >> 24) as u8,
-        (num >> 32) as u8,
-        (num >> 40) as u8,
-        (num >> 48) as u8,
-        (num >> 56) as u8,
-    ];
-
-    let mut output = vec![0u8; 16];
-
-    let mut ind = 0;
-
-    for &byte in bytes {
-        output[ind] = CHARS[(byte >> 4) as usize];
-        output[ind + 1] = CHARS[(byte & 0xf) as usize];
-
-        ind += 2;
-    }
-
-    String::from_utf8(output).expect("valid utf-8 hex string")
-}
-
-#[inline]
-pub fn short_hash<H: Hash>(hashable: &H) -> String {
-    #[allow(deprecated)]
-    let mut hasher = SipHasher::new_with_keys(0, 0);
-    hashable.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    to_hex(hash)
-}
-
-#[derive(Clone)]
-pub struct Canonicalized(pub Url);
-
-impl Canonicalized {
-    pub(crate) fn ident(&self) -> String {
-        // This is the same identity function used by cargo
-        let ident = self
-            .0
-            .path_segments()
-            .and_then(|mut s| s.next_back())
-            .unwrap_or("");
-
-        let ident = if ident.is_empty() { "_empty" } else { ident };
-
-        format!("{ident}-{}", short_hash(&self.0))
-    }
-}
-
-impl fmt::Display for Canonicalized {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_ref())
-    }
-}
-
-impl AsRef<Url> for Canonicalized {
-    fn as_ref(&self) -> &Url {
-        &self.0
-    }
-}
-
-impl From<Canonicalized> for Url {
-    fn from(c: Canonicalized) -> Self {
-        c.0
-    }
-}
-
-impl std::convert::TryFrom<&Url> for Canonicalized {
-    type Error = anyhow::Error;
-
-    fn try_from(url: &Url) -> Result<Self, Self::Error> {
-        // This is the same canonicalization that cargo does, except the URLs
-        // they use don't have any query params or fragments, even though
-        // they do occur in Cargo.lock files
-
-        // cannot-be-a-base-urls (e.g., `github.com:rust-lang-nursery/rustfmt.git`)
-        // are not supported.
-        if url.cannot_be_a_base() {
-            bail!("invalid url `{url}`: cannot-be-a-base-URLs are not supported")
-        }
-
-        let mut url_str = String::new();
-
-        let is_github = url.host_str() == Some("github.com");
-
-        // HACK: for GitHub URLs specifically, just lower-case
-        // everything. GitHub treats both the same, but they hash
-        // differently, and we're gonna be hashing them. This wants a more
-        // general solution, and also we're almost certainly not using the
-        // same case conversion rules that GitHub does. (See issue #84.)
-        if is_github {
-            url_str.push_str("https://");
-        } else {
-            url_str.push_str(url.scheme());
-            url_str.push_str("://");
-        }
-
-        // Not handling username/password
-
-        if let Some(host) = url.host_str() {
-            url_str.push_str(host);
-        }
-
-        if let Some(port) = url.port() {
-            use std::fmt::Write;
-            url_str.push(':');
-            write!(&mut url_str, "{port}")?;
-        }
-
-        if is_github {
-            url_str.push_str(&url.path().to_lowercase());
-        } else {
-            url_str.push_str(url.path());
-        }
-
-        // Strip a trailing slash.
-        if url_str.ends_with('/') {
-            url_str.pop();
-        }
-
-        // Repos can generally be accessed with or without `.git` extension.
-        if url_str.ends_with(".git") {
-            url_str.truncate(url_str.len() - 4);
-        }
-
-        let url = Url::parse(&url_str)?;
-
-        Ok(Self(url))
-    }
-}
 
 pub fn convert_response(
     res: reqwest::blocking::Response,
@@ -522,32 +379,23 @@ pub(crate) fn write_ok(to: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::convert::TryFrom;
-
-    #[test]
-    fn canonicalizes_urls() {
-        let url = Url::parse("git+https://github.com/EmbarkStudios/cpal.git?rev=d59b4de#d59b4decf72a96932a1482cc27fe4c0b50c40d32").unwrap();
-        let canonicalized = Canonicalized::try_from(&url).unwrap();
-
-        assert_eq!(
-            "https://github.com/embarkstudios/cpal",
-            canonicalized.as_ref().as_str()
-        );
-    }
+    use tame_index::utils::url_to_local_dir;
 
     #[test]
     fn idents_urls() {
         let url = Url::parse("git+https://github.com/gfx-rs/genmesh?rev=71abe4d").unwrap();
-        let canonicalized = Canonicalized::try_from(&url).unwrap();
-        let ident = canonicalized.ident();
 
-        assert_eq!(ident, "genmesh-401fe503e87439cc");
+        assert_eq!(
+            url_to_local_dir(url.as_str()).unwrap().dir_name,
+            "genmesh-401fe503e87439cc"
+        );
 
         let url = Url::parse("git+https://github.com/EmbarkStudios/cpal?rev=d59b4de#d59b4decf72a96932a1482cc27fe4c0b50c40d32").unwrap();
-        let canonicalized = Canonicalized::try_from(&url).unwrap();
-        let ident = canonicalized.ident();
 
-        assert_eq!(ident, "cpal-a7ffd7cabefac714");
+        assert_eq!(
+            url_to_local_dir(url.as_str()).unwrap().dir_name,
+            "cpal-a7ffd7cabefac714"
+        );
     }
 
     #[test]

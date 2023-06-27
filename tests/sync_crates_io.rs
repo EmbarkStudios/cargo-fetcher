@@ -7,13 +7,13 @@ use tutil as util;
 
 #[test]
 fn all_missing() {
-    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
-    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), registries);
 
-    let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = util::temp_path(&missing_root);
+    let missing_root = util::tempdir();
+    fs_ctx.root_dir = missing_root.pb();
 
     fs_ctx.krates = vec![
         Krate {
@@ -81,12 +81,12 @@ fn all_missing() {
 
 #[test]
 fn some_missing() {
-    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
-    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), vec![registry.clone()]);
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), vec![registry.clone()]);
 
-    let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = util::temp_path(&missing_root);
+    let missing_root = util::tempdir();
+    fs_ctx.root_dir = missing_root.pb();
 
     fs_ctx.krates = vec![
         Krate {
@@ -137,7 +137,7 @@ fn some_missing() {
         for krate in &fs_ctx.krates {
             let bytes =
                 std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
-                    .with_context(|| format!("{:#}", krate))
+                    .with_context(|| format!("{krate:#}"))
                     .expect("can't read");
 
             match &krate.source {
@@ -167,7 +167,7 @@ fn some_missing() {
         for krate in &fs_ctx.krates {
             let bytes =
                 std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
-                    .with_context(|| format!("{:#}", krate))
+                    .with_context(|| format!("{krate:#}"))
                     .expect("can't read");
 
             match &krate.source {
@@ -189,13 +189,13 @@ fn some_missing() {
 
 #[test]
 fn none_missing() {
-    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
-    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), registries);
 
-    let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = util::temp_path(&missing_root);
+    let missing_root = util::tempdir();
+    fs_ctx.root_dir = missing_root.pb();
 
     fs_ctx.krates = vec![
         Krate {

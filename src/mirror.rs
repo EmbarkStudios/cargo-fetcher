@@ -11,37 +11,35 @@ pub struct RegistrySet {
 
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn registry_indices(
-    backend: crate::Storage,
+    ctx: &crate::Ctx,
     max_stale: Duration,
     registries: Vec<RegistrySet>,
 ) -> usize {
     registries
         .into_par_iter()
-        .map(
-            |rset| match registry_index(backend.clone(), max_stale, rset) {
-                Ok(size) => size,
-                Err(err) => {
-                    error!("{err:#}");
-                    0
-                }
-            },
-        )
+        .map(|rset| match registry_index(ctx, max_stale, rset) {
+            Ok(size) => size,
+            Err(err) => {
+                error!("{err:#}");
+                0
+            }
+        })
         .sum()
 }
 
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn registry_index(
-    backend: crate::Storage,
+    ctx: &crate::Ctx,
     max_stale: Duration,
     rset: RegistrySet,
 ) -> Result<usize, Error> {
-    let ident = rset.registry.short_name();
+    let ident = rset.registry.short_name().to_owned();
 
     // Create a fake krate for the index, we don't have to worry about clashing
     // since we use a `.` which is not an allowed character in crate names
     let krate = Krate {
         name: ident.clone(),
-        version: "1.0.0".to_owned(),
+        version: "2.0.0".to_owned(),
         source: Source::Git {
             url: rset.registry.index.clone(),
             ident,
@@ -51,7 +49,7 @@ pub fn registry_index(
 
     // Retrieve the metadata for the last updated registry entry, and update
     // only it if it's stale
-    if let Ok(Some(last_updated)) = backend.updated(&krate) {
+    if let Ok(Some(last_updated)) = ctx.backend.updated(&krate) {
         let now = time::OffsetDateTime::now_utc();
 
         if now - last_updated < max_stale {
@@ -63,7 +61,11 @@ pub fn registry_index(
         }
     }
 
-    let index = fetch::registry(&rset.registry, rset.krates.into_iter())?;
+    let index = fetch::registry(
+        &ctx.client,
+        &rset.registry,
+        rset.krates.into_iter().collect(),
+    )?;
 
     debug!(
         size = index.len(),
@@ -72,7 +74,7 @@ pub fn registry_index(
 
     let span = tracing::debug_span!("upload");
     let _us = span.enter();
-    backend.upload(index, &krate)
+    ctx.backend.upload(index, &krate)
 }
 
 pub fn crates(ctx: &Ctx) -> Result<usize, Error> {

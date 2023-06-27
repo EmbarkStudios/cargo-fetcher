@@ -137,25 +137,24 @@ fn diff_cargo() {
 
     util::hook_logger();
 
-    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let fs_root = util::tempdir();
     let (the_krates, registries) = cf::cargo::read_lock_files(
         vec!["tests/full/Cargo.lock".into()],
         vec![util::crates_io_registry()],
     )
     .unwrap();
 
-    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), registries);
     fs_ctx.krates = the_krates;
 
-    let fetcher_root = tempfile::TempDir::new().expect("failed to create tempdir");
-
-    let cargo_home = tempfile::TempDir::new().expect("failed to create tempdir");
-    let cargo_home_path = util::temp_path(&cargo_home).into_string();
+    let fetcher_root = util::tempdir();
+    let cargo_home = util::tempdir();
+    let cargo_home_path = cargo_home.pb();
 
     // Fetch with cargo
     let cargo_fetch = std::thread::spawn(move || {
         std::process::Command::new("cargo")
-            .env("CARGO_HOME", &cargo_home_path)
+            .env("CARGO_HOME", cargo_home_path)
             .args([
                 "fetch",
                 "--quiet",
@@ -169,18 +168,14 @@ fn diff_cargo() {
 
     // Synchronize with cargo-fetcher
     {
-        fs_ctx.root_dir = util::temp_path(&fetcher_root);
+        fs_ctx.root_dir = fetcher_root.pb();
 
         let registry_sets = fs_ctx.registry_sets();
 
         assert_eq!(registry_sets.len(), 1);
         let the_registry = fs_ctx.registries[0].clone();
 
-        cf::mirror::registry_indices(
-            fs_ctx.backend.clone(),
-            std::time::Duration::new(10, 0),
-            registry_sets,
-        );
+        cf::mirror::registry_indices(&fs_ctx, std::time::Duration::new(10, 0), registry_sets);
         cf::mirror::crates(&fs_ctx).expect("failed to mirror crates");
 
         fs_ctx.prep_sync_dirs().expect("create base dirs");

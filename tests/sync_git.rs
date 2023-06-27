@@ -18,13 +18,13 @@ macro_rules! git_source {
 fn multiple_from_same_repo() {
     util::hook_logger();
 
-    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry];
-    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), registries);
 
-    let missing_root = tempfile::TempDir::new().expect("failed to create tempdir");
-    fs_ctx.root_dir = util::temp_path(&missing_root);
+    let missing_root = util::tempdir();
+    fs_ctx.root_dir = missing_root.pb();
 
     fs_ctx.krates = vec![
         Krate {
@@ -53,7 +53,7 @@ fn multiple_from_same_repo() {
     {
         let db_root = fs_ctx.root_dir.join(cf::sync::GIT_DB_DIR);
 
-        let cpal_root = db_root.join(format!("cpal-{}", ident));
+        let cpal_root = db_root.join(format!("cpal-{ident}"));
         assert!(cpal_root.exists(), "unable to find cpal db");
 
         // We expect a pack and idx file
