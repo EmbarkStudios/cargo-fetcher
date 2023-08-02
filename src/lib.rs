@@ -1,6 +1,6 @@
 use anyhow::Error;
 pub use camino::{Utf8Path as Path, Utf8PathBuf as PathBuf};
-use std::{convert::From, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 pub use url::Url;
 
 pub mod backends;
@@ -13,9 +13,9 @@ pub mod util;
 
 pub type HttpClient = reqwest::blocking::Client;
 
-pub use cargo::{read_cargo_config, Registry, RegistryProtocol, Source};
+pub use cargo::{read_cargo_config, GitSource, Registry, RegistryProtocol, RegistrySource, Source};
 
-#[derive(Eq, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Eq, Clone, Debug)]
 pub struct Krate {
     pub name: String,
     pub version: String, // We just treat versions as opaque strings
@@ -43,17 +43,22 @@ impl PartialEq for Krate {
 impl PartialEq<Registry> for Krate {
     fn eq(&self, b: &Registry) -> bool {
         match &self.source {
-            Source::Git { .. } => false,
-            Source::Registry { registry, .. } => b.eq(registry),
+            Source::Git(..) => false,
+            Source::Registry(rs) => b.eq(&rs.registry),
         }
     }
 }
 
 impl Krate {
-    pub fn cloud_id(&self) -> CloudId<'_> {
-        CloudId { inner: self }
+    #[inline]
+    pub fn cloud_id(&self, is_checkout: bool) -> CloudId<'_> {
+        CloudId {
+            inner: self,
+            is_checkout,
+        }
     }
 
+    #[inline]
     pub fn local_id(&self) -> LocalId<'_> {
         LocalId { inner: self }
     }
@@ -77,8 +82,8 @@ pub struct LocalId<'a> {
 impl<'a> fmt::Display for LocalId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
-            Source::Git { ident, .. } => f.write_str(ident),
-            Source::Registry { .. } => {
+            Source::Git(gs) => f.write_str(&gs.ident),
+            Source::Registry(..) => {
                 write!(f, "{}-{}.crate", self.inner.name, self.inner.version)
             }
         }
@@ -87,13 +92,20 @@ impl<'a> fmt::Display for LocalId<'a> {
 
 pub struct CloudId<'a> {
     inner: &'a Krate,
+    is_checkout: bool,
 }
 
 impl<'a> fmt::Display for CloudId<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.inner.source {
-            Source::Git { ident, rev, .. } => write!(f, "{ident}-{rev}"),
-            Source::Registry { chksum, .. } => f.write_str(chksum),
+            Source::Git(gs) => write!(
+                f,
+                "{}-{}{}",
+                gs.ident,
+                gs.rev.short(),
+                if self.is_checkout { "-checkout" } else { "" }
+            ),
+            Source::Registry(rs) => f.write_str(&rs.chksum),
         }
     }
 }
@@ -198,9 +210,8 @@ impl fmt::Debug for Ctx {
 pub type Timestamp = time::OffsetDateTime;
 
 pub trait Backend: fmt::Debug {
-    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error>;
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error>;
+    fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes, Error>;
+    fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize, Error>;
     fn list(&self) -> Result<Vec<String>, Error>;
-    fn updated(&self, krate: &Krate) -> Result<Option<Timestamp>, Error>;
-    fn set_prefix(&mut self, prefix: &str);
+    fn updated(&self, id: CloudId<'_>) -> Result<Option<Timestamp>, Error>;
 }

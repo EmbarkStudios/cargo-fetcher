@@ -150,7 +150,7 @@ fn init_backend(
         #[cfg(not(feature = "s3"))]
         cf::CloudLocation::S3(_) => anyhow::bail!("S3 backend not enabled"),
         #[cfg(feature = "fs")]
-        cf::CloudLocation::Fs(loc) => Ok(Arc::new(cf::backends::fs::FSBackend::new(loc)?)),
+        cf::CloudLocation::Fs(loc) => Ok(Arc::new(cf::backends::fs::FsBackend::new(loc)?)),
         #[cfg(not(feature = "fs"))]
         cf::CloudLocation::Fs(_) => anyhow::bail!("filesystem backend not enabled"),
         #[cfg(feature = "blob")]

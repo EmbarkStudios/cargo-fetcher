@@ -101,7 +101,7 @@ impl Registry {
     /// for more info
     pub fn download_url(&self, krate: &Krate) -> String {
         match &self.config {
-            Some(dl) => dl.download_url(
+            Some(ic) => ic.download_url(
                 krate.name.as_str().try_into().expect("invalid krate name"),
                 &krate.version,
             ),
@@ -244,16 +244,75 @@ impl PartialOrd for Package {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Serialize, Deserialize)]
+pub enum GitFollow {
+    Branch(String),
+    Tag(String),
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+pub struct RegistrySource {
+    pub registry: Arc<Registry>,
+    pub chksum: String,
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+pub struct GitSource {
+    pub url: Url,
+    pub rev: GitRev,
+    pub ident: String,
+    pub follow: Option<GitFollow>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GitRev {
+    /// The full git revision
+    pub id: gix::ObjectId,
+    /// The short revision, this is used as the identity for checkouts
+    short: [u8; 7],
+}
+
+impl Eq for GitRev {}
+impl PartialEq for GitRev {
+    fn eq(&self, o: &Self) -> bool {
+        self.id == o.id
+    }
+}
+
+impl Ord for GitRev {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        self.id.cmp(&o.id)
+    }
+}
+
+impl PartialOrd for GitRev {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+
+impl GitRev {
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        let id = gix::ObjectId::from_hex(s.as_bytes()).context("failed to parse revision")?;
+        let mut short = [0u8; 7];
+        short.copy_from_slice(&s.as_bytes()[..7]);
+
+        Ok(Self { id, short })
+    }
+
+    #[inline]
+    pub fn short(&self) -> &str {
+        #[allow(unsafe_code)]
+        // SAFETY: these are only hex characters that we've already validated
+        unsafe {
+            std::str::from_utf8_unchecked(&self.short)
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
 pub enum Source {
-    Registry {
-        registry: Arc<Registry>,
-        chksum: String,
-    },
-    Git {
-        url: Url,
-        rev: String,
-        ident: String,
-    },
+    Registry(RegistrySource),
+    Git(GitSource),
 }
 
 impl Source {
@@ -263,18 +322,35 @@ impl Source {
         // The revision fragment in the cargo.lock will always be the full
         // sha-1, but we only use the short-id since that is how cargo calculates
         // the local identity of a specific git checkout
-        let rev = &rev[..7];
+        let rev = GitRev::parse(rev)?;
+
+        // There is guaranteed to be exactly one query parameter
+        let (key, value) = url
+            .query_pairs()
+            .next()
+            .context("url doesn't contain a query parameter")?;
+
+        let follow = match key.as_ref() {
+            // A rev specifier is duplicate info so we just ignore it
+            "rev" => None,
+            "branch" => Some(GitFollow::Branch(value.into())),
+            "tag" => Some(GitFollow::Tag(value.into())),
+            _unknown => {
+                anyhow::bail!("'{url}' contains an unknown git spec '{key}' with value '{value}'")
+            }
+        };
 
         let tame_index::utils::UrlDir {
             dir_name,
             canonical,
         } = tame_index::utils::url_to_local_dir(url.as_str())?;
 
-        Ok(Source::Git {
+        Ok(Source::Git(GitSource {
             url: canonical.parse()?,
             ident: dir_name,
-            rev: rev.to_owned(),
-        })
+            rev,
+            follow,
+        }))
     }
 }
 
@@ -471,10 +547,10 @@ pub fn read_lock_files(
             Krate {
                 name: pkg.name,
                 version: pkg.version,
-                source: Source::Registry {
+                source: Source::Registry(RegistrySource {
                     registry: registry.clone(),
                     chksum,
-                },
+                }),
             }
         } else {
             let url = match Url::parse(source) {
@@ -524,139 +600,9 @@ pub fn read_lock_files(
     ))
 }
 
-/// Converts a crate name into its prefix form
-///
-/// See <https://doc.rust-lang.org/cargo/reference/registries.html#index-format>
-/// for more details
-pub fn get_crate_prefix(name: &str) -> String {
-    match name.chars().count() {
-        0 => unreachable!("things have gone awry"),
-        1 => "1".to_owned(),
-        2 => "2".to_owned(),
-        3 => format!("3/{}", name.chars().next().unwrap()),
-        _ => {
-            let mut pfx = String::with_capacity(5);
-
-            let mut citer = name.chars();
-            pfx.push(citer.next().unwrap());
-            pfx.push(citer.next().unwrap());
-            pfx.push('/');
-            pfx.push(citer.next().unwrap());
-            pfx.push(citer.next().unwrap());
-
-            pfx
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use super::get_crate_prefix as gcp;
     use super::*;
-
-    macro_rules! krate {
-        ($name:expr, $vs:expr, $reg:expr) => {
-            crate::Krate {
-                name: $name.to_owned(),
-                version: $vs.to_owned(),
-                source: super::Source::Registry {
-                    registry: $reg.clone(),
-                    chksum: "".to_owned(),
-                },
-            }
-        };
-    }
-
-    #[test]
-    fn gets_crate_prefix() {
-        assert_eq!(gcp("a"), "1");
-        assert_eq!(gcp("ab"), "2");
-        assert_eq!(gcp("abc"), "3/a");
-        assert_eq!(gcp("Åbc"), "3/Å");
-        assert_eq!(gcp("AbCd"), "Ab/Cd");
-        assert_eq!(gcp("äBcDe"), "äB/cD");
-    }
-
-    #[test]
-    fn gets_crates_io_download_url() {
-        let crates_io = Arc::new(Registry::crates_io(RegistryProtocol::Sparse));
-
-        assert_eq!(
-            crates_io.download_url(&krate!("a", "1.0.0", crates_io)),
-            "https://static.crates.io/crates/a/a-1.0.0.crate"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aB", "0.1.0", crates_io)),
-            "https://static.crates.io/crates/aB/aB-0.1.0.crate"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aBc", "0.1.0", crates_io)),
-            "https://static.crates.io/crates/aBc/aBc-0.1.0.crate"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aBc-123", "0.1.0", crates_io)),
-            "https://static.crates.io/crates/aBc-123/aBc-123-0.1.0.crate"
-        );
-    }
-
-    #[test]
-    fn gets_other_download_url() {
-        let crates_io = Arc::new(
-            super::Registry::new(
-                "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/index.git",
-                Some(
-                    "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/{crate}-{version}.crate"
-                        .to_owned(),
-                ),
-            )
-            .unwrap(),
-        );
-
-        assert_eq!(
-            crates_io.download_url(&krate!("a", "1.0.0", crates_io)),
-            "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/a-1.0.0.crate"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aB", "0.1.0", crates_io)),
-            "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/aB-0.1.0.crate"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aBc", "0.1.0", crates_io)),
-            "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/aBc-0.1.0.crate"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aBc-123", "0.1.0", crates_io)),
-            "https://dl.cloudsmith.io/ohhi/embark/rust/cargo/aBc-123-0.1.0.crate"
-        );
-    }
-
-    #[test]
-    fn gets_other_complex_download_url() {
-        let crates_io = Arc::new(super::Registry::new(
-            "https://complex.io/ohhi/embark/rust/cargo/index.git",
-            Some(
-                "https://complex.io/ohhi/embark/rust/cargo/{lowerprefix}/{crate}/{crate}/{prefix}-{version}"
-                    .to_owned(),
-            ),
-        ).unwrap());
-
-        assert_eq!(
-            crates_io.download_url(&krate!("a", "1.0.0", crates_io)),
-            "https://complex.io/ohhi/embark/rust/cargo/1/a/a/1-1.0.0"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aB", "0.1.0", crates_io)),
-            "https://complex.io/ohhi/embark/rust/cargo/2/aB/aB/2-0.1.0"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aBc", "0.1.0", crates_io)),
-            "https://complex.io/ohhi/embark/rust/cargo/3/a/aBc/aBc/3/a-0.1.0"
-        );
-        assert_eq!(
-            crates_io.download_url(&krate!("aBc-123", "0.1.0", crates_io)),
-            "https://complex.io/ohhi/embark/rust/cargo/ab/c-/aBc-123/aBc-123/aB/c--0.1.0"
-        );
-    }
 
     // Ensures that krates are deduplicated correctly when loading multiple
     // lockfiles
@@ -670,46 +616,36 @@ mod test {
 
         let crates_io = regs[0].clone();
 
+        let source = Source::Registry(RegistrySource {
+            registry: crates_io.clone(),
+            chksum: String::new(),
+        });
+
         let expected = [
             Krate {
                 name: "autometrics-macros".to_owned(),
                 version: "0.4.1".to_owned(),
-                source: Source::Registry {
-                    registry: crates_io.clone(),
-                    chksum: String::new(),
-                },
+                source: source.clone(),
             },
             Krate {
                 name: "axum".to_owned(),
                 version: "0.6.17".to_owned(),
-                source: Source::Registry {
-                    registry: crates_io.clone(),
-                    chksum: String::new(),
-                },
+                source: source.clone(),
             },
             Krate {
                 name: "axum".to_owned(),
                 version: "0.6.18".to_owned(),
-                source: Source::Registry {
-                    registry: crates_io.clone(),
-                    chksum: String::new(),
-                },
+                source: source.clone(),
             },
             Krate {
                 name: "axum-core".to_owned(),
                 version: "0.3.4".to_owned(),
-                source: Source::Registry {
-                    registry: crates_io.clone(),
-                    chksum: String::new(),
-                },
+                source: source.clone(),
             },
             Krate {
                 name: "axum-extra".to_owned(),
                 version: "0.7.4".to_owned(),
-                source: Source::Registry {
-                    registry: crates_io.clone(),
-                    chksum: String::new(),
-                },
+                source: source.clone(),
             },
             Krate {
                 name: "axum-live-view".to_owned(),
@@ -724,18 +660,12 @@ mod test {
             Krate {
                 name: "axum-macros".to_owned(),
                 version: "0.3.7".to_owned(),
-                source: Source::Registry {
-                    registry: crates_io.clone(),
-                    chksum: String::new(),
-                },
+                source: source.clone(),
             },
             Krate {
                 name: "backtrace".to_owned(),
                 version: "0.3.67".to_owned(),
-                source: Source::Registry {
-                    registry: crates_io,
-                    chksum: String::new(),
-                },
+                source,
             },
         ];
 

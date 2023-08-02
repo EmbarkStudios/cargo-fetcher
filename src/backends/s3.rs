@@ -1,5 +1,5 @@
-use crate::{HttpClient, Krate};
-use anyhow::{Context, Error};
+use crate::{CloudId, HttpClient};
+use anyhow::{Context as _, Result};
 use rusty_s3::{
     actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action},
     credentials::Ec2SecurityCredentialsMetadataResponse,
@@ -17,7 +17,7 @@ pub struct S3Backend {
 }
 
 impl S3Backend {
-    pub fn new(loc: crate::S3Location<'_>, timeout: std::time::Duration) -> Result<Self, Error> {
+    pub fn new(loc: crate::S3Location<'_>, timeout: std::time::Duration) -> Result<Self> {
         let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
             .parse()
             .context("failed to parse s3 endpoint")?;
@@ -47,11 +47,11 @@ impl S3Backend {
     }
 
     #[inline]
-    fn make_key(&self, krate: &Krate) -> String {
-        format!("{}{}", self.prefix, krate.cloud_id())
+    fn make_key(&self, id: CloudId<'_>) -> String {
+        format!("{}{id}", self.prefix)
     }
 
-    pub fn make_bucket(&self) -> Result<(), Error> {
+    pub fn make_bucket(&self) -> Result<()> {
         let action = CreateBucket::new(&self.bucket, &self.credential);
         let signed_url = action.sign(ONE_HOUR);
         self.client
@@ -65,8 +65,8 @@ impl S3Backend {
 }
 
 impl crate::Backend for S3Backend {
-    fn fetch(&self, krate: &Krate) -> Result<bytes::Bytes, Error> {
-        let obj = self.make_key(krate);
+    fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes> {
+        let obj = self.make_key(id);
         let mut action = GetObject::new(&self.bucket, Some(&self.credential), &obj);
         action
             .query_mut()
@@ -82,9 +82,9 @@ impl crate::Backend for S3Backend {
         Ok(res.bytes()?)
     }
 
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize> {
         let len = source.len();
-        let obj = self.make_key(krate);
+        let obj = self.make_key(id);
         let action = PutObject::new(&self.bucket, Some(&self.credential), &obj);
         let signed_url = action.sign(ONE_HOUR);
         self.client
@@ -96,7 +96,7 @@ impl crate::Backend for S3Backend {
         Ok(len)
     }
 
-    fn list(&self) -> Result<Vec<String>, Error> {
+    fn list(&self) -> Result<Vec<String>> {
         let action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         let signed_url = action.sign(ONE_HOUR);
         let resp = self
@@ -111,38 +111,34 @@ impl crate::Backend for S3Backend {
         Ok(parsed.contents.into_iter().map(|obj| obj.key).collect())
     }
 
-    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
+    fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
         let mut action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
-        action.query_mut().insert("prefix", self.make_key(krate));
+        action.query_mut().insert("prefix", self.make_key(id));
         action.query_mut().insert("max-keys", "1");
         let signed_url = action.sign(ONE_HOUR);
         let resp = self
             .client
             .get(signed_url)
             .send()
-            .context("failed io when getting updated info")?
+            .context("failed to send request for update info")?
             .error_for_status()?;
         let text = resp.text()?;
-        let parsed = ListObjectsV2::parse_response(&text).context("faild parsing updated info")?;
+        let parsed = ListObjectsV2::parse_response(&text).context("failed parsing updated info")?;
         let last_modified = &parsed
             .contents
             .get(0)
-            .context(format!("can not get the updated info of {}", krate))?
+            .context("could not locate update info")?
             .last_modified;
 
         let last_modified = crate::Timestamp::parse(
             last_modified,
             &time::format_description::well_known::Rfc3339,
         )
-        .context("failed to parse last_modified")?
+        .context("failed to parse last_modified timestamp")?
         // This _should_ already be set during parsing?
         .replace_offset(time::UtcOffset::UTC);
 
         Ok(Some(last_modified))
-    }
-
-    fn set_prefix(&mut self, prefix: &str) {
-        self.prefix = prefix.to_owned();
     }
 }
 
@@ -160,7 +156,7 @@ impl fmt::Debug for S3Backend {
 const AWS_IMDS_CREDENTIALS: &str =
     "http://169.254.169.254/latest/meta-data/iam/security-credentials";
 
-fn ec2_credentials(client: &HttpClient) -> Result<Credentials, Error> {
+fn ec2_credentials(client: &HttpClient) -> Result<Credentials> {
     let resp = client
         .get(AWS_IMDS_CREDENTIALS)
         .send()
@@ -169,7 +165,7 @@ fn ec2_credentials(client: &HttpClient) -> Result<Credentials, Error> {
 
     let role_name = resp.text()?;
     let resp = client
-        .get(format!("{}/{}", AWS_IMDS_CREDENTIALS, role_name))
+        .get(format!("{AWS_IMDS_CREDENTIALS}/{role_name}"))
         .send()
         .context("failed to get role name")?
         .error_for_status()?;

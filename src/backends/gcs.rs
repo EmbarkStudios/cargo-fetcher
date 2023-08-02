@@ -1,9 +1,9 @@
-use crate::{HttpClient, Krate, Path};
-use anyhow::Context as _;
+use crate::{CloudId, HttpClient, Path};
+use anyhow::{Context as _, Result};
 use tame_gcs::{objects::Object, BucketName, ObjectName};
 use tracing::debug;
 
-fn acquire_gcs_token(cred_path: &Path) -> anyhow::Result<tame_oauth::Token> {
+fn acquire_gcs_token(cred_path: &Path) -> Result<tame_oauth::Token> {
     // If we're not completing whatever task in under an hour then we
     // have more problems than the token expiring
     use tame_oauth::gcp::{self, TokenProvider};
@@ -61,7 +61,7 @@ impl GcsBackend {
         loc: crate::GcsLocation<'_>,
         credentials: &Path,
         timeout: std::time::Duration,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         let bucket = BucketName::try_from(loc.bucket.to_owned())?;
 
         let token = acquire_gcs_token(credentials)?;
@@ -92,12 +92,8 @@ impl GcsBackend {
     }
 
     #[inline]
-    fn obj_name(&self, krate: &Krate) -> anyhow::Result<ObjectName<'static>> {
-        Ok(ObjectName::try_from(format!(
-            "{}{}",
-            self.prefix,
-            krate.cloud_id()
-        ))?)
+    fn obj_name(&self, id: CloudId<'_>) -> Result<ObjectName<'static>> {
+        Ok(ObjectName::try_from(format!("{}{id}", self.prefix))?)
     }
 }
 
@@ -113,10 +109,10 @@ impl fmt::Debug for GcsBackend {
 }
 
 impl crate::Backend for GcsBackend {
-    fn fetch(&self, krate: &Krate) -> anyhow::Result<bytes::Bytes> {
+    fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes> {
         let dl_req = self
             .obj
-            .download(&(&self.bucket, &self.obj_name(krate)?), None)?;
+            .download(&(&self.bucket, &self.obj_name(id)?), None)?;
 
         let (parts, _) = dl_req.into_parts();
 
@@ -132,13 +128,13 @@ impl crate::Backend for GcsBackend {
         Ok(content)
     }
 
-    fn upload(&self, source: bytes::Bytes, krate: &Krate) -> anyhow::Result<usize> {
+    fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize> {
         use tame_gcs::objects::InsertObjectOptional;
 
         let content_len = source.len() as u64;
 
         let insert_req = self.obj.insert_simple(
-            &(&self.bucket, &self.obj_name(krate)?),
+            &(&self.bucket, &self.obj_name(id)?),
             source,
             content_len,
             Some(InsertObjectOptional {
@@ -159,7 +155,7 @@ impl crate::Backend for GcsBackend {
         Ok(content_len as usize)
     }
 
-    fn list(&self) -> anyhow::Result<Vec<String>> {
+    fn list(&self) -> Result<Vec<String>> {
         use tame_gcs::objects::{ListOptional, ListResponse};
 
         // Get a list of all crates already present in gcs, the list
@@ -215,11 +211,11 @@ impl crate::Backend for GcsBackend {
             .collect())
     }
 
-    fn updated(&self, krate: &Krate) -> anyhow::Result<Option<crate::Timestamp>> {
+    fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
         use tame_gcs::objects::{GetObjectOptional, GetObjectResponse};
 
         let get_req = self.obj.get(
-            &(&self.bucket, &self.obj_name(krate)?),
+            &(&self.bucket, &self.obj_name(id)?),
             Some(GetObjectOptional {
                 standard_params: tame_gcs::common::StandardQueryParameters {
                     fields: Some("updated"),
@@ -243,15 +239,9 @@ impl crate::Backend for GcsBackend {
 
         Ok(get_response.metadata.updated)
     }
-
-    fn set_prefix(&mut self, prefix: &str) {
-        self.prefix = prefix.to_owned();
-    }
 }
 
-pub fn convert_response(
-    res: reqwest::blocking::Response,
-) -> anyhow::Result<http::Response<bytes::Bytes>> {
+pub fn convert_response(res: reqwest::blocking::Response) -> Result<http::Response<bytes::Bytes>> {
     let mut builder = http::Response::builder()
         .status(res.status())
         .version(res.version());

@@ -60,7 +60,7 @@ serde_json = { version = "1.0", optional = true }
 quick-xml = { version = "0.27", features = ["serialize"], optional = true }
 sha2 = { version = "0.10", optional = true }
 tame-gcs = { version = "0.12", optional = true }
-tame-index = { path = "../tame-index", features = ["sparse"] }
+tame-index = { path = "../tame-index", features = ["git", "sparse"] }
 tame-oauth = { version = "0.9", features = ["gcp"], optional = true }
 tar = "0.4"
 tempfile = "3.1"
@@ -72,11 +72,13 @@ url = { version = "2.2", features = ["serde"] }
 walkdir = "2.3"
 zstd = "0.12"
 
-[dependencies.git2]
-version = "0.17"
-# We enable this feature so that we can easily compile for eg. musl, and dodge
-# a bunch of shenanigans with openssl differences on different distros
-features = ["vendored-openssl"]
+[dependencies.gix]
+version = "0.50"
+features = [
+    "max-performance-safe",
+    "blocking-network-client",
+    "blocking-http-transport-reqwest-rust-tls",
+]
 
 [dependencies.tokio]
 version = "1.4"

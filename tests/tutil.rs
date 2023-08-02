@@ -6,7 +6,7 @@ use cf::{Path, PathBuf};
 
 pub fn fs_ctx(root: PathBuf, registries: Vec<std::sync::Arc<cf::Registry>>) -> cf::Ctx {
     let backend = std::sync::Arc::new(
-        cf::backends::fs::FSBackend::new(cf::FilesystemLocation { path: &root })
+        cf::backends::fs::FsBackend::new(cf::FilesystemLocation { path: &root })
             .expect("failed to create fs backend"),
     );
 
