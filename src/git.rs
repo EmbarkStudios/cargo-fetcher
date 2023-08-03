@@ -148,16 +148,14 @@ fn read_submodule_config(config: &gix::config::File<'_>) -> Vec<Submodule> {
 }
 
 fn reset(repo: &mut gix::Repository, rev: gix::ObjectId) -> Result<()> {
-    {
-        let mut config = repo.config_snapshot_mut();
-        config
-            .set_raw_value("core", None, "autocrlf", "false")
-            .context("failed to set `core.autocrlf`")?;
+    let mut config = repo.config_snapshot_mut();
+    config
+        .set_raw_value("core", None, "autocrlf", "false")
+        .context("failed to set `core.autocrlf`")?;
 
-        config
-            .commit_auto_rollback()
-            .context("failed to set committer")?;
-    }
+    let repo = config
+        .commit_auto_rollback()
+        .context("failed to set committer")?;
 
     let workdir = repo
         .work_dir()
