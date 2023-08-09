@@ -1,4 +1,3 @@
-#![cfg(feature = "fs")]
 #![allow(dead_code)]
 
 use cargo_fetcher as cf;

@@ -329,15 +329,10 @@ pub fn parse_cloud_location(
         "gs" => {
             anyhow::bail!("GCS support was not enabled, you must compile with the 'gcs' feature")
         }
-        #[cfg(feature = "fs")]
         "file" => {
             let path = _path.as_ref().unwrap();
             Ok(crate::CloudLocation::Fs(crate::FilesystemLocation { path }))
         }
-        #[cfg(not(feature = "fs"))]
-        "file" => anyhow::bail!(
-            "filesystem support was not enabled, you must compile with the 'fs' feature"
-        ),
         "http" | "https" => {
             let s3 = parse_s3_url(url).context("failed to parse s3 url")?;
 

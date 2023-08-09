@@ -259,10 +259,8 @@ dependencies = [
  "bytes",
  "camino",
  "clap",
- "digest",
  "flate2",
  "gix",
- "hex",
  "home",
  "http",
  "memchr",
@@ -273,8 +271,6 @@ dependencies = [
  "ring",
  "rusty-s3",
  "serde",
- "serde_json",
- "sha2",
  "similar-asserts",
  "tame-gcs",
  "tame-index",
@@ -712,9 +708,9 @@ checksum = "b6c80984affa11d98d1b88b66ac8853f143217b399d3c74116778ff8fdb4ed2e"
 
 [[package]]
 name = "gix"
-version = "0.50.1"
+version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "275b1bfa0d6f6ed31a2e2e878a4539f4994eac8840546283ab3aebbd8fcaa42d"
+checksum = "4ce5c049b1afcae9bb9e10c0f6dd8eb1335e8647fb7fd34732a66133ca3b9886"
 dependencies = [
  "gix-actor",
  "gix-archive",
@@ -1210,9 +1206,9 @@ dependencies = [
 
 [[package]]
 name = "gix-protocol"
-version = "0.36.1"
+version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f8cf8b48ad5510a6ea3c8b529f51fd0f31009a2e46579f3a0ed917669035170"
+checksum = "53c7627b8c54349b93f2a89218effc7c13a5506d2abc2571e0baaf1562a9c105"
 dependencies = [
  "bstr 1.6.0",
  "btoi",
@@ -2604,21 +2600,24 @@ dependencies = [
 
 [[package]]
 name = "tame-index"
-version = "0.2.4"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb763cdef142072fdad51f24c90e15f036a5d9842bf856f6b38ca2e8a693bed5"
+checksum = "74c219e9d0a7bd2fae6ba89e831858e114f6e46b8e699fcb8c4f2d16bbfbfddd"
 dependencies = [
  "camino",
+ "crossbeam-channel",
  "gix",
  "home",
  "http",
  "memchr",
+ "rayon",
  "reqwest",
  "semver",
  "serde",
  "serde_json",
  "smol_str",
  "thiserror",
+ "tokio",
  "toml",
  "twox-hash",
 ]

@@ -46,9 +46,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fetch
       - name: cargo test build
-        run: cargo build --tests --features=gcs,fs_test
+        run: cargo build --tests --features=gcs
       - name: cargo test
-        run: cargo test --features=gcs,fs_test
+        run: cargo test --features=gcs
 
   deny-check:
     name: cargo-deny check
