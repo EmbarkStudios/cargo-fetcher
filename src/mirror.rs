@@ -116,7 +116,7 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
     let total_bytes = to_mirror
         .into_par_iter()
         .map(|krate| {
-            let span = tracing::debug_span!("mirror", %krate);
+            let span = tracing::info_span!("mirror", %krate);
             let _ms = span.enter();
 
             let fetch_res = {
@@ -137,8 +137,8 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
                             fetch::KratePackage::Registry(buffer) => {
                                 match backend.upload(buffer, krate.cloud_id(false)) {
                                     Ok(len) => len,
-                                    Err(e) => {
-                                        error!("failed to upload crate tarball: {e}");
+                                    Err(err) => {
+                                        error!("failed to upload crate tarball: {err:#}");
                                         0
                                     }
                                 }
@@ -156,14 +156,14 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
                                 match db {
                                     Ok(l) => len += l,
                                     Err(err) => {
-                                        error!("failed to upload git db: {err}");
+                                        error!("failed to upload git db: {err:#}");
                                     }
                                 }
 
                                 match checkout {
                                     Ok(l) => len += l,
                                     Err(err) => {
-                                        error!("failed to upload git checkout: {err}");
+                                        error!("failed to upload git checkout: {err:#}");
                                     }
                                 }
 
@@ -172,8 +172,8 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
                         }
                     }
                 }
-                Err(e) => {
-                    error!("failed to retrieve: {e}");
+                Err(err) => {
+                    error!("failed to retrieve: {err:#}");
                     0
                 }
             }
