@@ -78,6 +78,9 @@ features = [
 version = "1.4"
 features = ["rt-multi-thread"]
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 similar-asserts = "1.2"
 tempfile = "3.1"

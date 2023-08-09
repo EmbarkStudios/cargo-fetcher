@@ -69,6 +69,26 @@ pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> anyho
 
     let mut archive_reader = tar::Archive::new(decoder);
 
+    #[cfg(unix)]
+    {
+        use std::sync::OnceLock;
+        static UMASK: OnceLock<libc::mode_t> = OnceLock::new();
+        archive_reader.set_mask(
+            *UMASK.get_or_init(|| {
+                #[allow(unsafe_code)]
+                // SAFETY: Syscalls are unsafe. Calling `umask` twice is even unsafer for
+                // multithreading program, since it doesn't provide a way to retrive the
+                // value without modifications. We use a static `OnceLock` here to ensure
+                // it only gets call once during the entire program lifetime.
+                unsafe {
+                    let umask = libc::umask(0o022);
+                    libc::umask(umask);
+                    umask
+                }
+            }) as u32, // it is u16 on macos
+        );
+    }
+
     if let Err(e) = archive_reader.unpack(dir) {
         // Attempt to remove anything that may have been written so that we
         // _hopefully_ don't mess up cargo itself
@@ -367,7 +387,7 @@ pub(crate) fn write_ok(to: &Path) -> anyhow::Result<()> {
     let mut f = std::fs::File::create(to).with_context(|| format!("failed to create: {to}"))?;
 
     use std::io::Write;
-    f.write_all(b"ok")?;
+    f.write_all(b"{\"v\":1}")?;
     Ok(())
 }
 
