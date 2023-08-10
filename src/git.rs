@@ -68,7 +68,13 @@ pub fn clone(src: &crate::cargo::GitSource) -> Result<GitPackage> {
 
     Ok(crate::git::GitPackage {
         db: db?,
-        checkout: checkout.ok(),
+        checkout: match checkout {
+            Ok(co) => Some(co),
+            Err(err) => {
+                tracing::error!("failed to checkout: {err:#}");
+                None
+            }
+        },
     })
 }
 
@@ -84,13 +90,45 @@ pub(crate) fn checkout(
         remove_dir_all::remove_dir_all(&target).context("failed to clean checkout dir")?;
     }
 
-    let src_url =
-        url::Url::from_file_path(&src).map_err(|_err| anyhow::Error::msg("invalid path URL"))?;
+    // NOTE: gix does not support local hardlink clones like git/libgit2 does,
+    // and is essentially doing `git clone file://<src> <target>`, which, by
+    // default, only gets the history for the default branch, meaning if the revision
+    // comes from a non-default branch it won't be available on the checkout
+    // clone. So...we cheat and shell out to git, at least for now
+    {
+        let start = std::time::Instant::now();
+        let mut cmd = std::process::Command::new("git");
+        cmd.args(["clone", "--local", "--no-checkout"])
+            .args([&src, &target])
+            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped());
 
-    let (mut repo, _out) = gix::prepare_clone(src_url.as_str(), &target)
-        .context("failed to prepare clone")?
-        .fetch_only(&mut Discard, &Default::default())
-        .context("failed to clone from local db")?;
+        let output = cmd.output().context("failed to spawn git")?;
+        if !output.status.success() {
+            let error = String::from_utf8(output.stderr)
+                .unwrap_or_else(|_err| "git error output is non-utf8".to_owned());
+
+            anyhow::bail!("failed to perform local clone:\n{error}");
+        }
+
+        tracing::debug!("local clone performed in {}ms", start.elapsed().as_millis());
+    }
+
+    let mut repo = gix::open(target).context("failed to open local clone")?;
+
+    modify_config(&mut repo, |config| {
+        let mut core = config
+            .section_mut("core", None)
+            .context("unable to find core section")?;
+        core.set(
+            "autocrlf"
+                .try_into()
+                .context("autocrlf is not a valid key")?,
+            "false",
+        );
+        Ok(())
+    })
+    .context("failed to set autocrlf")?;
 
     reset(&mut repo, rev)?;
 
@@ -147,16 +185,43 @@ fn read_submodule_config(config: &gix::config::File<'_>) -> Vec<Submodule> {
     .collect()
 }
 
-fn reset(repo: &mut gix::Repository, rev: gix::ObjectId) -> Result<()> {
+fn modify_config(
+    repo: &mut gix::Repository,
+    mutate: impl FnOnce(&mut gix::config::SnapshotMut<'_>) -> Result<()>,
+) -> Result<()> {
     let mut config = repo.config_snapshot_mut();
+
+    mutate(&mut config)?;
+
+    {
+        use std::io::Write;
+        let mut local_config = std::fs::OpenOptions::new()
+            .create(false)
+            .write(true)
+            .append(false)
+            .open(
+                config
+                    .meta()
+                    .path
+                    .as_deref()
+                    .context("local config with path set")?,
+            )
+            .context("failed to open local config")?;
+        local_config.write_all(config.detect_newline_style())?;
+        config
+            .write_to_filter(&mut local_config, |s| {
+                s.meta().source == gix::config::Source::Local
+            })
+            .context("failed to write submodules to config")?;
+    }
+
     config
-        .set_raw_value("core", None, "autocrlf", "false")
-        .context("failed to set `core.autocrlf`")?;
+        .commit()
+        .context("failed to commit submodule(s) to config")?;
+    Ok(())
+}
 
-    let repo = config
-        .commit_auto_rollback()
-        .context("failed to set committer")?;
-
+fn reset(repo: &mut gix::Repository, rev: gix::ObjectId) -> Result<()> {
     let workdir = repo
         .work_dir()
         .context("unable to checkout, repository is bare")?;
@@ -236,57 +301,34 @@ pub(crate) fn prepare_submodules(src: PathBuf, target: PathBuf, rev: gix::Object
                 return Ok(());
             }
 
-            let mut config = repo.config_snapshot_mut();
-
             // This is really all that git2::Submodule::init(false) does, write
             // each submodule url to the git config. Note that we follow cargo here
             // by not updating the submodule if it exists already, but I'm not actually
             // sure if that is correct...
-            for subm in &submodules {
-                if config
-                    .section("submodule", Some(subm.name.as_bstr()))
-                    .is_ok()
-                {
-                    tracing::debug!("submodule {} already exists in config", subm.name);
-                    continue;
+            modify_config(repo, |config| {
+                for subm in &submodules {
+                    if config
+                        .section("submodule", Some(subm.name.as_bstr()))
+                        .is_ok()
+                    {
+                        tracing::debug!("submodule {} already exists in config", subm.name);
+                        continue;
+                    }
+
+                    let mut sec = config
+                        .new_section("submodule", Some(subm.name.clone().into()))
+                        .context("failed to add submodule section")?;
+                    sec.push("path".try_into()?, Some(subm.path.as_bstr()));
+                    sec.push("url".try_into()?, Some(subm.url.as_bstr()));
+
+                    if let Some(branch) = &subm.branch {
+                        sec.push("branch".try_into()?, Some(branch.as_bstr()));
+                    }
                 }
 
-                let mut sec = config
-                    .new_section("submodule", Some(subm.name.clone().into()))
-                    .context("failed to add submodule section")?;
-                sec.push("path".try_into()?, Some(subm.path.as_bstr()));
-                sec.push("url".try_into()?, Some(subm.url.as_bstr()));
-
-                if let Some(branch) = &subm.branch {
-                    sec.push("branch".try_into()?, Some(branch.as_bstr()));
-                }
-            }
-
-            {
-                use std::io::Write;
-                let mut local_config = std::fs::OpenOptions::new()
-                    .create(false)
-                    .write(true)
-                    .append(false)
-                    .open(
-                        config
-                            .meta()
-                            .path
-                            .as_deref()
-                            .context("local config with path set")?,
-                    )
-                    .context("failed to open local config")?;
-                local_config.write_all(config.detect_newline_style())?;
-                config
-                    .write_to_filter(&mut local_config, |s| {
-                        s.meta().source == gix::config::Source::Local
-                    })
-                    .context("failed to write submodules to config")?;
-            }
-
-            config
-                .commit()
-                .context("failed to commit submodule(s) to config")?;
+                Ok(())
+            })
+            .context("failed to add submodules")?;
 
             // Now, find the actual head id of the module so that we can determine
             // what tree to set the submodule checkout to
@@ -305,17 +347,17 @@ pub(crate) fn prepare_submodules(src: PathBuf, target: PathBuf, rev: gix::Object
                 let entry = match tree.lookup_entry(path, &mut buf) {
                     Ok(Some(e)) => e,
                     Ok(None) => {
-                        tracing::error!("unable to locate submodule path in tree");
+                        tracing::warn!("unable to locate submodule path in tree");
                         continue;
                     }
                     Err(err) => {
-                        tracing::error!(err = %err, "failed to lookup entry for submodule");
+                        tracing::warn!(err = %err, "failed to lookup entry for submodule");
                         continue;
                     }
                 };
 
                 if !matches!(entry.mode(), gix::object::tree::EntryMode::Commit) {
-                    tracing::error!(kind = ?entry.mode(), "path is not a submodule");
+                    tracing::warn!(kind = ?entry.mode(), "path is not a submodule");
                     continue;
                 }
 

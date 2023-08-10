@@ -330,7 +330,7 @@ pub fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
         to_sync
             .into_par_iter()
             .map(|krate| {
-                let span = tracing::debug_span!("sync", %krate);
+                let span = tracing::info_span!("sync", %krate);
                 let _ss = span.enter();
 
                 let backend = ctx.backend.clone();
@@ -401,7 +401,7 @@ pub fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
                                 Ok(len)
                             }
                             Err(err) => {
-                                error!(err = ?err, "failed to splat git repo");
+                                error!("failed to splat git repo: {err:#}");
                                 Err(err)
                             }
                         }
