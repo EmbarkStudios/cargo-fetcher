@@ -70,6 +70,7 @@ pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> anyho
     let mut archive_reader = tar::Archive::new(decoder);
 
     #[cfg(unix)]
+    #[allow(clippy::unnecessary_cast)]
     {
         use std::sync::OnceLock;
         static UMASK: OnceLock<libc::mode_t> = OnceLock::new();
