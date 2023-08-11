@@ -1,6 +1,5 @@
 use crate::{fetch, Ctx, Krate, Registry, Source};
 use anyhow::Error;
-use rayon::prelude::*;
 use std::time::Duration;
 use tracing::{debug, error, info};
 
@@ -10,25 +9,37 @@ pub struct RegistrySet {
 }
 
 #[tracing::instrument(level = "debug", skip_all)]
-pub fn registry_indices(
+pub async fn registry_indices(
     ctx: &crate::Ctx,
     max_stale: Duration,
     registries: Vec<RegistrySet>,
 ) -> usize {
-    registries
-        .into_par_iter()
-        .map(|rset| match registry_index(ctx, max_stale, rset) {
-            Ok(size) => size,
-            Err(err) => {
-                error!("{err:#}");
-                0
+    #[allow(unsafe_code)]
+    // SAFETY: we don't forget the future :p
+    unsafe {
+        async_scoped::TokioScope::scope_and_collect(|s| {
+            for rset in registries {
+                s.spawn(async {
+                    match registry_index(ctx, max_stale, rset).await {
+                        Ok(size) => size,
+                        Err(err) => {
+                            error!("{err:#}");
+                            0
+                        }
+                    }
+                });
             }
         })
+        .await
+        .1
+        .into_iter()
+        .map(|res| res.unwrap())
         .sum()
+    }
 }
 
 #[tracing::instrument(level = "debug", skip_all)]
-pub fn registry_index(
+pub async fn registry_index(
     ctx: &crate::Ctx,
     max_stale: Duration,
     rset: RegistrySet,
@@ -50,14 +61,14 @@ pub fn registry_index(
 
     // Retrieve the metadata for the last updated registry entry, and update
     // only it if it's stale
-    if let Ok(Some(last_updated)) = ctx.backend.updated(krate.cloud_id(false)) {
+    if let Ok(Some(last_updated)) = ctx.backend.updated(krate.cloud_id(false)).await {
         let now = time::OffsetDateTime::now_utc();
 
         if now - last_updated < max_stale {
             info!(
-                    "the registry ({}) was last updated {last_updated}, skipping update as it is less than {max_stale:?} old",
-                    rset.registry.index
-                );
+                "the registry ({}) was last updated {last_updated}, skipping update as it is less than {max_stale:?} old",
+                rset.registry.index
+            );
             return Ok(0);
         }
     }
@@ -66,7 +77,8 @@ pub fn registry_index(
         &ctx.client,
         &rset.registry,
         rset.krates.into_iter().collect(),
-    )?;
+    )
+    .await?;
 
     debug!(
         size = index.len(),
@@ -75,12 +87,12 @@ pub fn registry_index(
 
     let span = tracing::debug_span!("upload");
     let _us = span.enter();
-    ctx.backend.upload(index, krate.cloud_id(false))
+    ctx.backend.upload(index, krate.cloud_id(false)).await
 }
 
-pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
+pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
     debug!("checking existing crates...");
-    let mut names = ctx.backend.list()?;
+    let mut names = ctx.backend.list().await?;
 
     names.sort();
 
@@ -91,7 +103,7 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
             .binary_search_by(|name| name.as_str().cmp(&cid))
             .is_err()
         {
-            to_mirror.push(krate);
+            to_mirror.push(krate.clone());
         }
     }
 
@@ -113,72 +125,90 @@ pub fn crates(ctx: &Ctx) -> Result<usize, Error> {
     let client = &ctx.client;
     let backend = &ctx.backend;
 
-    let total_bytes = to_mirror
-        .into_par_iter()
-        .map(|krate| {
-            let span = tracing::info_span!("mirror", %krate);
-            let _ms = span.enter();
+    #[allow(unsafe_code)]
+    // SAFETY: we don't forget the future :p
+    let total_bytes = unsafe {
+        async_scoped::TokioScope::scope_and_collect(|s| {
+            for krate in to_mirror {
+                s.spawn(async move {
+                    let span = tracing::info_span!("mirror", %krate);
+                    let _ms = span.enter();
 
-            let fetch_res = {
-                let span = tracing::debug_span!("fetch");
-                let _ms = span.enter();
-                fetch::from_registry(client, krate)
-            };
+                    let fetch_res = {
+                        let span = tracing::debug_span!("fetch");
+                        let _ms = span.enter();
+                        fetch::from_registry(client, &krate).await
+                    };
 
-            match fetch_res {
-                Ok(krate_data) => {
-                    debug!(size = krate_data.len(), "fetched");
+                    match fetch_res {
+                        Ok(krate_data) => {
+                            debug!(size = krate_data.len(), "fetched");
 
-                    {
-                        let span = tracing::debug_span!("upload");
-                        let _us = span.enter();
+                            {
+                                let span = tracing::debug_span!("upload");
+                                let _us = span.enter();
 
-                        match krate_data {
-                            fetch::KratePackage::Registry(buffer) => {
-                                match backend.upload(buffer, krate.cloud_id(false)) {
-                                    Ok(len) => len,
-                                    Err(err) => {
-                                        error!("failed to upload crate tarball: {err:#}");
-                                        0
+                                match krate_data {
+                                    fetch::KratePackage::Registry(buffer) => {
+                                        match backend.upload(buffer, krate.cloud_id(false)).await {
+                                            Ok(len) => len,
+                                            Err(err) => {
+                                                error!("failed to upload crate tarball: {err:#}");
+                                                0
+                                            }
+                                        }
+                                    }
+                                    fetch::KratePackage::Git(gs) => {
+                                        let db = gs.db;
+                                        let co = krate.clone();
+                                        let checkout = gs.checkout;
+                                        let db_backend = backend.clone();
+
+                                        let db_fut = tokio::task::spawn(async move {
+                                            match db_backend.upload(db, krate.cloud_id(false)).await {
+                                                Ok(l) => l,
+                                                Err(err) => {
+                                                    error!("failed to upload git db: {err:#}");
+                                                    0
+                                                }
+                                            }
+                                        });
+
+                                        let co_backend = backend.clone();
+                                        let co_fut = tokio::task::spawn(async move {
+                                            if let Some(buffer) = checkout {
+                                                match co_backend.upload(buffer, co.cloud_id(true)).await {
+                                                    Ok(l) => l,
+                                                    Err(err) => {
+                                                        error!("failed to upload git checkout: {err:#}");
+                                                        0
+                                                    }
+                                                }
+                                            } else {
+                                                0
+                                            }
+                                        });
+
+                                        let (db, co) = tokio::join!(db_fut, co_fut);
+                                        db.unwrap() + co.unwrap()
                                     }
                                 }
-                            }
-                            fetch::KratePackage::Git(gs) => {
-                                let (db, checkout) = rayon::join(
-                                    || backend.upload(gs.db, krate.cloud_id(false)),
-                                    || {
-                                        let Some(buffer) = gs.checkout else { return Ok(0); };
-                                        backend.upload(buffer, krate.cloud_id(true))
-                                    },
-                                );
-
-                                let mut len = 0;
-                                match db {
-                                    Ok(l) => len += l,
-                                    Err(err) => {
-                                        error!("failed to upload git db: {err:#}");
-                                    }
-                                }
-
-                                match checkout {
-                                    Ok(l) => len += l,
-                                    Err(err) => {
-                                        error!("failed to upload git checkout: {err:#}");
-                                    }
-                                }
-
-                                len
                             }
                         }
+                        Err(err) => {
+                            error!("failed to retrieve: {err:#}");
+                            0
+                        }
                     }
-                }
-                Err(err) => {
-                    error!("failed to retrieve: {err:#}");
-                    0
-                }
+                });
             }
         })
-        .sum();
+        .await
+        .1
+        .into_iter()
+        .map(|res| res.unwrap())
+        .sum()
+    };
 
     Ok(total_bytes)
 }

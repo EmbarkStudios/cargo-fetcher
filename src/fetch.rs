@@ -1,8 +1,7 @@
 use crate::{cargo::Source, util, Krate};
 use anyhow::Context as _;
 use bytes::Bytes;
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use tracing::{error, warn};
+use tracing::warn;
 
 pub(crate) enum KratePackage {
     Registry(Bytes),
@@ -19,17 +18,37 @@ impl KratePackage {
 }
 
 #[tracing::instrument(level = "debug")]
-pub(crate) fn from_registry(
+pub(crate) async fn from_registry(
     client: &crate::HttpClient,
     krate: &Krate,
 ) -> anyhow::Result<KratePackage> {
     match &krate.source {
-        Source::Git(gs) => crate::git::clone(gs).map(KratePackage::Git),
+        Source::Git(gs) => {
+            let gs = gs.clone();
+            tokio::task::spawn_blocking(move || crate::git::clone(&gs).map(KratePackage::Git))
+                .await
+                .unwrap()
+        }
         Source::Registry(rs) => {
             let url = rs.registry.download_url(krate);
 
-            let response = client.get(url).send()?.error_for_status()?;
-            let res = util::convert_response(response)?;
+            // Depending on how many crates we are mirroring, we can be sending
+            // hundreds of concurrent requests to crates.io...and hit
+            // https://github.com/seanmonstar/reqwest/issues/1748
+            let res = loop {
+                let res = client.get(&url).send().await;
+
+                match res {
+                    Err(err) if err.is_connect() || err.is_timeout() || err.is_request() => {
+                        continue
+                    }
+                    Err(err) => return Err(err.into()),
+                    Ok(res) => break res,
+                }
+            };
+
+            let response = res.error_for_status()?;
+            let res = util::convert_response(response).await?;
             let content = res.into_body();
 
             util::validate_checksum(&content, &rs.chksum)?;
@@ -40,7 +59,7 @@ pub(crate) fn from_registry(
 }
 
 #[tracing::instrument(level = "debug", skip(krates))]
-pub fn registry(
+pub async fn registry(
     client: &crate::HttpClient,
     registry: &crate::cargo::Registry,
     krates: Vec<String>,
@@ -58,20 +77,9 @@ pub fn registry(
 
     let write_cache = tracing::span!(tracing::Level::DEBUG, "write-cache-entries");
 
-    let krates: Vec<tame_index::KrateName<'_>> = krates
-        .iter()
-        .filter_map(|krate| match krate.as_str().try_into() {
-            Ok(kn) => Some(kn),
-            Err(err) => {
-                error!("krate name is invalid: {err:#}");
-                None
-            }
-        })
-        .collect();
-
     let location = index::IndexLocation {
         // note this is a bit of a misnomer, it could be the crates.io registry
-        url: index::IndexUrl::NonCratesIo(index_url.as_str().into()),
+        url: index::IndexUrl::NonCratesIo(index_url.clone().into()),
         root: index::IndexPath::Exact(temp_dir_path.to_owned()),
     };
 
@@ -88,70 +96,107 @@ pub fn registry(
     // etag/modified time of the remote
     match registry.protocol {
         crate::cargo::RegistryProtocol::Git => {
-            let rgi = {
-                let span = tracing::debug_span!("fetch");
-                let _fs = span.enter();
+            tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                let rgi = {
+                    let span = tracing::debug_span!("fetch");
+                    let _fs = span.enter();
 
-                tame_index::index::RemoteGitIndex::new(
-                    tame_index::index::GitIndex::new(location)
-                        .context("unable to open git index")?,
-                )
-                .context("failed to fetch")?
-            };
+                    tame_index::index::RemoteGitIndex::new(
+                        tame_index::index::GitIndex::new(location)
+                            .context("unable to open git index")?,
+                    )
+                    .context("failed to fetch")?
+                };
 
-            write_cache.in_scope(|| {
-                // As with git2, gix::Repository is not thread safe, we _could_
-                // read blobs in serial then write in parallel, but that's not really
-                // worth it for a few hundred crates (probably), but see
-                // https://github.com/frewsxcv/rust-crates-index/blob/a9b60653efb72d9e6be98c4f8fe56194475cbd3f/src/git/mod.rs#L316-L360
-                // for a way this could be done in the future
-                for name in krates {
-                    if let Err(err) = rgi.krate(name, true /* write the cache entry */) {
-                        error!("unable to write .cache entry: {err:#}");
+                write_cache.in_scope(|| {
+                    // As with git2, gix::Repository is not thread safe, we _could_
+                    // read blobs in serial then write in parallel, but that's not really
+                    // worth it for a few hundred crates (probably), but see
+                    // https://github.com/frewsxcv/rust-crates-index/blob/a9b60653efb72d9e6be98c4f8fe56194475cbd3f/src/git/mod.rs#L316-L360
+                    // for a way this could be done in the future
+                    for name in krates {
+                        let Ok(name) = name.as_str().try_into() else {
+                            warn!("crate name '{name}' is invalid");
+                            continue;
+                        };
+                        if let Err(err) = rgi.krate(name, true /* write the cache entry */) {
+                            warn!("unable to write .cache entry: {err:#}");
+                        }
                     }
-                }
-            });
+                });
+
+                Ok(())
+            })
+            .await
+            .unwrap()?;
         }
         crate::cargo::RegistryProtocol::Sparse => {
-            let index =
-                index::RemoteSparseIndex::new(index::SparseIndex::new(location)?, client.clone());
+            let index = index::AsyncRemoteSparseIndex::new(
+                index::SparseIndex::new(location)?,
+                client.clone(),
+            );
 
-            write_cache.in_scope(|| {
-                rayon::join(
-                    // Write all of the .cache entries for the crates
-                    || {
-                        krates.into_par_iter().for_each(|name| {
-                            if let Err(err) =
-                                index.krate(name, true /* write the cache entry */)
-                            {
-                                error!("unable to write .cache entry: {err:#}");
+            #[allow(unsafe_code)]
+            // SAFETY: we don't forget the future :p
+            unsafe {
+                async_scoped::TokioScope::scope_and_collect(|s| {
+                    s.spawn(async {
+                        // We don't particularly care if an individual crate fails here
+                        // since the index will be healed by cargo, but still good to
+                        // know if something was amiss
+                        for (name, res) in
+                            index.krates(krates.into_iter().collect(), true, None).await
+                        {
+                            match res {
+                                Ok(Some(_)) => {}
+                                Ok(None) => {
+                                    warn!("index entry for '{name}' was not found");
+                                }
+                                Err(err) => {
+                                    warn!("unable to write .cache entry for '{name}': {err:#}");
+                                }
                             }
-                        });
-                    },
-                    // Write the config.json file, which is what cargo uses to
-                    // know how to interact with the remote server for downloads/API
-                    || {
-                        let write_config = || {
-                            let config_body = client
-                                .get(format!(
-                                    "{}config.json",
-                                    index_url.split_once('+').unwrap().1
-                                ))
-                                .send()
-                                .context("failed to send request for config.json")?
+                        }
+                    });
+
+                    s.spawn(async {
+                        let write_config = async {
+                            let url =
+                                format!("{}config.json", index_url.split_once('+').unwrap().1);
+
+                            let res = loop {
+                                let res = client.get(&url).send().await;
+
+                                match res {
+                                    Err(err)
+                                        if err.is_connect()
+                                            || err.is_timeout()
+                                            || err.is_request() =>
+                                    {
+                                        continue
+                                    }
+                                    Err(err) => Err(err)
+                                        .context("failed to send request for config.json")?,
+                                    Ok(res) => break res,
+                                }
+                            };
+
+                            let config_body = res
                                 .bytes()
-                                .context("failed to read response body")?;
+                                .await
+                                .context("failed to read config.json response body")?;
 
                             std::fs::write(temp_dir.path().join("config.json"), &config_body)
                                 .context("failed to write config.json")
                         };
 
-                        if let Err(err) = write_config() {
-                            error!("unable to write config.json: {err:#}");
+                        if let Err(err) = write_config.await {
+                            warn!("unable to write config.json: {err:#}");
                         }
-                    },
-                );
-            });
+                    });
+                })
+                .await;
+            }
         }
     };
 

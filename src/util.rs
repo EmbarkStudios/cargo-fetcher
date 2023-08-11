@@ -3,8 +3,16 @@ use anyhow::{bail, Context as _};
 use tracing::debug;
 use url::Url;
 
-pub fn convert_response(
-    res: reqwest::blocking::Response,
+#[inline]
+pub fn convert_request(req: http::Request<std::io::Empty>) -> reqwest::Request {
+    let (parts, _) = req.into_parts();
+    http::Request::from_parts(parts, Vec::new())
+        .try_into()
+        .unwrap()
+}
+
+pub async fn convert_response(
+    res: reqwest::Response,
 ) -> anyhow::Result<http::Response<bytes::Bytes>> {
     let mut builder = http::Response::builder()
         .status(res.status())
@@ -20,9 +28,24 @@ pub fn convert_response(
             .map(|(k, v)| (k.clone(), v.clone())),
     );
 
-    let body = res.bytes()?;
+    let body = res.bytes().await?;
 
     Ok(builder.body(body)?)
+}
+
+pub async fn send_request_with_retry(
+    client: &crate::HttpClient,
+    req: reqwest::Request,
+) -> anyhow::Result<reqwest::Response> {
+    loop {
+        let reqc = req.try_clone().unwrap();
+
+        match client.execute(reqc).await {
+            Err(err) if err.is_connect() || err.is_timeout() || err.is_request() => continue,
+            Err(err) => return Err(err.into()),
+            Ok(res) => return Ok(res),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -186,14 +209,14 @@ pub(crate) fn pack_tar(path: &Path) -> anyhow::Result<Bytes> {
     Ok(out_buffer.freeze())
 }
 
-// All of cargo's checksums are currently SHA256
+/// Validates the specified buffer's SHA-256 checksum matches the specified value
 pub fn validate_checksum(buffer: &[u8], expected: &str) -> anyhow::Result<()> {
-    if expected.len() != 64 {
-        bail!(
-            "hex checksum length is {} instead of expected 64",
-            expected.len()
-        );
-    }
+    // All of cargo's checksums are currently SHA256
+    anyhow::ensure!(
+        expected.len() == 64,
+        "hex checksum length is {} instead of expected 64",
+        expected.len()
+    );
 
     let content_digest = ring::digest::digest(&ring::digest::SHA256, buffer);
     let digest = content_digest.as_ref();
@@ -205,7 +228,7 @@ pub fn validate_checksum(buffer: &[u8], expected: &str) -> anyhow::Result<()> {
                 b'A'..=b'F' => b - b'A' + 10,
                 b'a'..=b'f' => b - b'a' + 10,
                 b'0'..=b'9' => b - b'0',
-                c => bail!("invalid byte in expected checksum string {}", c),
+                c => bail!("invalid byte in expected checksum string {c}"),
             })
         }
 
@@ -213,9 +236,7 @@ pub fn validate_checksum(buffer: &[u8], expected: &str) -> anyhow::Result<()> {
         cur <<= 4;
         cur |= parse_hex(exp[1])?;
 
-        if digest[ind] != cur {
-            bail!("checksum mismatch, expected {}", expected);
-        }
+        anyhow::ensure!(digest[ind] == cur, "checksum mismatch, expected {expected}");
     }
 
     Ok(())

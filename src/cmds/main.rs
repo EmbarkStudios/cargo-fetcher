@@ -159,7 +159,7 @@ fn init_backend(
     }
 }
 
-fn real_main() -> anyhow::Result<()> {
+async fn real_main() -> anyhow::Result<()> {
     use clap::Parser;
     let args = Opts::parse_from({
         std::env::args().enumerate().filter_map(|(i, a)| {
@@ -229,18 +229,19 @@ fn real_main() -> anyhow::Result<()> {
         Command::Mirror(margs) => {
             let ctx = cf::Ctx::new(None, backend, krates, registries)
                 .context("failed to create context")?;
-            mirror::cmd(ctx, args.include_index, margs)
+            mirror::cmd(ctx, args.include_index, margs).await
         }
         Command::Sync(sargs) => {
             let ctx = cf::Ctx::new(Some(cargo_root), backend, krates, registries)
                 .context("failed to create context")?;
-            sync::cmd(ctx, args.include_index, sargs)
+            sync::cmd(ctx, args.include_index, sargs).await
         }
     }
 }
 
-fn main() {
-    match real_main() {
+#[tokio::main]
+async fn main() {
+    match real_main().await {
         Ok(_) => {}
         Err(e) => {
             tracing::error!("{:#}", e);

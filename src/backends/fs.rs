@@ -27,20 +27,21 @@ impl FsBackend {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::Backend for FsBackend {
-    fn fetch(&self, id: CloudId<'_>) -> Result<Bytes> {
+    async fn fetch(&self, id: CloudId<'_>) -> Result<Bytes> {
         let path = self.make_path(id);
         let buf = fs::read(path)?;
         Ok(buf.into())
     }
 
-    fn upload(&self, source: Bytes, id: CloudId<'_>) -> Result<usize> {
+    async fn upload(&self, source: Bytes, id: CloudId<'_>) -> Result<usize> {
         let path = self.make_path(id);
         fs::write(path, &source)?;
         Ok(source.len())
     }
 
-    fn list(&self) -> Result<Vec<String>> {
+    async fn list(&self) -> Result<Vec<String>> {
         let entries = fs::read_dir(&self.path)?
             .filter_map(|entry| {
                 let entry = entry.ok()?;
@@ -52,7 +53,7 @@ impl crate::Backend for FsBackend {
         Ok(entries)
     }
 
-    fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
+    async fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
         let path = self.make_path(id);
 
         if !path.exists() {
