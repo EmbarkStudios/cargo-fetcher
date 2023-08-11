@@ -437,19 +437,27 @@ pub(crate) fn prepare_submodules(src: PathBuf, target: PathBuf, rev: gix::Object
         // We perform fetches and update the reflog, and gix forces us to set a
         // committer for these, this is particularly true in CI environments
         // that likely don't have a global committer set
-        let mut config = repo.config_snapshot_mut();
-        config
-            .set_raw_value("committer", None, "name", "cargo-fetcher")
-            .context("failed to set committer.name")?;
-        // Note we _have_ to set the email as well, but luckily gix does not actually
-        // validate if it's a proper email or not :)
-        config
-            .set_raw_value("committer", None, "email", "")
-            .context("failed to set committer.email")?;
+        modify_config(&mut repo, |config| {
+            let mut core = config
+                .section_mut("core", None)
+                .context("unable to find core section")?;
+            core.set(
+                "autocrlf"
+                    .try_into()
+                    .context("autocrlf is not a valid key")?,
+                "false",
+            );
 
-        let mut repo = config
-            .commit_auto_rollback()
-            .context("failed to update config")?;
+            config
+                .set_raw_value("committer", None, "name", "cargo-fetcher")
+                .context("failed to set committer.name")?;
+            // Note we _have_ to set the email as well, but luckily gix does not actually
+            // validate if it's a proper email or not :)
+            config
+                .set_raw_value("committer", None, "email", "")
+                .context("failed to set committer.email")?;
+            Ok(())
+        })?;
 
         let mut remote = repo
             .remote_at(subm.url.as_bstr())
