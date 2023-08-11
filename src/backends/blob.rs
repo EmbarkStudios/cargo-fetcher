@@ -1,4 +1,7 @@
-use crate::{backends::gcs::convert_response, CloudId, HttpClient};
+use crate::{
+    util::{self, send_request_with_retry},
+    CloudId, HttpClient,
+};
 use anyhow::{Context as _, Result};
 use bytes::Bytes;
 
@@ -47,53 +50,44 @@ fn utc_now_to_str() -> String {
     time::OffsetDateTime::now_utc().format(&FMT).unwrap()
 }
 
+#[async_trait::async_trait]
 impl crate::Backend for BlobBackend {
-    fn fetch(&self, id: CloudId<'_>) -> Result<Bytes> {
+    async fn fetch(&self, id: CloudId<'_>) -> Result<Bytes> {
         let dl_req = self
             .instance
             .download(&self.make_key(id), &utc_now_to_str())?;
-        let (parts, _) = dl_req.into_parts();
 
-        let uri = parts.uri.to_string();
-        let builder = self.client.get(uri);
+        let res = send_request_with_retry(&self.client, util::convert_request(dl_req))
+            .await?
+            .error_for_status()?;
 
-        let request = builder.headers(parts.headers).build()?;
-
-        let response = self.client.execute(request)?.error_for_status()?;
-        let res = convert_response(response)?;
-        let content = res.into_body();
-
-        Ok(content)
+        Ok(res.bytes().await?)
     }
 
-    fn upload(&self, source: Bytes, id: CloudId<'_>) -> Result<usize> {
+    async fn upload(&self, source: Bytes, id: CloudId<'_>) -> Result<usize> {
         let content_len = source.len() as u64;
         let insert_req = self
             .instance
             .insert(&self.make_key(id), source, &utc_now_to_str())?;
-        let (parts, body) = insert_req.into_parts();
 
-        let uri = parts.uri.to_string();
-        let builder = self.client.put(uri);
-
-        let request = builder.headers(parts.headers).body(body).build()?;
-
-        self.client.execute(request)?.error_for_status()?;
+        send_request_with_retry(&self.client, insert_req.try_into()?)
+            .await?
+            .error_for_status()?;
 
         Ok(content_len as usize)
     }
 
-    fn list(&self) -> Result<Vec<String>> {
+    async fn list(&self) -> Result<Vec<String>> {
         let list_req = self.instance.list(&utc_now_to_str())?;
 
-        let (parts, _) = list_req.into_parts();
+        let response = send_request_with_retry(&self.client, util::convert_request(list_req))
+            .await?
+            .error_for_status()?;
 
-        let uri = parts.uri.to_string();
-        let builder = self.client.get(uri);
-
-        let request = builder.headers(parts.headers).build()?;
-        let response = self.client.execute(request)?.error_for_status()?;
-        let resp_body = response.text().context("failed to get list response")?;
+        let resp_body = response
+            .text()
+            .await
+            .context("failed to get list response")?;
         let resp_body = resp_body.trim_start_matches('\u{feff}');
         let resp = blob::parse_list_body(resp_body)?;
         let a = resp
@@ -105,19 +99,17 @@ impl crate::Backend for BlobBackend {
         Ok(a)
     }
 
-    fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
+    async fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
         let request = self
             .instance
             .properties(&self.make_key(id), &utc_now_to_str())?;
-        let (parts, _) = request.into_parts();
 
-        let uri = parts.uri.to_string();
-        let builder = self.client.head(uri);
+        let response = send_request_with_retry(&self.client, util::convert_request(request))
+            .await?
+            .error_for_status()?;
 
-        let request = builder.headers(parts.headers).build()?;
-
-        let response = self.client.execute(request)?.error_for_status()?;
-        let properties = blob::PropertiesResponse::try_from(convert_response(response)?)?;
+        let properties =
+            blob::PropertiesResponse::try_from(util::convert_response(response).await?)?;
 
         // Ensure the offset is UTC, the azure datetime format is truly terrible
         let last_modified = crate::Timestamp::parse(&properties.last_modified, &FMT)?

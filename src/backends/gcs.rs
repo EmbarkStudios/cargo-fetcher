@@ -6,7 +6,7 @@ use anyhow::{Context as _, Result};
 use tame_gcs::{objects::Object, BucketName, ObjectName};
 use tracing::debug;
 
-fn acquire_gcs_token(cred_path: &Path) -> Result<tame_oauth::Token> {
+async fn acquire_gcs_token(cred_path: &Path) -> Result<tame_oauth::Token> {
     // If we're not completing whatever task in under an hour then we
     // have more problems than the token expiring
     use tame_oauth::gcp::{self, TokenProvider};
@@ -25,22 +25,8 @@ fn acquire_gcs_token(cred_path: &Path) -> Result<tame_oauth::Token> {
             scope_hash,
             ..
         } => {
-            let (parts, body) = request.into_parts();
-
-            let client = reqwest::blocking::Client::new();
-
-            let uri = parts.uri.to_string();
-
-            let builder = match parts.method {
-                http::Method::GET => client.get(&uri),
-                http::Method::POST => client.post(&uri),
-                http::Method::DELETE => client.delete(&uri),
-                http::Method::PUT => client.put(&uri),
-                method => unreachable!("{method} not implemented"),
-            };
-
-            let req = builder.headers(parts.headers).body(body).build()?;
-            let res = client.execute(req)?;
+            let client = HttpClient::new();
+            let res = client.execute(request.try_into().unwrap()).await?;
 
             let mut builder = http::Response::builder()
                 .status(res.status())
@@ -56,7 +42,7 @@ fn acquire_gcs_token(cred_path: &Path) -> Result<tame_oauth::Token> {
                     .map(|(k, v)| (k.clone(), v.clone())),
             );
 
-            let body = res.bytes()?;
+            let body = res.bytes().await?;
             let response = builder.body(body)?;
 
             svc_account_access.parse_token_response(scope_hash, response)?
@@ -75,14 +61,14 @@ pub struct GcsBackend {
 }
 
 impl GcsBackend {
-    pub fn new(
+    pub async fn new(
         loc: crate::GcsLocation<'_>,
         credentials: &Path,
         timeout: std::time::Duration,
     ) -> Result<Self> {
         let bucket = BucketName::try_from(loc.bucket.to_owned())?;
 
-        let token = acquire_gcs_token(credentials)?;
+        let token = acquire_gcs_token(credentials).await?;
 
         use reqwest::header;
 

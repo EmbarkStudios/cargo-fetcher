@@ -119,7 +119,7 @@ Times may be specified with no suffix (default seconds), or one of:
     cmd: Command,
 }
 
-fn init_backend(
+async fn init_backend(
     loc: cf::CloudLocation<'_>,
     _credentials: Option<PathBuf>,
     _timeout: Duration,
@@ -129,7 +129,7 @@ fn init_backend(
         cf::CloudLocation::Gcs(gcs) => {
             let cred_path = _credentials.context("GCS credentials not specified")?;
 
-            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path, _timeout)?;
+            let gcs = cf::backends::gcs::GcsBackend::new(gcs, &cred_path, _timeout).await?;
             Ok(Arc::new(gcs))
         }
         #[cfg(not(feature = "gcs"))]
@@ -139,10 +139,12 @@ fn init_backend(
             // Special case local testing
             let make_bucket = loc.bucket == "testing" && loc.host.contains("localhost");
 
-            let s3 = cf::backends::s3::S3Backend::new(loc, _timeout)?;
+            let s3 = cf::backends::s3::S3Backend::new(loc, _timeout).await?;
 
             if make_bucket {
-                s3.make_bucket().context("failed to create test bucket")?;
+                s3.make_bucket()
+                    .await
+                    .context("failed to create test bucket")?;
             }
 
             Ok(Arc::new(s3))
@@ -189,7 +191,7 @@ async fn real_main() -> anyhow::Result<()> {
 
     let cloud_location = cf::util::CloudLocationUrl::from_url(args.url.clone())?;
     let location = cf::util::parse_cloud_location(&cloud_location)?;
-    let backend = init_backend(location, args.credentials, args.timeout.0)?;
+    let backend = init_backend(location, args.credentials, args.timeout.0).await?;
 
     // Since we can take multiple lock files unlike...every? other cargo command,
     // we'll just decide that the first one is the most important and where config

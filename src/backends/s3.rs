@@ -1,4 +1,4 @@
-use crate::{CloudId, HttpClient};
+use crate::{util::send_request_with_retry, CloudId, HttpClient};
 use anyhow::{Context as _, Result};
 use rusty_s3::{
     actions::{CreateBucket, GetObject, ListObjectsV2, PutObject, S3Action},
@@ -17,7 +17,7 @@ pub struct S3Backend {
 }
 
 impl S3Backend {
-    pub fn new(loc: crate::S3Location<'_>, timeout: std::time::Duration) -> Result<Self> {
+    pub async fn new(loc: crate::S3Location<'_>, timeout: std::time::Duration) -> Result<Self> {
         let endpoint = format!("https://s3.{}.{}", loc.region, loc.host)
             .parse()
             .context("failed to parse s3 endpoint")?;
@@ -34,9 +34,11 @@ impl S3Backend {
             .use_rustls_tls()
             .timeout(timeout)
             .build()?;
-        let credential = Credentials::from_env()
-            .map_or_else(|| ec2_credentials(&client).ok(), Some)
-            .context("Either set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or run from an ec2 instance with an assumed IAM role")?;
+        let credential = if let Some(creds) = Credentials::from_env() {
+            creds
+        } else {
+            ec2_credentials(&client).await.context("Either set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or run from an ec2 instance with an assumed IAM role")?
+        };
 
         Ok(Self {
             prefix: loc.prefix.to_owned(),
@@ -51,21 +53,38 @@ impl S3Backend {
         format!("{}{id}", self.prefix)
     }
 
-    pub fn make_bucket(&self) -> Result<()> {
+    pub async fn make_bucket(&self) -> Result<()> {
         let action = CreateBucket::new(&self.bucket, &self.credential);
         let signed_url = action.sign(ONE_HOUR);
         self.client
             .put(signed_url)
             .send()
-            .context("failed io when fetching s3")?
+            .await?
             .error_for_status()?;
 
         Ok(())
     }
+
+    async fn send_request(
+        &self,
+        signed_url: url::Url,
+        body: Option<bytes::Bytes>,
+    ) -> Result<reqwest::Response> {
+        let req = if let Some(body) = body {
+            self.client.put(signed_url).body(body).build()
+        } else {
+            self.client.get(signed_url).build()
+        }
+        .unwrap();
+        Ok(send_request_with_retry(&self.client, req)
+            .await?
+            .error_for_status()?)
+    }
 }
 
+#[async_trait::async_trait]
 impl crate::Backend for S3Backend {
-    fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes> {
+    async fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes> {
         let obj = self.make_key(id);
         let mut action = GetObject::new(&self.bucket, Some(&self.credential), &obj);
         action
@@ -73,56 +92,36 @@ impl crate::Backend for S3Backend {
             .insert("response-cache-control", "no-cache, no-store");
         let signed_url = action.sign(ONE_HOUR);
 
-        let res = self
-            .client
-            .get(signed_url)
-            .send()
-            .context("failed io when fetching s3")?
-            .error_for_status()?;
-        Ok(res.bytes()?)
+        Ok(self.send_request(signed_url, None).await?.bytes().await?)
     }
 
-    fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize> {
+    async fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize> {
         let len = source.len();
         let obj = self.make_key(id);
         let action = PutObject::new(&self.bucket, Some(&self.credential), &obj);
         let signed_url = action.sign(ONE_HOUR);
-        self.client
-            .put(signed_url)
-            .body(source)
-            .send()
-            .context("failed io when uploading s3")?
-            .error_for_status()?;
+        self.send_request(signed_url, Some(source))
+            .await?
+            .bytes()
+            .await?;
         Ok(len)
     }
 
-    fn list(&self) -> Result<Vec<String>> {
+    async fn list(&self) -> Result<Vec<String>> {
         let action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         let signed_url = action.sign(ONE_HOUR);
-        let resp = self
-            .client
-            .get(signed_url)
-            .send()
-            .context("failed io when listing s3")?
-            .error_for_status()?;
-        let text = resp.text()?;
+        let text = self.send_request(signed_url, None).await?.text().await?;
         let parsed =
             ListObjectsV2::parse_response(&text).context("failed parsing list response")?;
         Ok(parsed.contents.into_iter().map(|obj| obj.key).collect())
     }
 
-    fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
+    async fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
         let mut action = ListObjectsV2::new(&self.bucket, Some(&self.credential));
         action.query_mut().insert("prefix", self.make_key(id));
         action.query_mut().insert("max-keys", "1");
         let signed_url = action.sign(ONE_HOUR);
-        let resp = self
-            .client
-            .get(signed_url)
-            .send()
-            .context("failed to send request for update info")?
-            .error_for_status()?;
-        let text = resp.text()?;
+        let text = self.send_request(signed_url, None).await?.text().await?;
         let parsed = ListObjectsV2::parse_response(&text).context("failed parsing updated info")?;
         let last_modified = &parsed
             .contents
@@ -156,21 +155,22 @@ impl fmt::Debug for S3Backend {
 const AWS_IMDS_CREDENTIALS: &str =
     "http://169.254.169.254/latest/meta-data/iam/security-credentials";
 
-fn ec2_credentials(client: &HttpClient) -> Result<Credentials> {
+/// <https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials>
+async fn ec2_credentials(client: &HttpClient) -> Result<Credentials> {
     let resp = client
         .get(AWS_IMDS_CREDENTIALS)
         .send()
-        .context("failed to get role name")?
+        .await?
         .error_for_status()?;
 
-    let role_name = resp.text()?;
+    let role_name = resp.text().await?;
     let resp = client
         .get(format!("{AWS_IMDS_CREDENTIALS}/{role_name}"))
         .send()
-        .context("failed to get role name")?
+        .await?
         .error_for_status()?;
 
-    let json = resp.text()?;
+    let json = resp.text().await?;
     let ec2_creds = Ec2SecurityCredentialsMetadataResponse::deserialize(&json)?;
     Ok(ec2_creds.into_credentials())
 }
