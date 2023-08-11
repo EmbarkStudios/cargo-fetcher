@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.14.0] - 2023-08-11
 ### Added
 - [PR#178](https://github.com/EmbarkStudios/cargo-fetcher/pull/174) resolved [#177](https://github.com/EmbarkStudios/cargo-fetcher/issues/177) by adding support for sparse indices. This was further improved in [PR#180](https://github.com/EmbarkStudios/cargo-fetcher/pull/180) by using `tame-index` for registry index operations.
 
@@ -127,7 +128,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.1...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.0...HEAD
+[0.14.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.1...0.14.0
 [0.13.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.0...0.13.1
 [0.13.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.1...0.13.0
 [0.12.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.0...0.12.1
