@@ -1,5 +1,5 @@
-use crate::{backends::gcs::convert_response, HttpClient, Krate};
-use anyhow::{Context, Error};
+use crate::{backends::gcs::convert_response, CloudId, HttpClient};
+use anyhow::{Context as _, Result};
 use bytes::Bytes;
 
 mod vendor;
@@ -13,7 +13,7 @@ pub struct BlobBackend {
 }
 
 impl BlobBackend {
-    pub fn new(loc: crate::BlobLocation<'_>, timeout: std::time::Duration) -> Result<Self, Error> {
+    pub fn new(loc: crate::BlobLocation<'_>, timeout: std::time::Duration) -> Result<Self> {
         let account =
             std::env::var("STORAGE_ACCOUNT").context("Set env variable STORAGE_ACCOUNT first!")?;
         let master_key = std::env::var("STORAGE_MASTER_KEY")
@@ -33,8 +33,8 @@ impl BlobBackend {
     }
 
     #[inline]
-    fn make_key(&self, krate: &Krate) -> String {
-        format!("{}{}", self.prefix, krate.cloud_id())
+    fn make_key(&self, id: CloudId<'_>) -> String {
+        format!("{}{id}", self.prefix)
     }
 }
 
@@ -48,10 +48,10 @@ fn utc_now_to_str() -> String {
 }
 
 impl crate::Backend for BlobBackend {
-    fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
+    fn fetch(&self, id: CloudId<'_>) -> Result<Bytes> {
         let dl_req = self
             .instance
-            .download(&self.make_key(krate), &utc_now_to_str())?;
+            .download(&self.make_key(id), &utc_now_to_str())?;
         let (parts, _) = dl_req.into_parts();
 
         let uri = parts.uri.to_string();
@@ -66,11 +66,11 @@ impl crate::Backend for BlobBackend {
         Ok(content)
     }
 
-    fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
+    fn upload(&self, source: Bytes, id: CloudId<'_>) -> Result<usize> {
         let content_len = source.len() as u64;
         let insert_req = self
             .instance
-            .insert(&self.make_key(krate), source, &utc_now_to_str())?;
+            .insert(&self.make_key(id), source, &utc_now_to_str())?;
         let (parts, body) = insert_req.into_parts();
 
         let uri = parts.uri.to_string();
@@ -83,7 +83,7 @@ impl crate::Backend for BlobBackend {
         Ok(content_len as usize)
     }
 
-    fn list(&self) -> Result<Vec<String>, Error> {
+    fn list(&self) -> Result<Vec<String>> {
         let list_req = self.instance.list(&utc_now_to_str())?;
 
         let (parts, _) = list_req.into_parts();
@@ -105,10 +105,10 @@ impl crate::Backend for BlobBackend {
         Ok(a)
     }
 
-    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
+    fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
         let request = self
             .instance
-            .properties(&self.make_key(krate), &utc_now_to_str())?;
+            .properties(&self.make_key(id), &utc_now_to_str())?;
         let (parts, _) = request.into_parts();
 
         let uri = parts.uri.to_string();
@@ -124,9 +124,5 @@ impl crate::Backend for BlobBackend {
             .replace_offset(time::UtcOffset::UTC);
 
         Ok(Some(last_modified))
-    }
-
-    fn set_prefix(&mut self, prefix: &str) {
-        self.prefix = prefix.to_owned();
     }
 }

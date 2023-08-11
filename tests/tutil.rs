@@ -1,21 +1,57 @@
-#![cfg(feature = "fs")]
 #![allow(dead_code)]
 
 use cargo_fetcher as cf;
-use cf::PathBuf;
+use cf::{Path, PathBuf};
 
 pub fn fs_ctx(root: PathBuf, registries: Vec<std::sync::Arc<cf::Registry>>) -> cf::Ctx {
     let backend = std::sync::Arc::new(
-        cf::backends::fs::FSBackend::new(cf::FilesystemLocation { path: &root })
+        cf::backends::fs::FsBackend::new(cf::FilesystemLocation { path: &root })
             .expect("failed to create fs backend"),
     );
 
     cf::Ctx::new(None, backend, Vec::new(), registries).expect("failed to create context")
 }
 
+pub struct TempDir {
+    pub td: tempfile::TempDir,
+}
+
+impl TempDir {
+    #[inline]
+    pub fn path(&self) -> &Path {
+        Path::from_path(self.td.path()).unwrap()
+    }
+
+    #[inline]
+    pub fn pb(&self) -> PathBuf {
+        self.path().to_owned()
+    }
+
+    #[inline]
+    pub fn into_path(self) -> PathBuf {
+        PathBuf::from_path_buf(self.td.into_path()).unwrap()
+    }
+}
+
+impl Default for TempDir {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            td: tempfile::TempDir::new_in(env!("CARGO_TARGET_TMPDIR")).unwrap(),
+        }
+    }
+}
+
+impl AsRef<std::path::Path> for TempDir {
+    #[inline]
+    fn as_ref(&self) -> &std::path::Path {
+        self.td.path()
+    }
+}
+
 #[inline]
-pub fn temp_path(td: &tempfile::TempDir) -> PathBuf {
-    cf::util::path(td.path()).unwrap().to_owned()
+pub fn tempdir() -> TempDir {
+    TempDir::default()
 }
 
 pub fn get_sync_dirs(ctx: &cf::Ctx) -> (PathBuf, PathBuf) {

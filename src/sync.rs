@@ -29,69 +29,64 @@ pub fn registry_index(
     backend: crate::Storage,
     registry: std::sync::Arc<Registry>,
 ) -> anyhow::Result<()> {
-    let ident = registry.short_name();
+    let ident = registry.short_name().to_owned();
 
-    let index_path = root_dir.join(INDEX_DIR).join(ident.clone());
+    let index_path = {
+        let mut ip = root_dir.join(INDEX_DIR);
+        ip.push(&ident);
+        ip
+    };
     std::fs::create_dir_all(&index_path).context("failed to create index dir")?;
 
-    // Just skip the index if the git directory already exists,
-    // as a patch on top of an existing repo via git fetch is
-    // presumably faster
-    if let Ok(repo) = git2::Repository::open(&index_path) {
+    // Just skip the index if the git directory already exists, as a patch on
+    // top of an existing repo via git fetch is presumably faster
+    let maybe_fetch = || {
+        anyhow::ensure!(gix::open(&index_path).is_ok(), "failed to open index repo");
+
         info!("registry index already exists, fetching instead");
 
-        let url = registry.index.as_str().to_owned();
+        let gi = tame_index::GitIndex::new(tame_index::IndexLocation {
+            url: tame_index::IndexUrl::NonCratesIo(registry.index.as_str().into()),
+            root: tame_index::IndexPath::Exact(index_path.clone()),
+        })?;
 
-        let fetch_res = {
-            let span = tracing::debug_span!("fetch");
+        {
+            let span = tracing::debug_span!("fetch", index = %registry.index);
             let _sf = span.enter();
+            let mut rgi = tame_index::index::RemoteGitIndex::new(gi)?;
+            rgi.fetch()?;
+        }
 
-            let git_config =
-                git2::Config::open_default().context("Failed to open default git config")?;
+        // Write a file to the directory to let cargo know when it was updated
+        std::fs::File::create(index_path.join(".last-updated"))
+            .context("failed to crate .last-updated")?;
+        Ok(())
+    };
 
-            crate::git::with_fetch_options(&git_config, &url, &mut |mut opts| {
-                repo.remote_anonymous(&url)?
-                    .fetch(
-                        &[
-                            "refs/heads/master:refs/remotes/origin/master",
-                            "HEAD:refs/remotes/origin/HEAD",
-                        ],
-                        Some(&mut opts),
-                        None,
-                    )
-                    .context("Failed to fetch")
-            })
-        };
-
-        // We need to ship off the fetching to a blocking thread so we don't anger tokio
-        match fetch_res {
-            Ok(_) => {
-                // Write a file to the directory to let cargo know when it was updated
-                std::fs::File::create(index_path.join(".last-updated"))
-                    .context("failed to crate .last-updated")?;
-                return Ok(());
-            }
-            Err(err_out) => {
-                error!(
-                    "failed to pull registry index, removing it and updating manually: {}",
-                    err_out
-                );
-                remove_dir_all::remove_dir_all(&index_path)?;
+    if registry.protocol == crate::RegistryProtocol::Git {
+        match maybe_fetch() {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                debug!(error = %err, "unable to fetch index");
+                // Attempt to nuke the directory in case there are actually files
+                // there, to give the best chance for the tarball unpack to work
+                let _ = remove_dir_all::remove_dir_all(&index_path);
             }
         }
     }
 
     let krate = Krate {
         name: ident.clone(),
-        version: "1.0.0".to_owned(),
-        source: Source::Git {
+        version: "2.0.0".to_owned(),
+        source: Source::Git(crate::cargo::GitSource {
             url: registry.index.clone(),
             ident,
-            rev: "feedc0de".to_owned(),
-        },
+            rev: crate::cargo::GitRev::parse("feedc0de00000000000000000000000000000000").unwrap(),
+            follow: None,
+        }),
     };
 
-    let index_data = backend.fetch(&krate)?;
+    let index_data = backend.fetch(krate.cloud_id(false))?;
 
     if let Err(e) = util::unpack_tar(index_data, util::Encoding::Zstd, &index_path) {
         error!(err = ?e, "failed to unpack crates.io-index");
@@ -100,13 +95,13 @@ pub fn registry_index(
     Ok(())
 }
 
-#[tracing::instrument(skip(src))]
+#[tracing::instrument(skip(pkg))]
 fn sync_git(
     db_dir: PathBuf,
     co_dir: PathBuf,
     krate: &Krate,
-    src: crate::git::GitSource,
-    rev: &str,
+    pkg: crate::git::GitPackage,
+    rev: &crate::cargo::GitRev,
 ) -> anyhow::Result<()> {
     let db_path = db_dir.join(format!("{}", krate.local_id()));
 
@@ -115,12 +110,12 @@ fn sync_git(
         remove_dir_all::remove_dir_all(&db_path).context("failed to remove existing DB path")?;
     }
 
-    let crate::git::GitSource { db, checkout } = src;
+    let crate::git::GitPackage { db, checkout } = pkg;
 
     let unpack_path = db_path.clone();
     util::unpack_tar(db, util::Encoding::Zstd, &unpack_path)?;
 
-    let co_path = co_dir.join(format!("{}/{rev}", krate.local_id()));
+    let co_path = co_dir.join(format!("{}/{}", krate.local_id(), rev.short()));
 
     // If we get here, it means there wasn't a .cargo-ok in the dir, even if the
     // rest of it is checked out and ready, so blow it away just in case as we are
@@ -138,8 +133,9 @@ fn sync_git(
             util::unpack_tar(checkout, util::Encoding::Zstd, &co_path)?;
         }
         None => {
-            // Do a checkout of the bare clone
-            crate::git::checkout(db_path, co_path.clone(), rev.to_owned())?;
+            // Do a checkout of the bare clone if we didn't/couldn't unpack the
+            // checkout tarball
+            crate::git::checkout(db_path, co_path.clone(), rev.id)?;
         }
     }
 
@@ -233,7 +229,7 @@ fn get_missing_git_sources<'krate>(
     to_sync: &mut Vec<&'krate Krate>,
 ) {
     for (rev, ident, krate) in ctx.krates.iter().filter_map(|k| match &k.source {
-        Source::Git { rev, ident, .. } => Some((rev, ident, k)),
+        Source::Git(gs) => Some((gs.rev.short(), &gs.ident, k)),
         Source::Registry { .. } => None,
     }) {
         let path = git_co_dir.join(format!("{ident}/{rev}/.cargo-ok"));
@@ -336,7 +332,7 @@ pub fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
         to_sync
             .into_par_iter()
             .map(|krate| {
-                let span = tracing::debug_span!("sync", %krate);
+                let span = tracing::info_span!("sync", %krate);
                 let _ss = span.enter();
 
                 let backend = ctx.backend.clone();
@@ -345,18 +341,18 @@ pub fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
                 let git_co_dir = git_co_dir.clone();
 
                 match &krate.source {
-                    Source::Registry { registry, chksum } => {
+                    Source::Registry(rs) => {
 
                         match {
                             let span = tracing::debug_span!("download");
                             let _ds = span.enter();
-                            backend.fetch(krate)
+                            backend.fetch(krate.cloud_id(false))
                         } {
                             Ok(krate_data) => {
                                 let len = krate_data.len();
-                                let (cache_dir, src_dir) = registry.sync_dirs(root_dir);
+                                let (cache_dir, src_dir) = rs.registry.sync_dirs(root_dir);
                                 if let Err(e) =
-                                    sync_package(&cache_dir, &src_dir, krate, krate_data, chksum)
+                                    sync_package(&cache_dir, &src_dir, krate, krate_data, &rs.chksum)
                                 {
                                     error!(err = ?e, "failed to splat package");
                                     return Err(e);
@@ -365,28 +361,20 @@ pub fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
                                 Ok(len)
                             }
                             Err(err) => {
-                                error!(err = ?err, krate = %krate, cloud = %krate.cloud_id(), "failed to download");
+                                error!(err = ?err, krate = %krate, cloud = %krate.cloud_id(false), "failed to download");
                                 Err(err)
                             }
                         }
                     }
-                    Source::Git { rev, .. } => {
+                    Source::Git(gs) => {
                         let (krate_data, checkout) = rayon::join(|| {
                             let span = tracing::debug_span!("download");
                             let _ds = span.enter();
-                            backend.fetch(krate)
+                            backend.fetch(krate.cloud_id(false))
                         }, || {
-                            let mut checkout_id = krate.clone();
-
-                            if let Source::Git { rev, .. } = &mut checkout_id.source {
-                                rev.push_str("-checkout");
-                            }
-
-                            {
-                                let span = tracing::debug_span!("download_checkout");
-                                let _ds = span.enter();
-                                backend.fetch(&checkout_id).ok()
-                            }
+                            let span = tracing::debug_span!("download_checkout");
+                            let _ds = span.enter();
+                            backend.fetch(krate.cloud_id(true)).ok()
                         });
 
                         let krate_data = match krate_data {
@@ -394,7 +382,7 @@ pub fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
                                 krate_data
                             }
                             Err(err) => {
-                                error!(err = ?err, krate = %krate, cloud = %krate.cloud_id(), "failed to download");
+                                error!(err = ?err, krate = %krate, cloud = %krate.cloud_id(false), "failed to download");
                                 return Err(err);
                             }
                         };
@@ -405,17 +393,17 @@ pub fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
                             len += co.len();
                         }
 
-                        let git_source = crate::git::GitSource {
+                        let git_pkg = crate::git::GitPackage {
                             db: krate_data,
                             checkout,
                         };
 
-                        match sync_git(git_db_dir, git_co_dir, krate, git_source, rev) {
+                        match sync_git(git_db_dir, git_co_dir, krate, git_pkg, &gs.rev) {
                             Ok(_) => {
                                 Ok(len)
                             }
                             Err(err) => {
-                                error!(err = ?err, "failed to splat git repo");
+                                error!("failed to splat git repo: {err:#}");
                                 Err(err)
                             }
                         }

@@ -1,276 +1,67 @@
-use crate::{Krate, PathBuf};
-
-use anyhow::{Context as _, Error};
+use crate::{CloudId, PathBuf};
+use anyhow::Result;
 use bytes::Bytes;
-use digest::Digest as DigestTrait;
-use sha2::Sha256;
-use std::{fs, io};
-
-use std::{convert::Into, fmt, str, time};
-
-const FINGERPRINT_SIZE: usize = 32;
-
-#[derive(serde::Serialize, serde::Deserialize, Copy, Clone, Debug)]
-struct Fingerprint([u8; FINGERPRINT_SIZE]);
-
-impl Fingerprint {
-    fn digest(bytes: &[u8]) -> Self {
-        let mut hasher = Sha256::default();
-        hasher.update(bytes);
-        Self::from_sha256_bytes(&hasher.finalize())
-    }
-
-    fn from_sha256_bytes(sha256_bytes: &[u8]) -> Self {
-        if sha256_bytes.len() != FINGERPRINT_SIZE {
-            panic!(
-                "Input value was not a fingerprint; has length: {} (must be {FINGERPRINT_SIZE})",
-                sha256_bytes.len(),
-            );
-        }
-        let mut fingerprint = [0; FINGERPRINT_SIZE];
-        fingerprint.clone_from_slice(&sha256_bytes[0..FINGERPRINT_SIZE]);
-        Self(fingerprint)
-    }
-
-    fn from_hex_string(hex_string: &str) -> Result<Self, Error> {
-        <[u8; FINGERPRINT_SIZE] as hex::FromHex>::from_hex(hex_string)
-            .map(Self)
-            .map_err(|e| e.into())
-    }
-
-    fn to_hex(self) -> String {
-        let mut s = String::with_capacity(FINGERPRINT_SIZE * 2);
-        for &byte in &self.0 {
-            fmt::Write::write_fmt(&mut s, format_args!("{byte:02x}")).unwrap();
-        }
-        s
-    }
-}
-
-///
-/// A key-value store backed by a filesystem directory.
-///
-#[derive(Debug)]
-#[allow(clippy::upper_case_acronyms)]
-struct FilesystemDB {
-    root: PathBuf,
-}
-
-impl FilesystemDB {
-    fn new(root: PathBuf) -> Result<Self, Error> {
-        fs::create_dir_all(&root)?;
-        Ok(Self { root })
-    }
-
-    fn lookup_fingerprint(&self, key: Fingerprint) -> Result<Option<Bytes>, Error> {
-        let hex = key.to_hex();
-        let entry_path = self.root.join(hex);
-        match fs::read(entry_path) {
-            Ok(bytes) => Ok(Some(Bytes::from(bytes))),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    fn lookup<K: Into<Fingerprint>, V: From<Bytes>>(&self, key: K) -> Result<Option<V>, Error> {
-        let key = key.into();
-        let result = self.lookup_fingerprint(key)?;
-        Ok(result.map(|bytes| bytes.into()))
-    }
-
-    fn insert_fingerprint_bytes(
-        &self,
-        key: Fingerprint,
-        value: Bytes,
-    ) -> Result<Fingerprint, Error> {
-        let hex = key.to_hex();
-        let entry_path = self.root.join(hex);
-        fs::write(entry_path, &value)?;
-        Ok(key)
-    }
-
-    fn insert<K: Into<Fingerprint>, V: Into<Bytes>>(
-        &self,
-        key: K,
-        value: V,
-    ) -> Result<Fingerprint, Error> {
-        let key = key.into();
-        self.insert_fingerprint_bytes(key, value.into())
-    }
-
-    fn list_keys(&self) -> Result<Vec<Fingerprint>, Error> {
-        let mut results = Vec::new();
-        for res in fs::read_dir(&self.root)? {
-            let entry = res?;
-            let file_name = entry.file_name();
-            results.push(Fingerprint::from_hex_string(&file_name.to_string_lossy())?);
-        }
-        Ok(results)
-    }
-
-    fn modified_time_fingerprint(
-        &self,
-        key: Fingerprint,
-    ) -> Result<Option<time::SystemTime>, Error> {
-        let hex = key.to_hex();
-        let entry_path = self.root.join(hex);
-        let modified_time = match fs::metadata(entry_path) {
-            Ok(metadata) => metadata.modified()?,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                return Ok(None);
-            }
-            Err(e) => {
-                return Err(e.into());
-            }
-        };
-        Ok(Some(modified_time))
-    }
-
-    fn modified_time<K: Into<Fingerprint>>(
-        &self,
-        key: K,
-    ) -> Result<Option<time::SystemTime>, Error> {
-        self.modified_time_fingerprint(key.into())
-    }
-}
-
-/// A specialization of [`FilesystemDB`] that implements a Content-Addressed Storage (CAS) interface.
-#[derive(Debug)]
-#[allow(clippy::upper_case_acronyms)]
-struct CasDB {
-    db: FilesystemDB,
-}
-
-impl CasDB {
-    fn new(db: FilesystemDB) -> Self {
-        Self { db }
-    }
-
-    fn lookup_cas_fingerprint(&self, key: Fingerprint) -> Result<Option<Bytes>, Error> {
-        self.db.lookup_fingerprint(key)
-    }
-
-    fn lookup_cas<K: Into<Fingerprint>, V: From<Bytes>>(&self, key: K) -> Result<Option<V>, Error> {
-        let key = key.into();
-        let result = self.lookup_cas_fingerprint(key)?;
-        Ok(result.map(|bytes| bytes.into()))
-    }
-
-    fn insert_cas_bytes(&self, value: Bytes) -> Result<Fingerprint, Error> {
-        let key = Fingerprint::digest(&value);
-        self.db.insert_fingerprint_bytes(key, value)
-    }
-
-    fn insert_cas<V: Into<Bytes>>(&self, value: V) -> Result<Fingerprint, Error> {
-        let bytes = value.into();
-        self.insert_cas_bytes(bytes)
-    }
-
-    fn list_cas_keys(&self) -> Result<Vec<Fingerprint>, Error> {
-        self.db.list_keys()
-    }
-}
+use std::fs;
 
 #[derive(Debug)]
-#[allow(clippy::upper_case_acronyms)]
-pub struct FSBackend {
-    krate_lookup: CasDB,
-    krate_data: FilesystemDB,
-    // TODO: figure out if this `prefix` boilerplate can be simplified.
-    prefix: String,
+pub struct FsBackend {
+    path: PathBuf,
 }
 
-impl FSBackend {
-    pub fn new(loc: crate::FilesystemLocation<'_>) -> Result<Self, Error> {
+impl FsBackend {
+    pub fn new(loc: crate::FilesystemLocation<'_>) -> Result<Self> {
         let crate::FilesystemLocation { path } = loc;
 
-        let krate_lookup = CasDB::new(FilesystemDB::new(path.join("krate_lookup"))?);
-        let krate_data = FilesystemDB::new(path.join("krate_data"))?;
+        if !path.exists() {
+            fs::create_dir_all(path)?;
+        }
 
         Ok(Self {
-            krate_lookup,
-            krate_data,
-
-            prefix: "".to_string(),
+            path: path.to_owned(),
         })
     }
-}
 
-impl From<Krate> for Fingerprint {
-    fn from(krate: Krate) -> Self {
-        let krate_json = serde_json::to_string(&krate)
-            .expect("did not expect an error serializing Krate object");
-        Self::digest(krate_json.as_bytes())
+    #[inline]
+    fn make_path(&self, id: CloudId<'_>) -> PathBuf {
+        self.path.join(id.to_string())
     }
 }
 
-impl From<Krate> for Bytes {
-    fn from(krate: Krate) -> Self {
-        let krate_json =
-            serde_json::to_vec(&krate).expect("did not expect an error serializing Krate object");
-        Bytes::from(krate_json)
-    }
-}
-
-impl From<Bytes> for Krate {
-    fn from(bytes: Bytes) -> Self {
-        let json_string =
-            str::from_utf8(&bytes).expect("failed to convert bytes into json string for Krate");
-        let krate: Krate = serde_json::from_str(json_string)
-            .expect("failed to deserialize Krate from json string");
-        krate
-    }
-}
-
-impl crate::Backend for FSBackend {
-    fn fetch(&self, krate: &Krate) -> Result<Bytes, Error> {
-        self.krate_data
-            .lookup(krate.clone())?
-            .ok_or_else(|| anyhow::Error::msg(format!("krate {:?} not found!", krate)))
+impl crate::Backend for FsBackend {
+    fn fetch(&self, id: CloudId<'_>) -> Result<Bytes> {
+        let path = self.make_path(id);
+        let buf = fs::read(path)?;
+        Ok(buf.into())
     }
 
-    fn upload(&self, source: Bytes, krate: &Krate) -> Result<usize, Error> {
-        // 1. Serialize the krate to json and store that in a separate table than the package
-        // contents table. This will be consumed by list().
-        self.krate_lookup.insert_cas(krate.clone())?;
-
-        // 2. Still using the Krate as the content-addressed key, store the package bytes into the
-        // package contents table (in this case, writing a file). This will be consumed by fetch().
-        let len = source.len();
-        self.krate_data.insert(krate.clone(), source)?;
-
-        Ok(len)
+    fn upload(&self, source: Bytes, id: CloudId<'_>) -> Result<usize> {
+        let path = self.make_path(id);
+        fs::write(path, &source)?;
+        Ok(source.len())
     }
 
-    fn list(&self) -> Result<Vec<String>, Error> {
-        let all_keys: Vec<Fingerprint> = self.krate_lookup.list_cas_keys()?;
-        let mut all_names: Vec<String> = vec![];
-        for key in all_keys {
-            let cur_krate: Krate = self
-                .krate_lookup
-                .lookup_cas(key)?
-                .expect("this key was provided by list_cas_keys()");
-            let stripped_name = cur_krate.name[self.prefix.len()..].to_owned();
-            all_names.push(stripped_name);
+    fn list(&self) -> Result<Vec<String>> {
+        let entries = fs::read_dir(&self.path)?
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                entry.file_type().ok().filter(|ft| ft.is_file())?;
+                entry.file_name().into_string().ok()
+            })
+            .collect();
+
+        Ok(entries)
+    }
+
+    fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
+        let path = self.make_path(id);
+
+        if !path.exists() {
+            return Ok(None);
         }
-        Ok(all_names)
-    }
 
-    fn updated(&self, krate: &Krate) -> Result<Option<crate::Timestamp>, Error> {
-        if let Some(timestamp) = self.krate_data.modified_time(krate.clone())? {
-            let unix_time = timestamp.duration_since(time::UNIX_EPOCH)?.as_secs();
+        let metadata = fs::metadata(&path)?;
+        let modified = metadata.modified()?.into();
 
-            // TODO: figure out how to initialize a timestamp using a u64 instead of cutting
-            // off half the range into an i64.
-            crate::Timestamp::from_unix_timestamp(unix_time as i64)
-                .context("invalid timestamp range")
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn set_prefix(&mut self, prefix: &str) {
-        self.prefix = prefix.to_owned();
+        Ok(Some(modified))
     }
 }

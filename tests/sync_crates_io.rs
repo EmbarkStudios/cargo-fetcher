@@ -1,47 +1,47 @@
 use anyhow::Context;
 use cargo_fetcher as cf;
-use cf::{Krate, Source};
+use cf::{Krate, RegistrySource, Source};
 
 mod tutil;
 use tutil as util;
 
 #[test]
 fn all_missing() {
-    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
-    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), registries);
 
-    let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = util::temp_path(&missing_root);
+    let missing_root = util::tempdir();
+    fs_ctx.root_dir = missing_root.pb();
 
     fs_ctx.krates = vec![
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry: registry.clone(),
                 chksum: "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b"
                     .to_owned(),
-            },
+            }),
         },
         Krate {
             name: "base64".to_owned(),
             version: "0.10.1".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry: registry.clone(),
                 chksum: "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e"
                     .to_owned(),
-            },
+            }),
         },
         Krate {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry,
                 chksum: "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
                     .to_owned(),
-            },
+            }),
         },
     ];
 
@@ -63,7 +63,7 @@ fn all_missing() {
             };
 
             match &krate.source {
-                Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
+                Source::Registry(rs) => cf::util::validate_checksum(&bytes, &rs.chksum)
                     .expect("failed to validate checksum"),
                 Source::Git { .. } => unreachable!(),
             }
@@ -81,40 +81,40 @@ fn all_missing() {
 
 #[test]
 fn some_missing() {
-    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
-    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), vec![registry.clone()]);
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), vec![registry.clone()]);
 
-    let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = util::temp_path(&missing_root);
+    let missing_root = util::tempdir();
+    fs_ctx.root_dir = missing_root.pb();
 
     fs_ctx.krates = vec![
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry: registry.clone(),
                 chksum: "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b"
                     .to_owned(),
-            },
+            }),
         },
         Krate {
             name: "base64".to_owned(),
             version: "0.10.1".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry: registry.clone(),
                 chksum: "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e"
                     .to_owned(),
-            },
+            }),
         },
         Krate {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry,
                 chksum: "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
                     .to_owned(),
-            },
+            }),
         },
     ];
 
@@ -137,11 +137,11 @@ fn some_missing() {
         for krate in &fs_ctx.krates {
             let bytes =
                 std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
-                    .with_context(|| format!("{:#}", krate))
+                    .with_context(|| format!("{krate:#}"))
                     .expect("can't read");
 
             match &krate.source {
-                Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
+                Source::Registry(rs) => cf::util::validate_checksum(&bytes, &rs.chksum)
                     .expect("failed to validate checksum"),
                 Source::Git { .. } => unreachable!(),
             }
@@ -167,11 +167,11 @@ fn some_missing() {
         for krate in &fs_ctx.krates {
             let bytes =
                 std::fs::read(cache_root.join(format!("{}-{}.crate", krate.name, krate.version)))
-                    .with_context(|| format!("{:#}", krate))
+                    .with_context(|| format!("{krate:#}"))
                     .expect("can't read");
 
             match &krate.source {
-                Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
+                Source::Registry(rs) => cf::util::validate_checksum(&bytes, &rs.chksum)
                     .expect("failed to validate checksum"),
                 Source::Git { .. } => unreachable!(),
             }
@@ -189,41 +189,41 @@ fn some_missing() {
 
 #[test]
 fn none_missing() {
-    let fs_root = tempfile::TempDir::new().expect("failed to create tempdir");
+    let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
-    let mut fs_ctx = util::fs_ctx(util::temp_path(&fs_root), registries);
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), registries);
 
-    let missing_root = tempfile::TempDir::new().expect("failed to crate tempdir");
-    fs_ctx.root_dir = util::temp_path(&missing_root);
+    let missing_root = util::tempdir();
+    fs_ctx.root_dir = missing_root.pb();
 
     fs_ctx.krates = vec![
         Krate {
             name: "ansi_term".to_owned(),
             version: "0.11.0".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry: registry.clone(),
                 chksum: "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b"
                     .to_owned(),
-            },
+            }),
         },
         Krate {
             name: "base64".to_owned(),
             version: "0.10.1".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry: registry.clone(),
                 chksum: "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e"
                     .to_owned(),
-            },
+            }),
         },
         Krate {
             name: "uuid".to_owned(),
             version: "0.7.4".to_owned(),
-            source: Source::Registry {
+            source: Source::Registry(RegistrySource {
                 registry,
                 chksum: "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
                     .to_owned(),
-            },
+            }),
         },
     ];
 
@@ -243,7 +243,7 @@ fn none_missing() {
                     .expect("can't read");
 
             match &krate.source {
-                Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
+                Source::Registry(rs) => cf::util::validate_checksum(&bytes, &rs.chksum)
                     .expect("failed to validate checksum"),
                 Source::Git { .. } => unreachable!(),
             }
@@ -275,7 +275,7 @@ fn none_missing() {
                     .expect("can't read");
 
             match &krate.source {
-                Source::Registry { chksum, .. } => cf::util::validate_checksum(&bytes, chksum)
+                Source::Registry(rs) => cf::util::validate_checksum(&bytes, &rs.chksum)
                     .expect("failed to validate checksum"),
                 Source::Git { .. } => unreachable!(),
             }
