@@ -63,13 +63,15 @@ pub fn registry_index(
         Ok(())
     };
 
-    match maybe_fetch() {
-        Ok(()) => return Ok(()),
-        Err(err) => {
-            debug!(error = %err, "unable to fetch index");
-            // Attempt to nuke the directory in case there are actually files
-            // there, to give the best chance for the tarball unpack to work
-            let _ = remove_dir_all::remove_dir_all(&index_path);
+    if registry.protocol == crate::RegistryProtocol::Git {
+        match maybe_fetch() {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                debug!(error = %err, "unable to fetch index");
+                // Attempt to nuke the directory in case there are actually files
+                // there, to give the best chance for the tarball unpack to work
+                let _ = remove_dir_all::remove_dir_all(&index_path);
+            }
         }
     }
 
