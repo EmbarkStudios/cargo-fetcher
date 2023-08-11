@@ -107,7 +107,7 @@ jobs:
       - name: cargo fetch
         run: cargo fetch --target ${{ matrix.target }}
       - name: Release build
-        run: cargo build --release --target ${{ matrix.target }} --features=gcs,s3,fs,blob
+        run: cargo build --release --target ${{ matrix.target }} --features=gcs,s3,blob
       - name: Package
         shell: bash
         env:
