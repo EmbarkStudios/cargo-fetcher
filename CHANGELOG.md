@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Added
+- [PR#178](https://github.com/EmbarkStudios/cargo-fetcher/pull/174) resolved [#177](https://github.com/EmbarkStudios/cargo-fetcher/issues/177) by adding support for sparse indices. This was further improved in [PR#180](https://github.com/EmbarkStudios/cargo-fetcher/pull/180) by using `tame-index` for registry index operations.
+
+### Changed
+- [PR#180](https://github.com/EmbarkStudios/cargo-fetcher/pull/180) introduced 2 major refactors. `tame-index` is now used to fetch index metadata as well as several related helper functions, shrinking this codebase a bit. `git2` has been replaced by `gix`, completely removing both it and openssl from the dependency graph.
+- [PR#181](https://github.com/EmbarkStudios/cargo-fetcher/pull/181) made changes to asyncify the code, giving good speedups in `mirror` operations, but (at the moment) slightly worse timings for `sync`. This will hopefully be fixed in a later patch.
+
 ## [0.13.1] - 2023-01-10
 ### Changed
 - [PR#174](https://github.com/EmbarkStudios/cargo-fetcher/pull/174) made it so that git sources can now be specified however the user likes instead of just supporting the `rev` specifier, as the exact revision is now acquired via the fragment in the source url instead.

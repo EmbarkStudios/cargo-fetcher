@@ -16,7 +16,7 @@ ignore = []
 
 [bans]
 multiple-versions = "deny"
-deny = []
+deny = [{ name = "git2" }, { name = "openssl" }]
 skip = [
     # nix
     { name = "bitflags", version = "=1.3.2" },
@@ -82,6 +82,3 @@ license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
 name = "encoding_rs"
 expression = "(Apache-2.0 OR MIT) AND BSD-3-Clause"
 license-files = [{ path = "COPYRIGHT", hash = 0x39f8ad31 }]
-
-[sources]
-allow-git = ["https://github.com/Byron/gitoxide"]
