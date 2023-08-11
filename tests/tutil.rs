@@ -78,7 +78,7 @@ pub fn hook_logger() {
         // If a user specifies a log level, we assume it only pertains to cargo_fetcher,
         // if they want to trace other crates they can use the RUST_LOG env approach
         env_filter = env_filter.add_directive(
-            format!("cargo_fetcher={}", tracing::Level::DEBUG)
+            format!("cargo_fetcher={}", tracing::Level::INFO)
                 .parse()
                 .unwrap(),
         );

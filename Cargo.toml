@@ -31,10 +31,13 @@ strip = "debuginfo"
 [dependencies]
 # Ergonomic error handling
 anyhow = "1.0"
+async-scoped = { version = "0.7", features = ["use-tokio"] }
+async-trait = "0.1"
 base64 = { version = "0.21", optional = true }
 bytes = "1.0"
 camino = "1.1"
 clap = { version = "4.0", features = ["derive", "env"] }
+crossbeam-channel = "0.5"
 flate2 = { version = "1.0", default-features = false, features = [
     "rust_backend",
 ] }
@@ -76,7 +79,7 @@ features = [
 
 [dependencies.tokio]
 version = "1.4"
-features = ["rt-multi-thread"]
+features = ["rt-multi-thread", "macros"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

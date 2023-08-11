@@ -124,8 +124,8 @@ use cargo_fetcher as cf;
 mod tutil;
 use tutil as util;
 
-#[test]
-fn diff_cargo() {
+#[tokio::test]
+async fn diff_cargo() {
     if std::env::var("CARGO_FETCHER_CRATES_IO_PROTOCOL")
         .ok()
         .as_deref()
@@ -175,12 +175,15 @@ fn diff_cargo() {
         assert_eq!(registry_sets.len(), 1);
         let the_registry = fs_ctx.registries[0].clone();
 
-        cf::mirror::registry_indices(&fs_ctx, std::time::Duration::new(10, 0), registry_sets);
-        cf::mirror::crates(&fs_ctx).expect("failed to mirror crates");
+        cf::mirror::registry_indices(&fs_ctx, std::time::Duration::new(10, 0), registry_sets).await;
+        cf::mirror::crates(&fs_ctx)
+            .await
+            .expect("failed to mirror crates");
 
         fs_ctx.prep_sync_dirs().expect("create base dirs");
-        cf::sync::crates(&fs_ctx).expect("synced crates");
+        cf::sync::crates(&fs_ctx).await.expect("synced crates");
         cf::sync::registry_index(&fs_ctx.root_dir, fs_ctx.backend.clone(), the_registry)
+            .await
             .expect("failed to sync index");
     }
 

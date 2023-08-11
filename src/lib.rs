@@ -11,7 +11,7 @@ pub mod mirror;
 pub mod sync;
 pub mod util;
 
-pub type HttpClient = reqwest::blocking::Client;
+pub type HttpClient = reqwest::Client;
 
 pub use cargo::{read_cargo_config, GitSource, Registry, RegistryProtocol, RegistrySource, Source};
 
@@ -209,9 +209,10 @@ impl fmt::Debug for Ctx {
 
 pub type Timestamp = time::OffsetDateTime;
 
+#[async_trait::async_trait]
 pub trait Backend: fmt::Debug {
-    fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes, Error>;
-    fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize, Error>;
-    fn list(&self) -> Result<Vec<String>, Error>;
-    fn updated(&self, id: CloudId<'_>) -> Result<Option<Timestamp>, Error>;
+    async fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes, Error>;
+    async fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize, Error>;
+    async fn list(&self) -> Result<Vec<String>, Error>;
+    async fn updated(&self, id: CloudId<'_>) -> Result<Option<Timestamp>, Error>;
 }

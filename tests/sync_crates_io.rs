@@ -5,8 +5,8 @@ use cf::{Krate, RegistrySource, Source};
 mod tutil;
 use tutil as util;
 
-#[test]
-fn all_missing() {
+#[tokio::test]
+async fn all_missing() {
     let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
@@ -45,9 +45,17 @@ fn all_missing() {
         },
     ];
 
-    cf::mirror::crates(&fs_ctx).expect("failed to mirror crates");
+    cf::mirror::crates(&fs_ctx)
+        .await
+        .expect("failed to mirror crates");
     fs_ctx.prep_sync_dirs().expect("create base dirs");
-    assert_eq!(cf::sync::crates(&fs_ctx).expect("synced 3 crates").good, 3,);
+    assert_eq!(
+        cf::sync::crates(&fs_ctx)
+            .await
+            .expect("synced 3 crates")
+            .good,
+        3,
+    );
 
     let (cache_root, src_root) = util::get_sync_dirs(&fs_ctx);
 
@@ -79,8 +87,8 @@ fn all_missing() {
     }
 }
 
-#[test]
-fn some_missing() {
+#[tokio::test]
+async fn some_missing() {
     let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
     let mut fs_ctx = util::fs_ctx(fs_root.pb(), vec![registry.clone()]);
@@ -121,14 +129,22 @@ fn some_missing() {
     tracing::info!("mirroring crates");
 
     // Download and store the crates in the local fs backend
-    cf::mirror::crates(&fs_ctx).expect("failed to mirror crates");
+    cf::mirror::crates(&fs_ctx)
+        .await
+        .expect("failed to mirror crates");
 
     fs_ctx.prep_sync_dirs().expect("create base dirs");
 
     // Sync just the base64 crate to the local store
     let stored = fs_ctx.krates.clone();
     fs_ctx.krates = vec![stored[2].clone()];
-    assert_eq!(cf::sync::crates(&fs_ctx).expect("synced 1 crate").good, 1);
+    assert_eq!(
+        cf::sync::crates(&fs_ctx)
+            .await
+            .expect("synced 1 crate")
+            .good,
+        1
+    );
 
     let (cache_root, src_root) = util::get_sync_dirs(&fs_ctx);
 
@@ -160,7 +176,13 @@ fn some_missing() {
     // Sync all of the crates, except since we've already synced base64, we should
     // only receive the other 2
     fs_ctx.krates = stored;
-    assert_eq!(cf::sync::crates(&fs_ctx).expect("synced 2 crates").good, 2);
+    assert_eq!(
+        cf::sync::crates(&fs_ctx)
+            .await
+            .expect("synced 2 crates")
+            .good,
+        2
+    );
 
     // Ensure the unmutated crates are in the cache directory
     {
@@ -187,8 +209,8 @@ fn some_missing() {
     }
 }
 
-#[test]
-fn none_missing() {
+#[tokio::test]
+async fn none_missing() {
     let fs_root = util::tempdir();
     let registry = std::sync::Arc::new(util::crates_io_registry());
     let registries = vec![registry.clone()];
@@ -227,10 +249,18 @@ fn none_missing() {
         },
     ];
 
-    cf::mirror::crates(&fs_ctx).expect("failed to mirror crates");
+    cf::mirror::crates(&fs_ctx)
+        .await
+        .expect("failed to mirror crates");
     fs_ctx.prep_sync_dirs().expect("create base dirs");
 
-    assert_eq!(cf::sync::crates(&fs_ctx).expect("synced 3 crate").good, 3);
+    assert_eq!(
+        cf::sync::crates(&fs_ctx)
+            .await
+            .expect("synced 3 crate")
+            .good,
+        3
+    );
 
     let (cache_root, src_root) = util::get_sync_dirs(&fs_ctx);
 
@@ -261,6 +291,7 @@ fn none_missing() {
 
     assert_eq!(
         cf::sync::crates(&fs_ctx)
+            .await
             .expect("synced 0 crates")
             .total_bytes,
         0

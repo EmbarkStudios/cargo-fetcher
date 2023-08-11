@@ -1,9 +1,12 @@
-use crate::{CloudId, HttpClient, Path};
+use crate::{
+    util::{self, send_request_with_retry},
+    CloudId, HttpClient, Path,
+};
 use anyhow::{Context as _, Result};
 use tame_gcs::{objects::Object, BucketName, ObjectName};
 use tracing::debug;
 
-fn acquire_gcs_token(cred_path: &Path) -> Result<tame_oauth::Token> {
+async fn acquire_gcs_token(cred_path: &Path) -> Result<tame_oauth::Token> {
     // If we're not completing whatever task in under an hour then we
     // have more problems than the token expiring
     use tame_oauth::gcp::{self, TokenProvider};
@@ -22,25 +25,26 @@ fn acquire_gcs_token(cred_path: &Path) -> Result<tame_oauth::Token> {
             scope_hash,
             ..
         } => {
-            let (parts, body) = request.into_parts();
-
             let client = HttpClient::new();
+            let res = client.execute(request.try_into().unwrap()).await?;
 
-            let uri = parts.uri.to_string();
+            let mut builder = http::Response::builder()
+                .status(res.status())
+                .version(res.version());
 
-            let builder = match parts.method {
-                http::Method::GET => client.get(&uri),
-                http::Method::POST => client.post(&uri),
-                http::Method::DELETE => client.delete(&uri),
-                http::Method::PUT => client.put(&uri),
-                method => unreachable!("{method} not implemented"),
-            };
+            let headers = builder
+                .headers_mut()
+                .context("failed to convert response headers")?;
 
-            let req = builder.headers(parts.headers).body(body).build()?;
+            headers.extend(
+                res.headers()
+                    .into_iter()
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            );
 
-            let res = client.execute(req)?;
+            let body = res.bytes().await?;
+            let response = builder.body(body)?;
 
-            let response = convert_response(res)?;
             svc_account_access.parse_token_response(scope_hash, response)?
         }
         gcp::TokenOrRequest::Token(_) => unreachable!(),
@@ -57,14 +61,14 @@ pub struct GcsBackend {
 }
 
 impl GcsBackend {
-    pub fn new(
+    pub async fn new(
         loc: crate::GcsLocation<'_>,
         credentials: &Path,
         timeout: std::time::Duration,
     ) -> Result<Self> {
         let bucket = BucketName::try_from(loc.bucket.to_owned())?;
 
-        let token = acquire_gcs_token(credentials)?;
+        let token = acquire_gcs_token(credentials).await?;
 
         use reqwest::header;
 
@@ -108,27 +112,23 @@ impl fmt::Debug for GcsBackend {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::Backend for GcsBackend {
-    fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes> {
+    async fn fetch(&self, id: CloudId<'_>) -> Result<bytes::Bytes> {
         let dl_req = self
             .obj
             .download(&(&self.bucket, &self.obj_name(id)?), None)?;
 
-        let (parts, _) = dl_req.into_parts();
-
-        let uri = parts.uri.to_string();
-        let builder = self.client.get(uri);
-
-        let request = builder.headers(parts.headers).build()?;
-
-        let response = self.client.execute(request)?.error_for_status()?;
-        let res = convert_response(response)?;
-        let content = res.into_body();
+        let content = send_request_with_retry(&self.client, util::convert_request(dl_req))
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
 
         Ok(content)
     }
 
-    fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize> {
+    async fn upload(&self, source: bytes::Bytes, id: CloudId<'_>) -> Result<usize> {
         use tame_gcs::objects::InsertObjectOptional;
 
         let content_len = source.len() as u64;
@@ -143,19 +143,14 @@ impl crate::Backend for GcsBackend {
             }),
         )?;
 
-        let (parts, body) = insert_req.into_parts();
-
-        let uri = parts.uri.to_string();
-        let builder = self.client.post(uri);
-
-        let request = builder.headers(parts.headers).body(body).build()?;
-
-        self.client.execute(request)?.error_for_status()?;
+        send_request_with_retry(&self.client, insert_req.try_into()?)
+            .await?
+            .error_for_status()?;
 
         Ok(content_len as usize)
     }
 
-    fn list(&self) -> Result<Vec<String>> {
+    async fn list(&self) -> Result<Vec<String>> {
         use tame_gcs::objects::{ListOptional, ListResponse};
 
         // Get a list of all crates already present in gcs, the list
@@ -177,16 +172,10 @@ impl crate::Backend for GcsBackend {
                 }),
             )?;
 
-            let (parts, _) = ls_req.into_parts();
-
-            let uri = parts.uri.to_string();
-            let builder = self.client.get(uri);
-
-            let request = builder.headers(parts.headers).build()?;
-
-            let res = self.client.execute(request)?;
-
-            let response = convert_response(res)?;
+            let response = util::convert_response(
+                send_request_with_retry(&self.client, util::convert_request(ls_req)).await?,
+            )
+            .await?;
             let list_response = ListResponse::try_from(response)?;
 
             let name_block: Vec<_> = list_response
@@ -211,7 +200,7 @@ impl crate::Backend for GcsBackend {
             .collect())
     }
 
-    fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
+    async fn updated(&self, id: CloudId<'_>) -> Result<Option<crate::Timestamp>> {
         use tame_gcs::objects::{GetObjectOptional, GetObjectResponse};
 
         let get_req = self.obj.get(
@@ -225,38 +214,12 @@ impl crate::Backend for GcsBackend {
             }),
         )?;
 
-        let (parts, _) = get_req.into_parts();
-
-        let uri = parts.uri.to_string();
-        let builder = self.client.get(uri);
-
-        let request = builder.headers(parts.headers).build()?;
-
-        let response = self.client.execute(request)?.error_for_status()?;
-
-        let response = convert_response(response)?;
+        let response = util::convert_response(
+            send_request_with_retry(&self.client, util::convert_request(get_req)).await?,
+        )
+        .await?;
         let get_response = GetObjectResponse::try_from(response)?;
 
         Ok(get_response.metadata.updated)
     }
-}
-
-pub fn convert_response(res: reqwest::blocking::Response) -> Result<http::Response<bytes::Bytes>> {
-    let mut builder = http::Response::builder()
-        .status(res.status())
-        .version(res.version());
-
-    let headers = builder
-        .headers_mut()
-        .context("failed to convert response headers")?;
-
-    headers.extend(
-        res.headers()
-            .into_iter()
-            .map(|(k, v)| (k.clone(), v.clone())),
-    );
-
-    let body = res.bytes()?;
-
-    Ok(builder.body(body)?)
 }

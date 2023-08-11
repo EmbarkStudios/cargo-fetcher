@@ -20,23 +20,24 @@ Times may be specified with no suffix (default seconds), or one of:
     max_stale: crate::Dur,
 }
 
-pub(crate) fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
+pub(crate) async fn cmd(ctx: Ctx, include_index: bool, args: Args) -> Result<(), Error> {
     let regs = ctx.registry_sets();
 
-    rayon::join(
-        || {
-            if !include_index {
-                return;
-            }
+    async_scoped::TokioScope::scope_and_block(|s| {
+        if include_index {
+            s.spawn(async {
+                mirror::registry_indices(&ctx, args.max_stale.0, regs).await;
+                info!("finished uploading registry indices");
+            });
+        }
 
-            mirror::registry_indices(&ctx, args.max_stale.0, regs);
-            info!("finished uploading registry indices");
-        },
-        || match mirror::crates(&ctx) {
-            Ok(_) => info!("finished uploading crates"),
-            Err(e) => error!("failed to mirror crates: {:#}", e),
-        },
-    );
+        s.spawn(async {
+            match mirror::crates(&ctx).await {
+                Ok(_) => info!("finished uploading crates"),
+                Err(e) => error!("failed to mirror crates: {:#}", e),
+            }
+        });
+    });
 
     Ok(())
 }
