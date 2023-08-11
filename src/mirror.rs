@@ -196,7 +196,7 @@ pub async fn crates(ctx: &Ctx) -> Result<usize, Error> {
                             }
                         }
                         Err(err) => {
-                            error!("failed to retrieve: {err:#}");
+                            error!(krate = %krate, "failed to retrieve: {err:#}");
                             0
                         }
                     }
