@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.14.2] - 2023-08-15
 ### Fixed
 - [PR#183](https://github.com/EmbarkStudios/cargo-fetcher/pull/183) fixed an issue where submodule `HEAD`s did not reflect the actual checkout, causing cargo to resync them even though it didn't need to.
 
@@ -135,7 +136,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.1...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.2...HEAD
+[0.14.2]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.1...0.14.2
 [0.14.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.0...0.14.1
 [0.14.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.1...0.14.0
 [0.13.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.0...0.13.1
