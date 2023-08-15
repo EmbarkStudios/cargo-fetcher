@@ -346,7 +346,16 @@ impl Source {
         } = tame_index::utils::url_to_local_dir(url.as_str())?;
 
         Ok(Source::Git(GitSource {
-            url: canonical.parse()?,
+            // Note just like cargo, the canonical url is only used for hashing
+            // purposes, it always uses the url exactly as provided by the user
+            // for actual network requests
+            url: {
+                let mut curl: Url = canonical.parse().context("failed to parse canonical url")?;
+                if url.host_str() != Some("github.com") {
+                    curl.set_path(url.path());
+                }
+                curl
+            },
             ident: dir_name,
             rev,
             follow,

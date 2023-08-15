@@ -12,6 +12,9 @@ tame-oauth = "=0.4.2"
 cpal = { version = "0.13.5" }
 # this repo contains recursive submodules
 sentry-contrib-breakpad = { git = "https://github.com/EmbarkStudios/sentry-contrib-rust", rev = "5e10bd5ad" }
+# this repo on gitlab requires us to use the .git extension otherwise it will
+# redirect, but we still need to calculate the same hash as cargo for the local directory
+gilrs = { git = "https://gitlab.com/gilrs-project/gilrs.git", rev = "1bbec17c9ecb6884f96370064b34544f132c93af" }
 
 [patch.crates-io]
 cpal = { git = "https://github.com/RustAudio/cpal", rev = "971c46346" }
