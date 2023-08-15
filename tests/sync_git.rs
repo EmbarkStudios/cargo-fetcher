@@ -139,18 +139,25 @@ async fn proper_head() {
     let rev = "1bbec17";
 
     // Ensure that gilrs's checkout matches what cargo expects
-    let checkout = fs_ctx.root_dir.join(format!(
-        "{}/gilrs-{ident}/{rev}/gilrs/SDL_GameControllerDB",
-        cf::sync::GIT_CO_DIR
-    ));
+    let mut checkout = fs_ctx
+        .root_dir
+        .join(format!("{}/gilrs-{ident}/{rev}", cf::sync::GIT_CO_DIR));
 
-    let output = {
+    let head = |path| {
         let mut cmd = std::process::Command::new("git");
-        cmd.current_dir(&checkout);
+        cmd.current_dir(path);
         cmd.args(["rev-parse", "HEAD"]);
         cmd.stdout(std::process::Stdio::piped());
         String::from_utf8(cmd.output().unwrap().stdout).unwrap()
     };
 
-    assert_eq!(output.trim(), "c3517cf0d87b35ebe6ae4f738e1d96166e44b58f");
+    assert_eq!(
+        head(checkout.clone()).trim(),
+        "1bbec17c9ecb6884f96370064b34544f132c93af"
+    );
+    checkout.push("gilrs/SDL_GameControllerDB");
+    assert_eq!(
+        head(checkout).trim(),
+        "c3517cf0d87b35ebe6ae4f738e1d96166e44b58f"
+    );
 }

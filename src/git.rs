@@ -263,6 +263,13 @@ fn reset(repo: &mut gix::Repository, rev: gix::ObjectId) -> Result<()> {
         .write(Default::default())
         .context("failed to write index")?;
 
+    // cargo uses the head oid to check if it needs to update the submodule
+    // so force set HEAD to the appropriate commit, since we don't really
+    // care about updates for the head we just set it directly rather than
+    // via reference
+    let head_path = repo.path().join("HEAD");
+    std::fs::write(head_path, format!("{}\n", rev.to_hex()))?;
+
     Ok(())
 }
 
@@ -487,26 +494,6 @@ pub(crate) fn prepare_submodules(src: PathBuf, target: PathBuf, rev: gix::Object
             .context("failed to write FETCH_HEAD")?;
 
         reset(&mut repo, head)?;
-
-        // cargo uses the head oid to check if it needs to update the submodule
-        // so force set HEAD to the appropriate commit, since we don't really
-        // care about updates for the head we just set it directly rather than
-        // via reference
-        use gix::refs::transaction as tx;
-        repo.edit_reference(tx::RefEdit {
-            change: tx::Change::Update {
-                log: tx::LogChange {
-                    mode: tx::RefLog::AndReference,
-                    force_create_reflog: false,
-                    message: "".into(),
-                },
-                expected: tx::PreviousValue::Any,
-                new: gix::refs::Target::Peeled(head),
-            },
-            name: "HEAD".try_into().unwrap(),
-            deref: true,
-        })?;
-
         update_submodules(&mut repo, head)
     }
 
