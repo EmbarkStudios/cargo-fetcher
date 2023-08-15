@@ -97,3 +97,60 @@ async fn multiple_from_same_repo() {
         assert_eq!(std::fs::read_to_string(ok).unwrap(), "");
     }
 }
+
+#[tokio::test]
+async fn proper_head() {
+    util::hook_logger();
+
+    let fs_root = util::tempdir();
+    let registry = std::sync::Arc::new(util::crates_io_registry());
+    let registries = vec![registry];
+    let mut fs_ctx = util::fs_ctx(fs_root.pb(), registries);
+
+    let missing_root = util::tempdir();
+    fs_ctx.root_dir = missing_root.pb();
+
+    fs_ctx.krates = vec![
+        Krate {
+            name: "gilrs".to_owned(),
+            version: "0.10.2".to_owned(),
+            source: git_source!("git+https://gitlab.com/gilrs-project/gilrs.git?rev=1bbec17c9ecb6884f96370064b34544f132c93af#1bbec17c9ecb6884f96370064b34544f132c93af"),
+        },
+        Krate {
+            name: "gilrs-core".to_owned(),
+            version: "0.5.6".to_owned(),
+            source: git_source!("git+https://gitlab.com/gilrs-project/gilrs.git?rev=1bbec17c9ecb6884f96370064b34544f132c93af#1bbec17c9ecb6884f96370064b34544f132c93af"),
+        },
+    ];
+
+    cf::mirror::crates(&fs_ctx)
+        .await
+        .expect("failed to mirror crates");
+    fs_ctx.prep_sync_dirs().expect("create base dirs");
+    assert_eq!(
+        cf::sync::crates(&fs_ctx)
+            .await
+            .expect("synced 1 git source")
+            .good,
+        1,
+    );
+
+    let ident = "7804d1d6a17891c9";
+    let rev = "1bbec17";
+
+    // Ensure that gilrs's checkout matches what cargo expects
+    let checkout = fs_ctx.root_dir.join(format!(
+        "{}/gilrs-{ident}/{rev}/gilrs/SDL_GameControllerDB",
+        cf::sync::GIT_CO_DIR
+    ));
+
+    let output = {
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(&checkout);
+        cmd.args(["rev-parse", "HEAD"]);
+        cmd.stdout(std::process::Stdio::piped());
+        String::from_utf8(cmd.output().unwrap().stdout).unwrap()
+    };
+
+    assert_eq!(output.trim(), "c3517cf0d87b35ebe6ae4f738e1d96166e44b58f");
+}
