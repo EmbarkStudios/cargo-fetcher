@@ -351,7 +351,9 @@ impl Source {
             // for actual network requests
             url: {
                 let mut curl: Url = canonical.parse().context("failed to parse canonical url")?;
-                curl.set_path(url.path());
+                if url.host_str() != Some("github.com") {
+                    curl.set_path(url.path());
+                }
                 curl
             },
             ident: dir_name,
