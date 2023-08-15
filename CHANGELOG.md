@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.14.1] - 2023-08-15
 - [PR#182](https://github.com/EmbarkStudios/cargo-fetcher/pull/182) fixed an issue where non-github.com urls ending in `.git` were not properly synced to disk.
 
 ## [0.14.0] - 2023-08-11
@@ -130,7 +131,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.0...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.1...HEAD
+[0.14.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.0...0.14.1
 [0.14.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.1...0.14.0
 [0.13.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.0...0.13.1
 [0.13.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.12.1...0.13.0
