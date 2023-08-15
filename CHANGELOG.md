@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.14.3] - 2023-08-15
 ### Fixed
 - [PR#184](https://github.com/EmbarkStudios/cargo-fetcher/pull/184) fixed submodule checkout even better this time. For real this time.
 
@@ -139,7 +140,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.2...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.3...HEAD
+[0.14.3]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.2...0.14.3
 [0.14.2]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.1...0.14.2
 [0.14.1]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.0...0.14.1
 [0.14.0]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.13.1...0.14.0
