@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+- [PR#182](https://github.com/EmbarkStudios/cargo-fetcher/pull/182) fixed an issue where non-github.com urls ending in `.git` were not properly synced to disk.
+
 ## [0.14.0] - 2023-08-11
 ### Added
 - [PR#178](https://github.com/EmbarkStudios/cargo-fetcher/pull/174) resolved [#177](https://github.com/EmbarkStudios/cargo-fetcher/issues/177) by adding support for sparse indices. This was further improved in [PR#180](https://github.com/EmbarkStudios/cargo-fetcher/pull/180) by using `tame-index` for registry index operations.
