@@ -8,7 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Fixed
+- [PR#183](https://github.com/EmbarkStudios/cargo-fetcher/pull/183) fixed an issue where submodule `HEAD`s did not reflect the actual checkout, causing cargo to resync them even though it didn't need to.
+
 ## [0.14.1] - 2023-08-15
+### Fixed
 - [PR#182](https://github.com/EmbarkStudios/cargo-fetcher/pull/182) fixed an issue where non-github.com urls ending in `.git` were not properly synced to disk.
 
 ## [0.14.0] - 2023-08-11
