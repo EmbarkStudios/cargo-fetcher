@@ -433,7 +433,7 @@ pub async fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
         let summary = summary.clone();
         let root_dir = root_dir.clone();
 
-        let handle = std::thread::spawn(move || {
+        std::thread::spawn(move || {
             let db_dir = &git_db_dir;
             let co_dir = &git_co_dir;
             let root_dir = &root_dir;
@@ -482,9 +482,7 @@ pub async fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
                     });
                 }
             });
-        });
-
-        handle
+        })
     };
 
     // As each remote I/O op completes, pass it off to the thread pool to do
