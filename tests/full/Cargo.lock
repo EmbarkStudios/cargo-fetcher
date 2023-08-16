@@ -109,6 +109,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3e2c3daef883ecc1b5d58c15adae93470a91d425f3532ba1695849656af3fc1"
 
 [[package]]
+name = "byteorder"
+version = "1.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
+
+[[package]]
 name = "bytes"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -313,6 +319,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
+name = "float-cmp"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -333,6 +348,9 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "gilrs",
+ "lmdb-rkv",
+ "lmdb-rkv-sys",
+ "meshopt",
  "sentry-contrib-breakpad",
  "tame-oauth",
 ]
@@ -351,7 +369,7 @@ dependencies = [
 [[package]]
 name = "gilrs"
 version = "0.10.2"
-source = "git+https://gitlab.com/gilrs-project/gilrs.git?rev=1bbec17c9ecb6884f96370064b34544f132c93af#1bbec17c9ecb6884f96370064b34544f132c93af"
+source = "git+https://gitlab.com/gilrs-project/gilrs.git?rev=1bbec17#1bbec17c9ecb6884f96370064b34544f132c93af"
 dependencies = [
  "fnv",
  "gilrs-core",
@@ -363,7 +381,7 @@ dependencies = [
 [[package]]
 name = "gilrs-core"
 version = "0.5.6"
-source = "git+https://gitlab.com/gilrs-project/gilrs.git?rev=1bbec17c9ecb6884f96370064b34544f132c93af#1bbec17c9ecb6884f96370064b34544f132c93af"
+source = "git+https://gitlab.com/gilrs-project/gilrs.git?rev=1bbec17#1bbec17c9ecb6884f96370064b34544f132c93af"
 dependencies = [
  "core-foundation",
  "io-kit-sys",
@@ -559,6 +577,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "lmdb-rkv"
+version = "0.14.0"
+source = "git+https://github.com/EmbarkStudios/lmdb-rs?branch=check-local-lib#26680a981882cfd2ddcb2d931f19975eb7554f71"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "libc",
+ "lmdb-rkv-sys",
+]
+
+[[package]]
+name = "lmdb-rkv-sys"
+version = "0.11.0"
+source = "git+https://github.com/EmbarkStudios/lmdb-rs?branch=check-local-lib#26680a981882cfd2ddcb2d931f19975eb7554f71"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -614,6 +653,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "meshopt"
+version = "0.1.9"
+source = "git+https://github.com/EmbarkStudios/meshopt-rs?rev=16a3046#16a30462f38d67ea2cef355fbb10ef6c6c4daa32"
+dependencies = [
+ "cc",
+ "float-cmp",
+ "thiserror",
 ]
 
 [[package]]
@@ -1149,18 +1198,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.45"
+version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dedd246497092a89beedfe2c9f176d44c1b672ea6090edc20544ade01fbb7ea0"
+checksum = "d9207952ae1a003f42d3d5e892dac3c6ba42aa6ac0c79a6a91a2b5cb4253e75c"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.45"
+version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d7b1fadccbbc7e19ea64708629f9d8dccd007c260d66485f20a6d41bc1cf4b3"
+checksum = "f1728216d3244de4f14f14f8c15c79be1a7c67867d28d69b719690e2a19fb445"
 dependencies = [
  "proc-macro2",
  "quote",

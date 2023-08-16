@@ -112,8 +112,8 @@ impl<'a> fmt::Display for CloudId<'a> {
 
 #[allow(dead_code)]
 pub struct GcsLocation<'a> {
-    bucket: &'a str,
-    prefix: &'a str,
+    pub bucket: &'a str,
+    pub prefix: &'a str,
 }
 
 #[allow(dead_code)]

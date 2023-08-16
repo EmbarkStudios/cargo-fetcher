@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Fixed
+- [PR#185](https://github.com/EmbarkStudios/cargo-fetcher/pull/185) significantly improved the speed of the sync subcommand.
+
 ## [0.14.3] - 2023-08-15
 ### Fixed
 - [PR#184](https://github.com/EmbarkStudios/cargo-fetcher/pull/184) fixed submodule checkout even better this time. For real this time.

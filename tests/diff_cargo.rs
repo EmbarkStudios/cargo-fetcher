@@ -200,3 +200,67 @@ async fn diff_cargo() {
         assert_diff(fetcher_root, cargo_home);
     }
 }
+
+/// Validates that a cargo sync following a fetcher sync should do nothing
+#[tokio::test]
+async fn nothing_to_do() {
+    if std::env::var("CARGO_FETCHER_CRATES_IO_PROTOCOL")
+        .ok()
+        .as_deref()
+        == Some("git")
+    {
+        // Git registry is too unstable for diffing as the index changes too often
+        return;
+    }
+
+    util::hook_logger();
+
+    let sync_dir = util::tempdir();
+    let fs_root = util::tempdir();
+
+    {
+        let (the_krates, registries) = cf::cargo::read_lock_files(
+            vec!["tests/full/Cargo.lock".into()],
+            vec![util::crates_io_registry()],
+        )
+        .unwrap();
+
+        let mut fs_ctx = util::fs_ctx(fs_root.pb(), registries);
+        fs_ctx.krates = the_krates;
+        fs_ctx.root_dir = sync_dir.pb();
+
+        let registry_sets = fs_ctx.registry_sets();
+        let the_registry = fs_ctx.registries[0].clone();
+
+        cf::mirror::registry_indices(&fs_ctx, std::time::Duration::new(10, 0), registry_sets).await;
+        cf::mirror::crates(&fs_ctx)
+            .await
+            .expect("failed to mirror crates");
+
+        fs_ctx.prep_sync_dirs().expect("create base dirs");
+        cf::sync::crates(&fs_ctx).await.expect("synced crates");
+        cf::sync::registry_index(&fs_ctx.root_dir, fs_ctx.backend.clone(), the_registry)
+            .await
+            .expect("failed to sync index");
+    }
+
+    let output = std::process::Command::new("cargo")
+        .env("CARGO_HOME", sync_dir.path())
+        .args([
+            "fetch",
+            "--locked",
+            "--manifest-path",
+            "tests/full/Cargo.toml",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    if !stdout.is_empty() || !stderr.is_empty() {
+        panic!("expected no output from cargo, got:\nstdout:\n{stdout}\nstderr:{stderr}\n");
+    }
+}

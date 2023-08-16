@@ -2,7 +2,7 @@
 name = "full"
 version = "0.1.0"
 authors = ["Jake Shadle <jake.shadle@embark-studios.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 # regular basic crate
@@ -14,7 +14,11 @@ cpal = { version = "0.13.5" }
 sentry-contrib-breakpad = { git = "https://github.com/EmbarkStudios/sentry-contrib-rust", rev = "5e10bd5ad" }
 # this repo on gitlab requires us to use the .git extension otherwise it will
 # redirect, but we still need to calculate the same hash as cargo for the local directory
-gilrs = { git = "https://gitlab.com/gilrs-project/gilrs.git", rev = "1bbec17c9ecb6884f96370064b34544f132c93af" }
+gilrs = { git = "https://gitlab.com/gilrs-project/gilrs.git", rev = "1bbec17" }
+# submodule
+meshopt = { git = "https://github.com/EmbarkStudios/meshopt-rs", rev = "16a3046" }
+lmdb-rkv = { git = "https://github.com/EmbarkStudios/lmdb-rs", branch = "check-local-lib" }
+lmdb-rkv-sys = { git = "https://github.com/EmbarkStudios/lmdb-rs", branch = "check-local-lib" }
 
 [patch.crates-io]
 cpal = { git = "https://github.com/RustAudio/cpal", rev = "971c46346" }
