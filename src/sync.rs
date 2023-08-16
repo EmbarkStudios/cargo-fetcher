@@ -422,15 +422,73 @@ pub async fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
         });
     }
 
-    let summary = std::sync::Mutex::new(Summary {
+    let summary = std::sync::Arc::new(std::sync::Mutex::new(Summary {
         total_bytes: 0,
         bad: 0,
         good: 0,
-    });
+    }));
+
+    let (tx, rx) = crossbeam_channel::unbounded::<(Krate, Pkg)>();
+    let fs_thread = {
+        let summary = summary.clone();
+        let root_dir = root_dir.clone();
+
+        let handle = std::thread::spawn(move || {
+            let db_dir = &git_db_dir;
+            let co_dir = &git_co_dir;
+            let root_dir = &root_dir;
+            let summary = &summary;
+            rayon::scope(|s| {
+                while let Ok((krate, pkg)) = rx.recv() {
+                    s.spawn(move |_s| {
+                        let synced = match (&krate.source, pkg) {
+                            (Source::Registry(rs), Pkg::Registry(krate_data)) => {
+                                let len = krate_data.len();
+                                let (cache_dir, src_dir) = rs.registry.sync_dirs(root_dir);
+                                if let Err(err) = sync_package(
+                                    &cache_dir, &src_dir, &krate, krate_data, &rs.chksum,
+                                ) {
+                                    error!(krate = %krate, "failed to splat package: {err:#}");
+                                    None
+                                } else {
+                                    Some(len)
+                                }
+                            }
+                            (Source::Git(gs), Pkg::Git(pkg)) => {
+                                let mut len = pkg.db.len();
+
+                                if let Some(co) = &pkg.checkout {
+                                    len += co.len();
+                                }
+
+                                match sync_git(db_dir, co_dir, &krate, pkg, &gs.rev) {
+                                    Ok(_) => Some(len),
+                                    Err(err) => {
+                                        error!(krate = %krate, "failed to splat git repo: {err:#}");
+                                        None
+                                    }
+                                }
+                            }
+                            _ => unreachable!(),
+                        };
+
+                        let mut sum = summary.lock().unwrap();
+                        if let Some(synced) = synced {
+                            sum.good += 1;
+                            sum.total_bytes += synced;
+                        } else {
+                            sum.bad += 1;
+                        }
+                    });
+                }
+            });
+        });
+
+        handle
+    };
 
     // As each remote I/O op completes, pass it off to the thread pool to do
     // the more CPU intensive work of decompression, etc
-    let (tx, rx) = crossbeam_channel::unbounded();
     while let Some(res) = tasks.join_next().await {
         let Ok(res) = res else { continue; };
 
@@ -441,59 +499,13 @@ pub async fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
         }
     }
 
-    // Need to drop the sender otherwise we'll deadlock waiting for the scope
-    // to finish on the receiver
+    // Drop the sender otherwise we'll deadlock
     drop(tx);
 
-    {
-        let db_dir = &git_db_dir;
-        let co_dir = &git_co_dir;
-        let summary = &summary;
-        rayon::scope(|s| {
-            while let Ok((krate, pkg)) = rx.recv() {
-                s.spawn(move |_s| {
-                    let synced = match (&krate.source, pkg) {
-                        (Source::Registry(rs), Pkg::Registry(krate_data)) => {
-                            let len = krate_data.len();
-                            let (cache_dir, src_dir) = rs.registry.sync_dirs(root_dir);
-                            if let Err(err) =
-                                sync_package(&cache_dir, &src_dir, &krate, krate_data, &rs.chksum)
-                            {
-                                error!(krate = %krate, "failed to splat package: {err:#}");
-                                None
-                            } else {
-                                Some(len)
-                            }
-                        }
-                        (Source::Git(gs), Pkg::Git(pkg)) => {
-                            let mut len = pkg.db.len();
+    fs_thread.join().expect("failed to join thread");
 
-                            if let Some(co) = &pkg.checkout {
-                                len += co.len();
-                            }
-
-                            match sync_git(db_dir, co_dir, &krate, pkg, &gs.rev) {
-                                Ok(_) => Some(len),
-                                Err(err) => {
-                                    error!("failed to splat git repo: {err:#}");
-                                    None
-                                }
-                            }
-                        }
-                        _ => unreachable!(),
-                    };
-
-                    let mut sum = summary.lock().unwrap();
-                    if let Some(synced) = synced {
-                        sum.good += 1;
-                        sum.total_bytes += synced;
-                    } else {
-                        sum.bad += 1;
-                    }
-                });
-            }
-        });
-    }
-
-    Ok(summary.into_inner().unwrap())
+    Ok(std::sync::Arc::into_inner(summary)
+        .unwrap()
+        .into_inner()
+        .unwrap())
 }
