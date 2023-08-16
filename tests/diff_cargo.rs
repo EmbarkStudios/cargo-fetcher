@@ -204,6 +204,15 @@ async fn diff_cargo() {
 /// Validates that a cargo sync following a fetcher sync should do nothing
 #[tokio::test]
 async fn nothing_to_do() {
+    if std::env::var("CARGO_FETCHER_CRATES_IO_PROTOCOL")
+        .ok()
+        .as_deref()
+        == Some("git")
+    {
+        // Git registry is too unstable for diffing as the index changes too often
+        return;
+    }
+
     util::hook_logger();
 
     let sync_dir = util::tempdir();
