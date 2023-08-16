@@ -58,22 +58,32 @@ use bytes::Bytes;
 use std::io;
 
 #[tracing::instrument(level = "debug")]
-pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> anyhow::Result<()> {
+pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> anyhow::Result<u64> {
+    struct DecoderWrapper<'z, R: io::Read + io::BufRead> {
+        /// The total bytes read from the compressed stream
+        total: u64,
+        inner: Decoder<'z, R>,
+    }
+
     #[allow(clippy::large_enum_variant)]
     enum Decoder<'z, R: io::Read + io::BufRead> {
         Gzip(flate2::read::GzDecoder<R>),
         Zstd(zstd::Decoder<'z, R>),
     }
 
-    impl<'z, R> io::Read for Decoder<'z, R>
+    impl<'z, R> io::Read for DecoderWrapper<'z, R>
     where
         R: io::Read + io::BufRead,
     {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            match self {
-                Self::Gzip(gz) => gz.read(buf),
-                Self::Zstd(zstd) => zstd.read(buf),
-            }
+            let read = match &mut self.inner {
+                Decoder::Gzip(gz) => gz.read(buf),
+                Decoder::Zstd(zstd) => zstd.read(buf),
+            };
+
+            let read = read?;
+            self.total += read as u64;
+            Ok(read)
         }
     }
 
@@ -90,7 +100,10 @@ pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> anyho
         Encoding::Zstd => Decoder::Zstd(zstd::Decoder::new(buf_reader)?),
     };
 
-    let mut archive_reader = tar::Archive::new(decoder);
+    let mut archive_reader = tar::Archive::new(DecoderWrapper {
+        total: 0,
+        inner: decoder,
+    });
 
     #[cfg(unix)]
     #[allow(clippy::unnecessary_cast)]
@@ -125,7 +138,7 @@ pub(crate) fn unpack_tar(buffer: Bytes, encoding: Encoding, dir: &Path) -> anyho
         return Err(e).context("failed to unpack");
     }
 
-    Ok(())
+    Ok(archive_reader.into_inner().total)
 }
 
 #[tracing::instrument(level = "debug")]

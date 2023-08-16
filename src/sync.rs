@@ -108,7 +108,7 @@ pub async fn registry_index(
     Ok(())
 }
 
-#[tracing::instrument(skip(pkg))]
+#[tracing::instrument(level = "debug", skip_all, fields(name = krate.name, version = krate.version, rev = %rev.id))]
 fn sync_git(
     db_dir: &Path,
     co_dir: &Path,
@@ -126,7 +126,13 @@ fn sync_git(
     let crate::git::GitPackage { db, checkout } = pkg;
 
     let unpack_path = db_path.clone();
-    util::unpack_tar(db, util::Encoding::Zstd, &unpack_path)?;
+    let compressed = db.len();
+    let uncompressed = util::unpack_tar(db, util::Encoding::Zstd, &unpack_path)?;
+    debug!(
+        compressed = compressed,
+        uncompressed = uncompressed,
+        "unpacked db dir"
+    );
 
     let co_path = co_dir.join(format!("{}/{}", krate.local_id(), rev.short()));
 
@@ -143,7 +149,13 @@ fn sync_git(
     // otherwise do a checkout
     match checkout {
         Some(checkout) => {
-            util::unpack_tar(checkout, util::Encoding::Zstd, &co_path)?;
+            let compressed = checkout.len();
+            let uncompressed = util::unpack_tar(checkout, util::Encoding::Zstd, &co_path)?;
+            debug!(
+                compressed = compressed,
+                uncompressed = uncompressed,
+                "unpacked checkout dir"
+            );
         }
         None => {
             // Do a checkout of the bare clone if we didn't/couldn't unpack the
@@ -158,7 +170,7 @@ fn sync_git(
     Ok(())
 }
 
-#[tracing::instrument(level = "debug", skip(data))]
+#[tracing::instrument(level = "debug", skip_all, fields(name = krate.name, version = krate.version))]
 fn sync_package(
     cache_dir: &Path,
     src_dir: &Path,
@@ -185,7 +197,7 @@ fn sync_package(
             f.write_all(&pack_data)?;
             f.sync_all()?;
 
-            debug!(bytes = pack_data.len(), path = ?packed_path, "wrote pack file to disk");
+            debug!(bytes = pack_data.len(), "wrote pack file to disk");
             Ok(())
         },
         || -> anyhow::Result<()> {
