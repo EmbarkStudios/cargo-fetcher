@@ -47,9 +47,11 @@ impl std::str::FromStr for RegistryProtocol {
 #[derive(Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct Registry {
     pub index: Url,
+    #[serde(skip)]
     config: Option<IndexConfig>,
-    #[serde(default)]
+    #[serde(skip)]
     pub protocol: RegistryProtocol,
+    #[serde(skip)]
     dir_name: String,
 }
 
@@ -106,7 +108,7 @@ impl Registry {
                 &krate.version,
             ),
             None => {
-                format!("{}/{}/{}/download", self.index, krate.name, krate.version)
+                format!("{}{}/{}/download", self.index, krate.name, krate.version)
             }
         }
     }
@@ -485,6 +487,21 @@ pub fn read_cargo_config(
                 }
             }
 
+            if registry.dir_name.is_empty() {
+                let tame_index::utils::UrlDir { dir_name, .. } =
+                    tame_index::utils::url_to_local_dir(registry.index.as_str()).unwrap();
+
+                registry.dir_name = dir_name;
+            }
+
+            if let Some(sparse_url) = registry.index.as_str().strip_prefix("sparse+") {
+                registry.protocol = RegistryProtocol::Sparse;
+
+                if registry.config.is_none() {
+                    registry.index = Url::parse(sparse_url).unwrap();
+                }
+            }
+
             registry
         })
         .collect())
@@ -526,7 +543,10 @@ pub fn read_lock_files(
             continue;
         };
 
-        let krate = if let Some(reg_src) = source.strip_prefix("registry+") {
+        let krate = if let Some(reg_src) = source
+            .strip_prefix("registry+")
+            .or_else(|| source.strip_prefix("sparse+"))
+        {
             // This will most likely be an extremely short list, so we just do a
             // linear search
             let Some((ind, registry)) = registries
