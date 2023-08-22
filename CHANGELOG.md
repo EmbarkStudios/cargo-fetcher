@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.14.5] - 2023-08-22
 ### Fixed
 - [PR#187](https://github.com/EmbarkStudios/cargo-fetcher/pull/187) resolved [#186](https://github.com/EmbarkStudios/cargo-fetcher/issues/186) by actually doing the correct thing when parsing configs and setting up registry sources.
 
@@ -147,7 +148,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.4...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.5...HEAD
+[0.14.5]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.4...0.14.5
 [0.14.4]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.3...0.14.4
 [0.14.3]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.2...0.14.3
 [0.14.2]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.1...0.14.2

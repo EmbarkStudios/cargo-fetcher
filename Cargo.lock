@@ -264,7 +264,7 @@ checksum = "c59e92b5a388f549b863a7bea62612c09f24c8393560709a54558a9abdfb3b9c"
 
 [[package]]
 name = "cargo-fetcher"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "async-scoped",
