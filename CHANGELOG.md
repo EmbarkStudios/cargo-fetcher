@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+### Fixed
+- [PR#187](https://github.com/EmbarkStudios/cargo-fetcher/pull/187) resolved [#186](https://github.com/EmbarkStudios/cargo-fetcher/issues/186) by actually doing the correct thing when parsing configs and setting up registry sources.
+
 ## [0.14.4] - 2023-08-16
 ### Fixed
 - [PR#185](https://github.com/EmbarkStudios/cargo-fetcher/pull/185) significantly improved the speed of the sync subcommand.
