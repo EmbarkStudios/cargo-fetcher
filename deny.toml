@@ -20,16 +20,12 @@ deny = [{ name = "git2" }, { name = "openssl" }]
 skip = [
     # nix
     { name = "bitflags", version = "=1.3.2" },
-    # reqwest -> trust-dns-proto
-    { name = "idna", version = "=0.2.3" },
     # tracing-subscriber and similar-asserts
     { name = "regex-syntax", version = "=0.6.29" },
     # hyper/tokio
     { name = "socket2", version = "=0.4.9" },
     # only a couple left on old 1.0 version
     { name = "syn", version = "=1.0.109" },
-    # reqwest
-    { name = "winreg", version = "=0.10.1" },
 ]
 skip-tree = [
     # similar

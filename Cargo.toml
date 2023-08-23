@@ -47,7 +47,6 @@ memchr = "2.3"
 rayon = "1.5"
 remove_dir_all = "0.8"
 reqwest = { version = "0.11", default-features = false, features = [
-    "blocking",
     "rustls-tls",
     # We could do this manually, but..meh
     "gzip",
@@ -57,7 +56,7 @@ rusty-s3 = { version = "0.4", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 quick-xml = { version = "0.27", features = ["serialize"], optional = true }
 tame-gcs = { version = "0.12", optional = true }
-tame-index = { version = "0.3", features = ["git", "sparse"] }
+tame-index = { version = "0.5", features = ["git", "sparse"] }
 tame-oauth = { version = "0.9", features = ["gcp"], optional = true }
 tar = "0.4"
 tempfile = "3.1"
@@ -70,11 +69,12 @@ walkdir = "2.3"
 zstd = "0.12"
 
 [dependencies.gix]
-version = "0.51"
+version = "0.52"
 features = [
     "max-performance-safe",
     "blocking-network-client",
-    "blocking-http-transport-reqwest-rust-tls",
+    "blocking-http-transport-reqwest",
+    "reqwest-for-configuration-only",
 ]
 
 [dependencies.tokio]
