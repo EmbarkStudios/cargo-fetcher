@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
+## [0.14.6] - 2023-08-23
 ### Changed
 - [PR#187](https://github.com/EmbarkStudios/cargo-fetcher/pull/187) updated dependencies, including the fix for [RUSTSEC-2023-0053](https://rustsec.org/advisories/RUSTSEC-2023-0053.html), not that this crate was particularly affected by it.
 
@@ -151,7 +152,8 @@ for a user specified amount of time, rather than always
 - Initial add of `cargo-fetcher`
 
 <!-- next-url -->
-[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.5...HEAD
+[Unreleased]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.6...HEAD
+[0.14.6]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.5...0.14.6
 [0.14.5]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.4...0.14.5
 [0.14.4]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.3...0.14.4
 [0.14.3]: https://github.com/EmbarkStudios/cargo-fetcher/compare/0.14.2...0.14.3
