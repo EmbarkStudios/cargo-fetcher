@@ -50,25 +50,25 @@ reqwest = { version = "0.11", default-features = false, features = [
     # We could do this manually, but..meh
     "gzip",
 ] }
-ring = "0.16"
-rusty-s3 = { version = "0.4", optional = true }
+ring = "0.17"
+rusty-s3 = { version = "0.5", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
-quick-xml = { version = "0.27", features = ["serialize"], optional = true }
+quick-xml = { version = "0.30", features = ["serialize"], optional = true }
 tame-gcs = { version = "0.12", optional = true }
-tame-index = { version = "0.5", features = ["git", "sparse"] }
+tame-index = { version = "0.8", features = ["git", "sparse"] }
 tame-oauth = { version = "0.9", features = ["gcp"], optional = true }
 tar = "0.4"
 tempfile = "3.1"
 time = { version = "0.3", features = ["formatting", "macros"] }
-toml = "0.7"
+toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = { version = "2.2", features = ["serde"] }
 walkdir = "2.3"
-zstd = "0.12"
+zstd = "0.13"
 
 [dependencies.gix]
-version = "0.52"
+version = "0.55"
 features = [
     "max-performance-safe",
     "blocking-network-client",
