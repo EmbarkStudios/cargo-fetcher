@@ -549,13 +549,10 @@ pub fn read_lock_files(
         {
             // This will most likely be an extremely short list, so we just do a
             // linear search
-            let Some((ind, registry)) = registries
-                .iter()
-                .enumerate()
-                .find(|(_, reg)| {
-                    source.ends_with(tame_index::CRATES_IO_INDEX) && reg.is_crates_io() || source.ends_with(reg.index.as_str())
-                })
-            else {
+            let Some((ind, registry)) = registries.iter().enumerate().find(|(_, reg)| {
+                source.ends_with(tame_index::CRATES_IO_INDEX) && reg.is_crates_io()
+                    || source.ends_with(reg.index.as_str())
+            }) else {
                 warn!(
                     "skipping '{}:{}': unknown registry index '{reg_src}' encountered",
                     pkg.name, pkg.version

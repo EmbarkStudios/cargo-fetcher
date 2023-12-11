@@ -124,7 +124,7 @@ pub(crate) fn checkout(
             "autocrlf"
                 .try_into()
                 .context("autocrlf is not a valid key")?,
-            "false",
+            "false".into(),
         );
         Ok(())
     })
@@ -154,7 +154,9 @@ impl Submodule {
 }
 
 fn read_submodule_config(config: &gix::config::File<'_>) -> Vec<Submodule> {
-    let Some(iter) = config.sections_by_name("submodule") else { return Vec::new(); };
+    let Some(iter) = config.sections_by_name("submodule") else {
+        return Vec::new();
+    };
 
     iter.filter_map(|sec| {
         // Each submodule _should_ be a subsection with a name, that
@@ -209,7 +211,7 @@ fn modify_config(
             .context("failed to open local config")?;
         local_config.write_all(config.detect_newline_style())?;
         config
-            .write_to_filter(&mut local_config, |s| {
+            .write_to_filter(&mut local_config, &mut |s| {
                 s.meta().source == gix::config::Source::Local
             })
             .context("failed to write submodules to config")?;
@@ -252,8 +254,8 @@ fn reset(repo: &mut gix::Repository, rev: gix::ObjectId) -> Result<()> {
             let objects = repo.objects.clone().into_arc()?;
             move |oid, buf| objects.find_blob(oid, buf)
         },
-        &mut Discard,
-        &mut Discard,
+        &Discard,
+        &Discard,
         &Default::default(),
         opts,
     )
@@ -393,10 +395,7 @@ pub(crate) fn prepare_submodules(src: PathBuf, target: PathBuf, rev: gix::Object
         // A submodule which is listed in .gitmodules but not actually
         // checked out will not have a head id, so we should ignore it.
         let Some(head) = subm.head_id else {
-            tracing::debug!(
-                "skipping submodule '{}' without HEAD",
-                subm.name
-            );
+            tracing::debug!("skipping submodule '{}' without HEAD", subm.name);
             return Ok(());
         };
 
@@ -452,7 +451,7 @@ pub(crate) fn prepare_submodules(src: PathBuf, target: PathBuf, rev: gix::Object
                 "autocrlf"
                     .try_into()
                     .context("autocrlf is not a valid key")?,
-                "false",
+                "false".into(),
             );
 
             config

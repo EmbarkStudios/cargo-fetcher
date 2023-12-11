@@ -104,6 +104,7 @@ pub async fn registry(
                     tame_index::index::RemoteGitIndex::new(
                         tame_index::index::GitIndex::new(location)
                             .context("unable to open git index")?,
+                        &tame_index::index::FileLock::unlocked(),
                     )
                     .context("failed to fetch")?
                 };
@@ -114,12 +115,15 @@ pub async fn registry(
                     // worth it for a few hundred crates (probably), but see
                     // https://github.com/frewsxcv/rust-crates-index/blob/a9b60653efb72d9e6be98c4f8fe56194475cbd3f/src/git/mod.rs#L316-L360
                     // for a way this could be done in the future
+                    let unlocked = &tame_index::index::FileLock::unlocked();
                     for name in krates {
                         let Ok(name) = name.as_str().try_into() else {
                             warn!("crate name '{name}' is invalid");
                             continue;
                         };
-                        if let Err(err) = rgi.krate(name, true /* write the cache entry */) {
+                        if let Err(err) =
+                            rgi.krate(name, true /* write the cache entry */, unlocked)
+                        {
                             warn!("unable to write .cache entry: {err:#}");
                         }
                     }
@@ -144,8 +148,14 @@ pub async fn registry(
                         // We don't particularly care if an individual crate fails here
                         // since the index will be healed by cargo, but still good to
                         // know if something was amiss
-                        for (name, res) in
-                            index.krates(krates.into_iter().collect(), true, None).await
+                        for (name, res) in index
+                            .krates(
+                                krates.into_iter().collect(),
+                                true,
+                                None,
+                                &tame_index::index::FileLock::unlocked(),
+                            )
+                            .await
                         {
                             match res {
                                 Ok(Some(_)) => {}

@@ -23,17 +23,17 @@ skip = [
     # tracing-subscriber and similar-asserts
     { name = "regex-syntax", version = "=0.6.29" },
     # hyper/tokio
-    { name = "socket2", version = "=0.4.9" },
+    { name = "socket2", version = "=0.4.10" },
     # only a couple left on old 1.0 version
     { name = "syn", version = "=1.0.109" },
 ]
 skip-tree = [
     # similar
     { name = "bstr", version = "=0.2.17" },
-    # h2/hyper
-    { name = "indexmap", version = "=1.9.3" },
     # ugh
     { name = "windows-sys" },
+    # gix has a several duplicates I don't feel like dealing with atm
+    { name = "gix" },
 ]
 
 [licenses]

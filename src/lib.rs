@@ -23,14 +23,16 @@ pub struct Krate {
 }
 
 impl Ord for Krate {
+    #[inline]
     fn cmp(&self, b: &Self) -> std::cmp::Ordering {
         self.source.cmp(&b.source)
     }
 }
 
 impl PartialOrd for Krate {
+    #[inline]
     fn partial_cmp(&self, b: &Self) -> Option<std::cmp::Ordering> {
-        self.source.partial_cmp(&b.source)
+        Some(self.cmp(b))
     }
 }
 

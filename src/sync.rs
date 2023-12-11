@@ -49,11 +49,11 @@ async fn maybe_fetch_index(index_path: &Path, registry: &Registry) -> anyhow::Re
         {
             let span = tracing::debug_span!("fetch", index = index_url.clone());
             let _sf = span.enter();
-            let mut rgi = tame_index::index::RemoteGitIndex::new(gi)?;
-            rgi.fetch()?;
+            let unlocked = &tame_index::index::FileLock::unlocked();
+            let mut rgi = tame_index::index::RemoteGitIndex::new(gi, unlocked)?;
+            rgi.fetch(unlocked)?;
         }
 
-        // Write a file to the directory to let cargo know when it was updated
         std::fs::File::create(last_updated).context("failed to crate .last-updated")?;
         Ok(())
     })
@@ -488,7 +488,9 @@ pub async fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
     // As each remote I/O op completes, pass it off to the thread pool to do
     // the more CPU intensive work of decompression, etc
     while let Some(res) = tasks.join_next().await {
-        let Ok(res) = res else { continue; };
+        let Ok(res) = res else {
+            continue;
+        };
 
         if let Some(pkg) = res {
             let _ = tx.send(pkg);
