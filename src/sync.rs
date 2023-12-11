@@ -488,7 +488,9 @@ pub async fn crates(ctx: &crate::Ctx) -> anyhow::Result<Summary> {
     // As each remote I/O op completes, pass it off to the thread pool to do
     // the more CPU intensive work of decompression, etc
     while let Some(res) = tasks.join_next().await {
-        let Ok(res) = res else { continue; };
+        let Ok(res) = res else {
+            continue;
+        };
 
         if let Some(pkg) = res {
             let _ = tx.send(pkg);

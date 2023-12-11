@@ -154,7 +154,9 @@ impl Submodule {
 }
 
 fn read_submodule_config(config: &gix::config::File<'_>) -> Vec<Submodule> {
-    let Some(iter) = config.sections_by_name("submodule") else { return Vec::new(); };
+    let Some(iter) = config.sections_by_name("submodule") else {
+        return Vec::new();
+    };
 
     iter.filter_map(|sec| {
         // Each submodule _should_ be a subsection with a name, that
@@ -393,10 +395,7 @@ pub(crate) fn prepare_submodules(src: PathBuf, target: PathBuf, rev: gix::Object
         // A submodule which is listed in .gitmodules but not actually
         // checked out will not have a head id, so we should ignore it.
         let Some(head) = subm.head_id else {
-            tracing::debug!(
-                "skipping submodule '{}' without HEAD",
-                subm.name
-            );
+            tracing::debug!("skipping submodule '{}' without HEAD", subm.name);
             return Ok(());
         };
 
