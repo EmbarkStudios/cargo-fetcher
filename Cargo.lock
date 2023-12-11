@@ -279,7 +279,6 @@ dependencies = [
  "home",
  "http",
  "libc",
- "memchr",
  "quick-xml",
  "rayon",
  "remove_dir_all",
